@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- GitHub social card: 1280x640 (2:1 aspect). Used as the og:image / Twitter card. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" role="img" aria-label="esp32-agent-dashboard social card">
+  <title>esp32-agent-dashboard — A live dashboard for AI-agent sessions</title>
+
+  <defs>
+    <radialGradient id="bg" cx="0.85" cy="0.15" r="0.9">
+      <stop offset="0%"  stop-color="#f9f4e6"/>
+      <stop offset="100%" stop-color="#f3eee2"/>
+    </radialGradient>
+    <!-- Subtle teal pulse highlight for the device screen -->
+    <radialGradient id="screenGlow" cx="0.5" cy="0.5" r="0.7">
+      <stop offset="0%"  stop-color="#0E7C7B" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#0E7C7B" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1280" height="640" fill="url(#bg)"/>
+
+  <!-- Decorative accent rule (echoes the harness cross-bar — quiet family marker) -->
+  <rect x="80" y="540" width="1120" height="2" fill="#0E7C7B" opacity="0.45"/>
+  <rect x="80" y="540" width="120" height="2" fill="#b8431a" opacity="0.6"/>
+
+  <!-- Logo mark, scaled up, positioned left -->
+  <g transform="translate(80, 130) scale(2.4)">
+    <rect x="14" y="14" width="92" height="92" rx="18"
+          fill="none" stroke="#1c1814" stroke-width="2"
+          stroke-dasharray="5 4" opacity="0.32"/>
+    <circle cx="60" cy="60" r="30" fill="url(#screenGlow)"/>
+    <circle cx="60" cy="60" r="30" fill="none" stroke="#1c1814" stroke-width="3.2"/>
+    <rect x="32" y="58.4" width="13" height="3.2" rx="0.4" fill="#0E7C7B"/>
+    <path d="M 45 60 L 49 60 L 51.5 50 L 54 70 L 56.5 56 L 60 60"
+          fill="none" stroke="#0E7C7B" stroke-width="3.2"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="60" y="58.4" width="28" height="3.2" rx="0.4" fill="#0E7C7B"/>
+    <circle cx="60" cy="60" r="3.4" fill="#f3eee2" stroke="#1c1814" stroke-width="1.4"/>
+    <rect x="86" y="58.4" width="3" height="3.2" rx="0.4" fill="#b8431a"/>
+  </g>
+
+  <!-- Wordmark + tagline on the right -->
+  <text x="430" y="240"
+        font-family="'Fraunces', 'Iowan Old Style', Georgia, serif"
+        font-size="84"
+        font-weight="400"
+        fill="#1c1814"
+        letter-spacing="-1.6">esp32<tspan fill="#0E7C7B" font-style="italic">-</tspan>agent</text>
+  <text x="430" y="324"
+        font-family="'Fraunces', 'Iowan Old Style', Georgia, serif"
+        font-size="84"
+        font-weight="400"
+        fill="#1c1814"
+        letter-spacing="-1.6"><tspan fill="#0E7C7B" font-style="italic">-</tspan>dashboard</text>
+
+  <text x="430" y="388"
+        font-family="'Fraunces', 'Iowan Old Style', Georgia, serif"
+        font-size="30"
+        font-style="italic"
+        fill="#5a514a"
+        font-weight="300">A live dashboard for AI-agent sessions</text>
+  <text x="430" y="426"
+        font-family="'Fraunces', 'Iowan Old Style', Georgia, serif"
+        font-size="30"
+        font-style="italic"
+        fill="#5a514a"
+        font-weight="300">on a 466 × 466 AMOLED panel.</text>
+
+  <!-- Three-pillar lozenges -->
+  <g font-family="'IBM Plex Mono', Consolas, monospace" font-size="22" fill="#1c1814">
+    <text x="430" y="492">▸ watch what Claude Code &amp; Codex do</text>
+    <text x="430" y="524">▸ approve / deny permissions via button</text>
+  </g>
+
+  <!-- Bottom right URL -->
+  <text x="1200" y="600"
+        text-anchor="end"
+        font-family="'IBM Plex Mono', Consolas, monospace"
+        font-size="18"
+        fill="#8a807a">github.com/Caldis/esp32-agent-dashboard</text>
+</svg>

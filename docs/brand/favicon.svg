@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="esp32-agent-dashboard favicon">
+  <rect x="2" y="2" width="28" height="28" rx="5" fill="#f3eee2"/>
+  <circle cx="16" cy="16" r="9" fill="none" stroke="#1c1814" stroke-width="1.6"/>
+  <path d="M 5 16 L 12 16 L 13.5 11 L 15 21 L 16.5 14 L 18 16 L 27 16"
+        fill="none" stroke="#0E7C7B" stroke-width="1.6"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="16" cy="16" r="1.2" fill="#f3eee2" stroke="#1c1814" stroke-width="0.7"/>
+</svg>

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 120" role="img" aria-label="esp32-agent-dashboard">
+  <title>esp32-agent-dashboard wordmark</title>
+  <desc>The dashboard mark followed by the wordmark "esp32-agent-dashboard" in Fraunces-style serif, with the two hyphens picked out in teal as connecting joints.</desc>
+
+  <!-- Logo mark on the left -->
+  <g transform="translate(0, 0)">
+    <rect x="14" y="14" width="92" height="92" rx="18"
+          fill="none" stroke="#1c1814" stroke-width="2"
+          stroke-dasharray="5 4" opacity="0.32"/>
+    <circle cx="60" cy="60" r="30" fill="none" stroke="#1c1814" stroke-width="3.2"/>
+    <rect x="32" y="58.4" width="13" height="3.2" rx="0.4" fill="#0E7C7B"/>
+    <path d="M 45 60 L 49 60 L 51.5 50 L 54 70 L 56.5 56 L 60 60"
+          fill="none" stroke="#0E7C7B" stroke-width="3.2"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="60" y="58.4" width="28" height="3.2" rx="0.4" fill="#0E7C7B"/>
+    <circle cx="60" cy="60" r="3.4" fill="#f3eee2" stroke="#1c1814" stroke-width="1.4"/>
+    <rect x="86" y="58.4" width="3" height="3.2" rx="0.4" fill="#b8431a"/>
+  </g>
+
+  <!-- Wordmark — serif, with hyphens highlighted in teal as joining wires -->
+  <text x="140" y="78"
+        font-family="'Fraunces', 'Iowan Old Style', Georgia, serif"
+        font-size="56"
+        font-weight="400"
+        fill="#1c1814"
+        letter-spacing="-1.2">esp32<tspan fill="#0E7C7B" font-style="italic">-</tspan>agent<tspan fill="#0E7C7B" font-style="italic">-</tspan>dashboard</text>
+</svg>

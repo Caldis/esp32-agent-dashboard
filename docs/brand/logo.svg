@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="esp32-agent-dashboard">
+  <title>esp32-agent-dashboard</title>
+  <desc>A circular display split by a horizontal pulse line. Two ticks on the pulse mark the two agent streams (Claude Code and Codex) converging at centre. Sibling to the esp-harness H mark — same paper/ink palette, teal accent in place of rust.</desc>
+
+  <!-- Device outline — dashed boundary echoes the esp-harness mark -->
+  <rect x="14" y="14" width="92" height="92" rx="18"
+        fill="none" stroke="#1c1814" stroke-width="2"
+        stroke-dasharray="5 4" opacity="0.32"/>
+
+  <!-- The circular screen — the dashboard surface -->
+  <circle cx="60" cy="60" r="30" fill="none" stroke="#1c1814" stroke-width="3.2"/>
+
+  <!-- Horizontal pulse axis: device-side activity signal (teal accent) -->
+  <!-- Left flatline -->
+  <rect x="32" y="58.4" width="13" height="3.2" rx="0.4" fill="#0E7C7B"/>
+  <!-- Pulse peak: tick up -->
+  <path d="M 45 60 L 49 60 L 51.5 50 L 54 70 L 56.5 56 L 60 60"
+        fill="none" stroke="#0E7C7B" stroke-width="3.2"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Right flatline running through and past the circle -->
+  <rect x="60" y="58.4" width="28" height="3.2" rx="0.4" fill="#0E7C7B"/>
+
+  <!-- Two convergence ticks — the two agent streams meeting at centre -->
+  <circle cx="60" cy="60" r="3.4" fill="#f3eee2" stroke="#1c1814" stroke-width="1.4"/>
+
+  <!-- Single rust micro-dot at far right of pulse — quiet nod to the esp-harness family -->
+  <rect x="86" y="58.4" width="3" height="3.2" rx="0.4" fill="#b8431a"/>
+</svg>

@@ -25,6 +25,12 @@ import threading
 import time
 from dataclasses import dataclass, field
 
+# Canonical Python port of the firmware tokeniser. Importing instead of
+# copying eliminates the G-8 drift class — when the C side changes, the
+# Python side moves in the same commit (gated by the framework's parity
+# test in tests/test_parser.py).
+from esp_harness.core.parser import tokenise_console_line
+
 
 @dataclass
 class DeviceState:
@@ -58,7 +64,7 @@ class MockDevice:
         line = line.strip()
         if not line:
             return
-        argv = self._tokenise(line)
+        argv = tokenise_console_line(line)
         if not argv:
             return
         if argv[0] != "dash":
@@ -111,25 +117,6 @@ class MockDevice:
                     self.state.sparkline.append(payload["latest_sample"])
                     self.state.sparkline = self.state.sparkline[-64:]
                 send('OK: {"updated":true}\n')
-
-    @staticmethod
-    def _tokenise(line: str) -> list[str]:
-        argv: list[str] = []
-        cur: list[str] = []
-        in_quote = False
-        for ch in line:
-            if not in_quote and ch.isspace():
-                if cur:
-                    argv.append("".join(cur))
-                    cur = []
-                continue
-            if ch == '"':
-                in_quote = not in_quote
-                continue
-            cur.append(ch)
-        if cur:
-            argv.append("".join(cur))
-        return argv
 
     def _schedule_decision(self, send, prompt_id: str) -> None:
         decision = "deny" if self.auto_deny else "once"

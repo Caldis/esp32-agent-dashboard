@@ -221,12 +221,94 @@ parses with valid `id`/`tool`/`hint` keys.
 Verified live: prompt scene renders correctly on device with
 permission button hints visible. See `docs/img/dash-prompt.png`.
 
+### G-8 — consumer mocks re-implement the framework tokeniser and drift silently
+
+**Context**: orchestrator / V1-E (stress.py + docs/mock_device.py).
+
+**What I needed**: A way for any project consuming esp-harness to test
+its own host-side bridge against an honest device stand-in *without
+maintaining a copy of the parser*. The dashboard's `mock_device.py` had
+its own `_tokenise()` copy of the firmware's logic. When G-7 changed
+the firmware tokeniser, the mock was not updated, and the V1-E stress
+suite produced 0/1000 OK on the flood test + 0/5 prompt latencies —
+not because the bridge was broken, but because the mock's stale parser
+made the firmware-shaped JSON look invalid to it. Drift is silent: the
+mock and the device disagree, the bridge tests "pass" against the mock
+while a real device would have caught it.
+
+**What I got**: a one-shot fix to mock_device.py mirroring console_protocol.c.
+Works *now*, breaks the next time someone touches the C tokeniser.
+
+**Workaround used**: (no longer needed — see Resolution.)
+
+**Upstream fix**: shipped `esp_harness.core.parser.tokenise_console_line`
+as the canonical Python port of the C tokeniser, with 25 parity tests
+in `tools/esp-harness/tests/test_parser.py`. The dashboard's
+`mock_device.py` now imports it instead of carrying its own copy. Next
+time the C tokeniser changes, both sides move together or the parity
+test fails the build.
+
+**Resolution**: `esp-harness/tools/esp-harness/src/esp_harness/core/parser.py`
++ `tests/test_parser.py` (this commit). End-to-end re-verified: stress
+suite 5/5 passes against the import-based mock.
+
+### G-D1 — `docs/demo_inputs.jsonl` ≠ bridge event schema
+
+**Context**: V1-D (publish).
+
+**What I needed**: `docs/E2E_DEMO.md`'s replay step to actually feed
+the bridge — i.e. `cat demo_inputs.jsonl | bridge replay -` should
+produce the expected `dash snapshot` / `dash prompt` chatter.
+
+**What I got**: `demo_inputs.jsonl` uses Claude-Code-hook PascalCase
+event names (`{"event":"SessionStart",…}`) while the bridge expects
+snake_case `type:` keys (`{"type":"user_prompt_submit",…}`). Replaying
+the file currently yields 13 unrecognized events. CI works around this
+by using `tools/sample_session.jsonl` which is in the bridge's shape.
+
+**Workaround used**: CI uses the bridge-shape file; docs still call
+out the original.
+
+**Suggested fix**: `hook_dispatch.py` should normalize PascalCase →
+snake_case at the ingress, and `demo_inputs.jsonl` should keep the
+PascalCase form (it's documenting what Claude Code sends) — then a
+single replay reaches both audiences. Alternatively, document the
+two schemas as deliberately distinct (raw hook vs bridge wire) so
+nobody confuses them.
+
+**Resolution**: (pending — flagged in `CHANGELOG.md` known limitations.)
+
+### G-D2 — bridge has no `--port-kind tcp` for the mock device
+
+**Context**: V1-D (publish, CI design).
+
+**What I needed**: CI to exercise a true mock round-trip
+(bridge → TCP mock → bridge sees reply) rather than dry-run replay.
+
+**What I got**: `claude_buddy_bridge.py serve` only opens via
+`esp_harness.core.console_session.ConsoleSession` (a real serial
+port). There's no flag to route the push to a TCP socket. CI
+sidesteps with `--dry-run` (which prints `[DRY] dash ...` without
+opening any device).
+
+**Workaround used**: dry-run replay in CI; full mock loop is local-
+only via `docs/mock_device.py` listening on a port + manual eyeballs.
+
+**Suggested fix**: `claude_buddy_bridge.py serve --port-kind {serial,tcp}`
+and a parallel `host:port` arg shape. CI then runs the bridge against
+the in-process mock and asserts the mock observed each expected dash
+verb (much stronger contract than dry-run printing).
+
+**Resolution**: (pending — non-blocking for v0.1.0.)
+
 ## Resolved
 
 | Gap | Resolution commit |
 |---|---|
 | G-7 (tokeniser collapse) | `esp-harness@664b14e` |
 | (console-overflow drain) | `esp-harness@98affb0` (Agent G) |
+| G-8 (consumer-mock parser drift) | `esp-harness@fb5a549` — `esp_harness.core.parser` + 25 parity tests |
 
 (G-1..G-6 still pending; G-1+G-3 deferred to ADR-1; G-6 is the
-v1.8 north star `esp-harness adversarial`.)
+v1.8 north star `esp-harness adversarial`; G-8 now resolved; G-D1
+and G-D2 surfaced by V1-D, non-blocking for v0.1.0.)
