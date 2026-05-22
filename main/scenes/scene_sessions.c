@@ -1,88 +1,207 @@
 /*
- * scene_sessions — three counters (total / running / waiting) at the top
- * and a rolling list of the most-recent transcript entries below.
+ * scene_sessions — dual-pane per-agent view.
  *
- * Counters and entries come from agent_state. We re-read everything at
- * 5 Hz, skipping the LVGL work when nothing changed (poor-man's diff via
- * entry_seq + a per-field cache).
+ * Vertically splits the screen. Left pane = slot[0] (typically claude-code),
+ * right pane = slot[1] (typically codex). Per pane:
+ *   • kind label at top, tinted in palette accent
+ *   • status pill (running/waiting/idle)
+ *   • last 2 transcript entries, each with a tool icon
+ *   • tokens count at bottom
+ *
+ * If only one agent is present, that agent renders full-width.
+ *
+ * All widgets are pre-allocated in `init` and reused across snapshots.
+ * Per-tick path: take agent_state lock briefly to copy what we need,
+ * release, then mutate widgets.
  */
 
 #include "scenes.h"
 #include "agent_state.h"
+#include "theme.h"
+#include "tool_icons.h"
 
 #include <stdio.h>
 #include <string.h>
 
 #include "lvgl.h"
 
-#define ACCENT_HEX     0x4DD4FF       /* ice cyan */
-#define DIM_HEX        0x365B66
-#define ROW_FONT       (&lv_font_montserrat_14)
-#define ROW_HEIGHT     24
-#define ROW_PADDING_X  18
+#define SCREEN_W       466
+#define SCREEN_H       466
 
 typedef struct {
-    /* Header */
-    lv_obj_t *roman;
-    lv_obj_t *total;
-    lv_obj_t *total_lbl;
-    lv_obj_t *running;
-    lv_obj_t *running_lbl;
-    lv_obj_t *waiting;
-    lv_obj_t *waiting_lbl;
+    lv_obj_t *pane;
+    lv_obj_t *accent_bar;
+    lv_obj_t *kind_lbl;
+    lv_obj_t *status_pill;
+    lv_obj_t *status_lbl;
+    lv_obj_t *entry_rows[2];
+    lv_obj_t *entry_icons[2];
+    lv_obj_t *entry_texts[2];
+    lv_obj_t *tokens_lbl;
+    lv_obj_t *tokens_caption;
+} pane_widgets_t;
 
-    /* Body */
-    lv_obj_t *rows[AGENT_ENTRY_COUNT];
-
-    /* Caches */
-    int       cached_total, cached_running, cached_waiting;
-    uint32_t  cached_seq;
-
-    lv_timer_t *timer;
+typedef struct {
+    lv_obj_t       *roman;
+    pane_widgets_t  panes[2];
+    lv_obj_t       *empty_lbl;
+    lv_timer_t     *timer;
 } sessions_state_t;
 
-static lv_obj_t *make_num(lv_obj_t *parent, int x_offset, uint32_t colour)
+static const char *status_text(agent_status_t st)
 {
-    lv_obj_t *n = lv_label_create(parent);
-    lv_obj_set_style_text_font(n, &lv_font_montserrat_22, 0);
-    lv_obj_set_style_text_color(n, lv_color_hex(colour), 0);
-    lv_obj_set_style_text_opa(n, LV_OPA_COVER, 0);
-    lv_label_set_text(n, "0");
-    lv_obj_align(n, LV_ALIGN_CENTER, x_offset, -130);
-    return n;
+    switch (st) {
+        case AGENT_STATUS_RUNNING: return "RUNNING";
+        case AGENT_STATUS_WAITING: return "WAITING";
+        default:                   return "IDLE";
+    }
 }
 
-static lv_obj_t *make_caption(lv_obj_t *parent, int x_offset, const char *txt)
+static uint32_t status_colour(agent_status_t st, const theme_palette_t *pal)
 {
-    lv_obj_t *c = lv_label_create(parent);
-    lv_obj_set_style_text_font(c, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(c, lv_color_hex(DIM_HEX), 0);
-    lv_obj_set_style_text_letter_space(c, 1, 0);
-    lv_label_set_text(c, txt);
-    lv_obj_align(c, LV_ALIGN_CENTER, x_offset, -100);
-    return c;
+    switch (st) {
+        case AGENT_STATUS_RUNNING: return pal->success;
+        case AGENT_STATUS_WAITING: return pal->warning;
+        default:                   return pal->text_dim;
+    }
 }
 
-static lv_obj_t *make_row(lv_obj_t *parent, int y_offset)
+static void format_tokens(uint64_t v, char *buf, size_t cap)
 {
-    lv_obj_t *r = lv_label_create(parent);
-    lv_obj_set_style_text_font(r, ROW_FONT, 0);
-    lv_obj_set_style_text_color(r, lv_color_white(), 0);
-    lv_obj_set_style_text_opa(r, LV_OPA_70, 0);
-    lv_obj_set_width(r, 380);
-    lv_label_set_long_mode(r, LV_LABEL_LONG_DOT);
-    lv_label_set_text(r, "");
-    lv_obj_align(r, LV_ALIGN_CENTER, 0, y_offset);
-    return r;
+    if (v < 1000) snprintf(buf, cap, "%llu", (unsigned long long)v);
+    else if (v < 1000000ULL) snprintf(buf, cap, "%.1fk", (double)v / 1000.0);
+    else snprintf(buf, cap, "%.1fM", (double)v / 1000000.0);
 }
 
-static uint32_t role_colour(const char *role)
+static void build_pane(lv_obj_t *parent, pane_widgets_t *pw)
 {
-    if (role == NULL) return 0xCCCCCC;
-    if (strcmp(role, "user") == 0)       return 0x9EE493;  /* fresh mint */
-    if (strcmp(role, "assistant") == 0)  return 0x8FD9FF;  /* sky */
-    if (strcmp(role, "tool") == 0)       return 0xF0E0A8;  /* warm sand */
-    return 0xCCCCCC;
+    pw->pane = lv_obj_create(parent);
+    lv_obj_remove_style_all(pw->pane);
+    lv_obj_clear_flag(pw->pane, LV_OBJ_FLAG_SCROLLABLE);
+
+    pw->accent_bar = lv_obj_create(pw->pane);
+    lv_obj_remove_style_all(pw->accent_bar);
+    lv_obj_set_size(pw->accent_bar, 3, 200);
+    lv_obj_set_style_radius(pw->accent_bar, 2, 0);
+    lv_obj_set_style_bg_opa(pw->accent_bar, LV_OPA_80, 0);
+
+    pw->kind_lbl = lv_label_create(pw->pane);
+    lv_obj_set_style_text_font(pw->kind_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_letter_space(pw->kind_lbl, 1, 0);
+    lv_label_set_text(pw->kind_lbl, "—");
+
+    pw->status_pill = lv_obj_create(pw->pane);
+    lv_obj_remove_style_all(pw->status_pill);
+    lv_obj_clear_flag(pw->status_pill, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(pw->status_pill, 80, 18);
+    lv_obj_set_style_radius(pw->status_pill, 9, 0);
+    lv_obj_set_style_bg_opa(pw->status_pill, LV_OPA_30, 0);
+    lv_obj_set_style_border_width(pw->status_pill, 1, 0);
+    lv_obj_set_style_border_opa(pw->status_pill, LV_OPA_70, 0);
+
+    pw->status_lbl = lv_label_create(pw->status_pill);
+    lv_obj_set_style_text_font(pw->status_lbl, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_letter_space(pw->status_lbl, 1, 0);
+    lv_label_set_text(pw->status_lbl, "IDLE");
+    lv_obj_center(pw->status_lbl);
+
+    for (int i = 0; i < 2; ++i) {
+        lv_obj_t *row = lv_obj_create(pw->pane);
+        lv_obj_remove_style_all(row);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+        pw->entry_icons[i] = lv_label_create(row);
+        lv_obj_set_style_text_font(pw->entry_icons[i], &lv_font_montserrat_14, 0);
+        lv_label_set_text(pw->entry_icons[i], "");
+        lv_obj_align(pw->entry_icons[i], LV_ALIGN_LEFT_MID, 0, 0);
+
+        pw->entry_texts[i] = lv_label_create(row);
+        lv_obj_set_style_text_font(pw->entry_texts[i], &lv_font_montserrat_12, 0);
+        lv_label_set_long_mode(pw->entry_texts[i], LV_LABEL_LONG_DOT);
+        lv_label_set_text(pw->entry_texts[i], "");
+        lv_obj_align(pw->entry_texts[i], LV_ALIGN_LEFT_MID, 22, 0);
+
+        pw->entry_rows[i] = row;
+    }
+
+    pw->tokens_lbl = lv_label_create(pw->pane);
+    lv_obj_set_style_text_font(pw->tokens_lbl, &lv_font_montserrat_22, 0);
+    lv_label_set_text(pw->tokens_lbl, "0");
+
+    pw->tokens_caption = lv_label_create(pw->pane);
+    lv_obj_set_style_text_font(pw->tokens_caption, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_letter_space(pw->tokens_caption, 2, 0);
+    lv_label_set_text(pw->tokens_caption, "TOKENS");
+}
+
+static void layout_pane(pane_widgets_t *pw, int x, int y, int w, int h)
+{
+    lv_obj_set_pos(pw->pane, x, y);
+    lv_obj_set_size(pw->pane, w, h);
+
+    lv_obj_align(pw->accent_bar, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_set_height(pw->accent_bar, h - 30);
+
+    lv_obj_align(pw->kind_lbl,    LV_ALIGN_TOP_LEFT, 14, 8);
+    lv_obj_align(pw->status_pill, LV_ALIGN_TOP_LEFT, 14, 32);
+
+    for (int i = 0; i < 2; ++i) {
+        lv_obj_set_size(pw->entry_rows[i], w - 24, 22);
+        lv_obj_set_pos(pw->entry_rows[i], 14, 62 + i * 26);
+        lv_obj_set_width(pw->entry_texts[i], w - 50);
+    }
+
+    lv_obj_align(pw->tokens_lbl,     LV_ALIGN_BOTTOM_LEFT, 14, -32);
+    lv_obj_align(pw->tokens_caption, LV_ALIGN_BOTTOM_LEFT, 14, -12);
+}
+
+static void paint_pane(pane_widgets_t *pw, const agent_slot_t *slot,
+                       const theme_palette_t *pal, bool active)
+{
+    if (!active) {
+        lv_obj_add_flag(pw->pane, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_obj_clear_flag(pw->pane, LV_OBJ_FLAG_HIDDEN);
+
+    uint32_t accent = theme_accent_for_kind(slot->kind);
+    lv_obj_set_style_bg_color(pw->accent_bar, lv_color_hex(accent), 0);
+    lv_obj_set_style_text_color(pw->kind_lbl, lv_color_hex(accent), 0);
+    lv_label_set_text(pw->kind_lbl, slot->kind);
+
+    uint32_t scol = status_colour(slot->status, pal);
+    lv_obj_set_style_bg_color(pw->status_pill, lv_color_hex(scol), 0);
+    lv_obj_set_style_border_color(pw->status_pill, lv_color_hex(scol), 0);
+    lv_obj_set_style_text_color(pw->status_lbl, lv_color_hex(pal->text), 0);
+    lv_label_set_text(pw->status_lbl, status_text(slot->status));
+
+    int n = slot->entry_count;
+    if (n > 2) n = 2;
+    for (int i = 0; i < 2; ++i) {
+        if (i < n) {
+            const agent_entry_t *e = &slot->entries[i];
+            const char *icon = tool_icon_for(e->tool);
+            lv_label_set_text(pw->entry_icons[i], icon);
+            lv_obj_set_style_text_color(pw->entry_icons[i],
+                lv_color_hex(pal->text_dim), 0);
+
+            const char *body = e->text[0] ? e->text : e->tool;
+            if (!body || !body[0]) body = "—";
+            lv_label_set_text(pw->entry_texts[i], body);
+            lv_obj_set_style_text_color(pw->entry_texts[i],
+                lv_color_hex(pal->text), 0);
+            lv_obj_set_style_text_opa(pw->entry_texts[i],
+                i == 0 ? LV_OPA_90 : LV_OPA_60, 0);
+        } else {
+            lv_label_set_text(pw->entry_icons[i], "");
+            lv_label_set_text(pw->entry_texts[i], "");
+        }
+    }
+
+    char tk[24]; format_tokens(slot->tokens_cumulative, tk, sizeof(tk));
+    lv_label_set_text(pw->tokens_lbl, tk);
+    lv_obj_set_style_text_color(pw->tokens_lbl, lv_color_hex(pal->text), 0);
+    lv_obj_set_style_text_color(pw->tokens_caption, lv_color_hex(pal->text_dim), 0);
 }
 
 static void sessions_tick(lv_timer_t *t)
@@ -90,63 +209,48 @@ static void sessions_tick(lv_timer_t *t)
     sessions_state_t *st = (sessions_state_t *)lv_timer_get_user_data(t);
     if (!st) return;
 
-    /* Snapshot under lock. Copy only what we need so the lock is short. */
-    int total, running, waiting;
-    uint32_t seq;
-    agent_entry_t snapshot[AGENT_ENTRY_COUNT];
-    int snapshot_n;
+    agent_slot_t snap[AGENT_SLOT_MAX];
+    int slot_count = 0;
 
     agent_state_lock();
     agent_state_t *s = agent_state_get();
-    total   = s->total;
-    running = s->running;
-    waiting = s->waiting;
-    seq     = s->entry_seq;
-    snapshot_n = s->entry_count;
-    for (int i = 0; i < snapshot_n; ++i) {
-        snapshot[i] = s->entries[i];
+    for (int i = 0; i < AGENT_SLOT_MAX; ++i) {
+        snap[i] = s->slots[i];
+        if (snap[i].in_use) slot_count++;
     }
     agent_state_unlock();
 
-    if (total != st->cached_total) {
-        char buf[16]; snprintf(buf, sizeof(buf), "%d", total);
-        lv_label_set_text(st->total, buf);
-        st->cached_total = total;
-    }
-    if (running != st->cached_running) {
-        char buf[16]; snprintf(buf, sizeof(buf), "%d", running);
-        lv_label_set_text(st->running, buf);
-        st->cached_running = running;
-    }
-    if (waiting != st->cached_waiting) {
-        char buf[16]; snprintf(buf, sizeof(buf), "%d", waiting);
-        lv_label_set_text(st->waiting, buf);
-        st->cached_waiting = waiting;
+    const theme_palette_t *pal = theme_current();
+
+    agent_slot_t *left = NULL, *right = NULL;
+    for (int i = 0; i < AGENT_SLOT_MAX; ++i) {
+        if (!snap[i].in_use) continue;
+        if (!left)  { left  = &snap[i]; continue; }
+        if (!right) { right = &snap[i]; break; }
     }
 
-    if (seq != st->cached_seq) {
-        for (int i = 0; i < AGENT_ENTRY_COUNT; ++i) {
-            lv_obj_t *row = st->rows[i];
-            if (i < snapshot_n) {
-                /* "[role] text" — fold into a single label for simplicity.
-                 * Use precision specifiers to bound the format-truncation
-                 * warning that fires on the unrestricted %s pair. */
-                char buf[AGENT_ENTRY_TEXT_MAX + 24];
-                snprintf(buf, sizeof(buf), "%.15s  %.95s",
-                         snapshot[i].role[0] ? snapshot[i].role : "?",
-                         snapshot[i].text);
-                lv_label_set_text(row, buf);
-                lv_obj_set_style_text_color(row,
-                    lv_color_hex(role_colour(snapshot[i].role)), 0);
-                /* Newer entries opaque; older fades a bit. */
-                lv_opa_t opa = (lv_opa_t)(220 - (i * 30));
-                if (opa < 80) opa = 80;
-                lv_obj_set_style_text_opa(row, opa, 0);
-            } else {
-                lv_label_set_text(row, "");
-            }
-        }
-        st->cached_seq = seq;
+    int top_y  = 44;
+    int pane_h = SCREEN_H - 88;
+
+    if (slot_count == 0) {
+        lv_obj_add_flag(st->panes[0].pane, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(st->panes[1].pane, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(st->empty_lbl, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_text_color(st->empty_lbl, lv_color_hex(pal->text_dim), 0);
+        return;
+    }
+    lv_obj_add_flag(st->empty_lbl, LV_OBJ_FLAG_HIDDEN);
+
+    if (slot_count == 1 && left) {
+        layout_pane(&st->panes[0], 30, top_y, SCREEN_W - 60, pane_h);
+        paint_pane(&st->panes[0], left, pal, true);
+        paint_pane(&st->panes[1], NULL, pal, false);
+    } else {
+        int half_w = (SCREEN_W - 20) / 2;
+        layout_pane(&st->panes[0], 10,            top_y, half_w, pane_h);
+        layout_pane(&st->panes[1], 10 + half_w,   top_y, half_w, pane_h);
+        paint_pane(&st->panes[0], left,  pal, true);
+        paint_pane(&st->panes[1], right, pal, true);
     }
 }
 
@@ -154,48 +258,35 @@ static void sessions_init(scene_t *s, lv_obj_t *parent)
 {
     sessions_state_t *st = lv_malloc_zeroed(sizeof(*st));
     s->user_data = st;
-    st->cached_seq = (uint32_t)-1;
-    st->cached_total = -1;
-    st->cached_running = -1;
-    st->cached_waiting = -1;
 
-    /* Roman / title */
     st->roman = lv_label_create(parent);
     lv_obj_set_style_text_font(st->roman, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_letter_space(st->roman, 4, 0);
-    lv_obj_set_style_text_color(st->roman, lv_color_hex(ACCENT_HEX), 0);
-    lv_obj_set_style_text_opa(st->roman, LV_OPA_50, 0);
+    lv_obj_set_style_text_opa(st->roman, LV_OPA_60, 0);
+    lv_obj_set_style_text_color(st->roman,
+        lv_color_hex(theme_current()->text_dim), 0);
     lv_label_set_text(st->roman, "SESSIONS");
-    lv_obj_align(st->roman, LV_ALIGN_CENTER, 0, -170);
+    lv_obj_align(st->roman, LV_ALIGN_TOP_MID, 0, 16);
 
-    /* Three numbers across the top. */
-    st->total       = make_num(parent, -90, 0x4DD4FF);
-    st->running     = make_num(parent,   0, 0x9EE493);
-    st->waiting     = make_num(parent,  90, 0xF0E0A8);
-    st->total_lbl   = make_caption(parent, -90, "TOTAL");
-    st->running_lbl = make_caption(parent,   0, "RUN");
-    st->waiting_lbl = make_caption(parent,  90, "WAIT");
+    build_pane(parent, &st->panes[0]);
+    build_pane(parent, &st->panes[1]);
 
-    /* Five rows below, vertically stacked. */
-    int y0 = -55;
-    for (int i = 0; i < AGENT_ENTRY_COUNT; ++i) {
-        st->rows[i] = make_row(parent, y0 + i * (ROW_HEIGHT + 4));
-    }
+    st->empty_lbl = lv_label_create(parent);
+    lv_obj_set_style_text_font(st->empty_lbl, &lv_font_montserrat_14, 0);
+    lv_label_set_text(st->empty_lbl, "no active sessions");
+    lv_obj_center(st->empty_lbl);
 
     st->timer = lv_timer_create(sessions_tick, 200, st);
     lv_timer_pause(st->timer);
-    sessions_tick(st->timer);
+    /* Tick once on first on_show, not now — calling tick here would put
+     * AGENT_SLOT_MAX × sizeof(agent_slot_t) on the main task stack which
+     * blows the 4 KB default. */
 }
 
 static void sessions_on_show(scene_t *s)
 {
     sessions_state_t *st = (sessions_state_t *)s->user_data;
     if (st && st->timer) {
-        /* Force a refresh by invalidating caches. */
-        st->cached_seq = (uint32_t)-1;
-        st->cached_total = -1;
-        st->cached_running = -1;
-        st->cached_waiting = -1;
         lv_timer_resume(st->timer);
         sessions_tick(st->timer);
     }
@@ -209,10 +300,10 @@ static void sessions_on_hide(scene_t *s)
 
 scene_t scene_sessions = {
     .id           = "sessions",
-    .display_name = "II. Sessions",
-    .accent       = LV_COLOR_MAKE(0x4D, 0xD4, 0xFF),
-    .description  = "Active session counters and rolling transcript window.",
-    .tags         = "agent,sessions",
+    .display_name = "Sessions",
+    .accent       = LV_COLOR_MAKE(0xFF, 0x8B, 0x5C),
+    .description  = "Per-agent dual-pane view with status, recent tool entries, and tokens.",
+    .tags         = "agent,sessions,multiagent",
     .init         = sessions_init,
     .on_show      = sessions_on_show,
     .on_hide      = sessions_on_hide,

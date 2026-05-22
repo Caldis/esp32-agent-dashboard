@@ -14,6 +14,11 @@ extern "C" {
  * and after agent_state_init(). Safe to call once. */
 void agent_commands_register(void);
 
+/* Load persisted config (theme, device_name, owner, default_scene)
+ * from NVS into the global agent_state. Call once at boot, after
+ * agent_state_init + theme_init. */
+void agent_commands_load_config(void);
+
 #ifdef __cplusplus
 }
 #endif

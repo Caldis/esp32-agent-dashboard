@@ -18,6 +18,12 @@ venv/
 # Dev artifacts that shouldn't ship
 docs/_probe.py
 *.log
+*_log.txt
+# Stale standalone-test screenshots from the v0 scaffold; canonical
+# scene captures live under docs/img/dash-*.png
+docs/idle.png
+docs/prompt.png
+docs/sessions.png
 
 # OS
 .DS_Store

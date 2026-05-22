@@ -5,6 +5,7 @@
 extern "C" {
 #endif
 
+extern scene_t scene_dashboard;
 extern scene_t scene_idle;
 extern scene_t scene_sessions;
 extern scene_t scene_prompt;

@@ -21,6 +21,13 @@ CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 
 CONFIG_NVS_ENABLED=y
 
+# v1 multi-agent scenes copy bounded agent_slot_t arrays on the stack
+# during per-tick render and during init. With AGENT_SLOT_MAX=4 each
+# tick needs ~5 KB of stack; the default 3584-byte main task is too
+# small, so bump it. (LVGL task has its own stack and is sized via
+# the LVGL adapter config.)
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
 # aurora-harness ships a `?dump` screenshot command that uses
 # lv_snapshot_take_to_draw_buf — that LVGL feature is OFF by default.
 # Without this, `components/aurora-harness/src/screenshot.c` fails to
