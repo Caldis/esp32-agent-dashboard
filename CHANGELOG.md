@@ -8,6 +8,13 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [1.7.0] — 2026-05-23
+
+**Power management**
+
+docs/POWER.md plots the 4-stage sleep policy (dim 5min, off 15min, light-sleep 30min, deep-sleep 60min), battery + USB-C PD readout in scene_status (5/9/12/15/20V), low-battery degradation (less than 10pct prompt auto-deny on timeout). dash power_set / power_status / power_sleep_now wire commands. Sleep state machine + fuel-gauge driver land in v1.7.x.
+
+
 ## [1.6.0] — 2026-05-23
 
 **Mobile companion design**
@@ -283,7 +290,8 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
   runner is slow and image-fragile). Real-hardware verification
   happens at release time via `tools/smoke.ps1` (planned).
 
-[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.7.0
 [1.6.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.6.0
 [1.5.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.5.0
 [1.4.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.4.0
@@ -302,6 +310,7 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
 [0.1.2]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.0
+
 
 
 
