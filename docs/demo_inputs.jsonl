@@ -1,0 +1,13 @@
+{"event":"SessionStart","session_id":"sess-1","cwd":"D:\\Code\\my-firmware"}
+{"event":"UserPromptSubmit","session_id":"sess-1","prompt":"build a tiny ESP32 app that blinks an LED"}
+{"event":"PostToolUse","session_id":"sess-1","tool":"Read","summary":"read main.c (120 lines)"}
+{"event":"PostToolUse","session_id":"sess-1","tool":"Edit","summary":"edit main.c (+8 -2)"}
+{"event":"PreToolUse","session_id":"sess-1","tool":"Bash","input":{"command":"idf.py build"},"id":"req_001"}
+{"event":"PostToolUse","session_id":"sess-1","tool":"Bash","summary":"idf.py build OK (45.2s)"}
+{"event":"PreToolUse","session_id":"sess-1","tool":"Bash","input":{"command":"rm -rf /tmp/foo"},"id":"req_002"}
+{"event":"PostToolUse","session_id":"sess-1","tool":"Bash","summary":"denied by user"}
+{"event":"Stop","session_id":"sess-1"}
+{"event":"SessionStart","session_id":"sess-2","cwd":"D:\\Code\\other"}
+{"event":"UserPromptSubmit","session_id":"sess-2","prompt":"fix the auth bug"}
+{"event":"PostToolUse","session_id":"sess-2","tool":"Grep","summary":"grep 'login' (42 hits)"}
+{"event":"Stop","session_id":"sess-2"}
