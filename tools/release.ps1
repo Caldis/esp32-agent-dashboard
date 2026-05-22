@@ -71,9 +71,11 @@ Step 1 "Pre-flight (clean tree + tag-free)"
 
 Push-Location $ProjectRoot
 try {
-    $dirty = git status --porcelain
+    # Only block on MODIFIED tracked files. Untracked files (e.g. in-flight
+    # agent deliverables) don't conflict with our CHANGELOG bump commit.
+    $dirty = git status --porcelain -uno
     if ($dirty -and -not $DryRun) {
-        Die "working tree has uncommitted changes; commit or stash first:`n$dirty"
+        Die "tracked files have uncommitted changes; commit or stash first:`n$dirty"
     }
 
     $existing = git tag --list "v$Version"
