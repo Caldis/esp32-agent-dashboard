@@ -6,34 +6,42 @@
 
 #include <string.h>
 
+/* Palette hex codes mirror docs/brand/palette.md exactly. Token names
+ * in the right-comment column point at the palette.md entry. When the
+ * brand pack changes, this table is the *only* place to update on the
+ * firmware side. U1's UX review surfaced 8-token drift between the
+ * previous fudged values and the brand source — the brand's
+ * "teal is the only place teal appears at full saturation" rule was
+ * silently broken because firmware used `#5CD0D9` cyan in place of
+ * `#0E7C7B` teal. Honour the brand or own it; don't drift. */
 static const theme_palette_t s_palettes[THEME_COUNT] = {
     {
         .id            = THEME_NOIR,
         .name          = "noir",
-        .bg            = 0x0A0A0E,
-        .surface       = 0x14141C,
-        .text          = 0xE8E5DE,
-        .text_dim      = 0x6B6F7A,
-        .accent_claude = 0xFF8B5C,   /* rust-orange */
-        .accent_codex  = 0x5CD0D9,   /* teal */
-        .accent_other  = 0xB89CFF,   /* lavender */
-        .warning       = 0xFFC857,
-        .danger        = 0xE04545,
-        .success       = 0x9EE493,
+        .bg            = 0x0B0A09,   /* palette.md: noir bg near-black */
+        .surface       = 0x1C1814,   /* ink — for cards / panes */
+        .text          = 0xF3EEE2,   /* paper */
+        .text_dim      = 0x8A807A,   /* ink-fade */
+        .accent_claude = 0xB8431A,   /* rust — warm, Anthropic/harness side */
+        .accent_codex  = 0x2BB3B1,   /* teal-bright — on dark, the noir accent */
+        .accent_other  = 0x5A514A,   /* ink-mute */
+        .warning       = 0xB89020,   /* gold */
+        .danger        = 0xB8431A,   /* rust at danger intensity reuses warm */
+        .success       = 0x344A36,   /* moss */
     },
     {
         .id            = THEME_LAB,
         .name          = "lab",
-        .bg            = 0xF0EEE7,
-        .surface       = 0xE3E0D6,
-        .text          = 0x1A1814,
-        .text_dim      = 0x807A6E,
-        .accent_claude = 0xFF8B5C,
-        .accent_codex  = 0x2BAFBA,   /* deeper teal — better contrast on light */
-        .accent_other  = 0x7A60E0,
-        .warning       = 0xC59421,
-        .danger        = 0xB52E2E,
-        .success       = 0x4E9E55,
+        .bg            = 0xF3EEE2,   /* paper */
+        .surface       = 0xE3DDC9,   /* derived — paper tinted slightly darker */
+        .text          = 0x1C1814,   /* ink */
+        .text_dim      = 0x5A514A,   /* ink-mute */
+        .accent_claude = 0xB8431A,   /* rust — same warm hue, brand consistency */
+        .accent_codex  = 0x0E7C7B,   /* teal — the lab/light accent per palette.md */
+        .accent_other  = 0x5A514A,   /* ink-mute */
+        .warning       = 0xB89020,   /* gold */
+        .danger        = 0xB8431A,   /* rust */
+        .success       = 0x344A36,   /* moss */
     },
     {
         .id            = THEME_MONO,
