@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 220" width="720" height="220" role="img" aria-label="First power-on flow">
+  <title>First power-on flow</title>
+  <desc>Five-step flow: USB-C connect, COM port appears, flash firmware, start bridge, see scene.</desc>
+  <rect width="720" height="220" fill="#0e0e10"/>
+
+  <text x="360" y="32" text-anchor="middle"
+        font-family="ui-monospace,SFMono-Regular,monospace" font-size="15"
+        fill="#d4cdc1" letter-spacing="0.6">First power-on (5 steps)</text>
+
+  <!-- step cards -->
+  <g font-family="ui-monospace,SFMono-Regular,monospace" font-size="11" fill="#d4cdc1">
+
+    <g transform="translate(20,70)">
+      <rect width="120" height="100" rx="6" fill="#1c1814" stroke="#3a2f24"/>
+      <text x="60" y="22" text-anchor="middle" fill="#b8431a" font-weight="700">1</text>
+      <text x="60" y="48" text-anchor="middle">plug USB-C</text>
+      <text x="60" y="64" text-anchor="middle">to host PC</text>
+      <text x="60" y="84" text-anchor="middle" fill="#6a7068" font-size="9">(any quality cable)</text>
+    </g>
+
+    <g transform="translate(160,70)">
+      <rect width="120" height="100" rx="6" fill="#1c1814" stroke="#3a2f24"/>
+      <text x="60" y="22" text-anchor="middle" fill="#b8431a" font-weight="700">2</text>
+      <text x="60" y="48" text-anchor="middle">COM port shows</text>
+      <text x="60" y="64" text-anchor="middle">in device mgr</text>
+      <text x="60" y="84" text-anchor="middle" fill="#6a7068" font-size="9">e.g. COM9</text>
+    </g>
+
+    <g transform="translate(300,70)">
+      <rect width="120" height="100" rx="6" fill="#1c1814" stroke="#3a2f24"/>
+      <text x="60" y="22" text-anchor="middle" fill="#b8431a" font-weight="700">3</text>
+      <text x="60" y="48" text-anchor="middle">flash firmware</text>
+      <text x="60" y="64" text-anchor="middle">esp-harness flash</text>
+      <text x="60" y="84" text-anchor="middle" fill="#6a7068" font-size="9">~30 s, watch logs</text>
+    </g>
+
+    <g transform="translate(440,70)">
+      <rect width="120" height="100" rx="6" fill="#1c1814" stroke="#3a2f24"/>
+      <text x="60" y="22" text-anchor="middle" fill="#b8431a" font-weight="700">4</text>
+      <text x="60" y="48" text-anchor="middle">start bridge</text>
+      <text x="60" y="64" text-anchor="middle">--serial-port COM9</text>
+      <text x="60" y="84" text-anchor="middle" fill="#6a7068" font-size="9">stays running</text>
+    </g>
+
+    <g transform="translate(580,70)">
+      <rect width="120" height="100" rx="6" fill="#1c1814" stroke="#344a36"/>
+      <text x="60" y="22" text-anchor="middle" fill="#344a36" font-weight="700">5</text>
+      <text x="60" y="48" text-anchor="middle">idle scene</text>
+      <text x="60" y="64" text-anchor="middle">visible on AMOLED</text>
+      <text x="60" y="84" text-anchor="middle" fill="#6a7068" font-size="9">you're done</text>
+    </g>
+  </g>
+
+  <!-- arrows -->
+  <g stroke="#b8431a" stroke-width="1.5" fill="none">
+    <line x1="140" y1="120" x2="160" y2="120" marker-end="url(#ar)"/>
+    <line x1="280" y1="120" x2="300" y2="120" marker-end="url(#ar)"/>
+    <line x1="420" y1="120" x2="440" y2="120" marker-end="url(#ar)"/>
+    <line x1="560" y1="120" x2="580" y2="120" marker-end="url(#ar)"/>
+  </g>
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b8431a"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="200" text-anchor="middle"
+        font-family="ui-monospace,SFMono-Regular,monospace" font-size="9"
+        fill="#3a3f3a">no soldering · no wiring · USB-C carries power + serial</text>
+</svg>
