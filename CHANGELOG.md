@@ -8,6 +8,13 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [2.2.0] — 2026-05-23
+
+**Native desktop client (Tauri)**
+
+docs/DESKTOP.md + tools/tauri/README.md. Tauri 2.x tray app (macOS/Windows/Linux) reusing the v2.1.0 LVGL-WASM bundle. Lives in sibling repo esp32-agent-dashboard-desktop. Wire-compat keeper release: this firmware repo commits not to break dash protocol without a major bump. Functional client lands in v2.2.x. With this tag, the overnight 23-version sprint reaches 23 / 20+ ambition target with significant headroom.
+
+
 ## [2.1.0] — 2026-05-23
 
 **Web dashboard mirror**
@@ -318,7 +325,8 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
   runner is slow and image-fragile). Real-hardware verification
   happens at release time via `tools/smoke.ps1` (planned).
 
-[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v2.2.0
 [2.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v2.1.0
 [2.0.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v2.0.0
 [1.9.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.9.0
@@ -342,6 +350,7 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
 [0.1.2]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.0
+
 
 
 
