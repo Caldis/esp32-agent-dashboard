@@ -8,6 +8,13 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-05-23
+
+**Session replay / timeline scrubbing**
+
+docs/REPLAY.md + main/replay/ring_buffer.h. Per-agent PSRAM ring (4KB or 1KB depending on agent count), rotary scrubbing, dash replay_dump/clear verbs. UX integration in v1.5.x once encoder driver lands.
+
+
 ## [1.4.0] — 2026-05-23
 
 **Voice — TTS prompt-read + STT decision**
@@ -269,7 +276,8 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
   runner is slow and image-fragile). Real-hardware verification
   happens at release time via `tools/smoke.ps1` (planned).
 
-[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.5.0
 [1.4.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.4.0
 [1.3.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.3.0
 [1.2.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.2.0
@@ -286,6 +294,7 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
 [0.1.2]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.0
+
 
 
 
