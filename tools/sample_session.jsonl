@@ -1,0 +1,12 @@
+{"type":"user_prompt_submit","agent":"claude-code","session_id":"cc_aaa111","prompt":"refactor the auth flow"}
+{"type":"pre_tool_use","agent":"claude-code","session_id":"cc_aaa111","tool_name":"Read","tool_input":{"file_path":"src/auth.py"}}
+{"type":"post_tool_use","agent":"claude-code","session_id":"cc_aaa111","tool_name":"Read","tokens":480}
+{"type":"pre_tool_use","agent":"claude-code","session_id":"cc_aaa111","tool_name":"Bash","tool_input":{"command":"npm test"}}
+{"type":"post_tool_use","agent":"claude-code","session_id":"cc_aaa111","tool_name":"Bash","tokens":120}
+{"type":"user_prompt_submit","agent":"codex","session_id":"cx_bbb222","prompt":"review PR #42"}
+{"type":"assistant_event","agent":"codex","session_id":"cx_bbb222","text":"Looking at the diff..."}
+{"type":"pre_tool_use","agent":"codex","session_id":"cx_bbb222","tool_name":"shell","tool_input":{"command":"git diff main..HEAD"},"tokens":80}
+{"type":"pre_tool_use","agent":"claude-code","session_id":"cc_aaa111","tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/foo"}}
+{"type":"post_tool_use","agent":"claude-code","session_id":"cc_aaa111","tool_name":"Bash","tokens":40}
+{"type":"stop","agent":"codex","session_id":"cx_bbb222"}
+{"type":"stop","agent":"claude-code","session_id":"cc_aaa111"}

@@ -190,6 +190,43 @@ gates and then chain into the current project's smoke if one exists
 
 **Resolution**: (pending)
 
+### G-7 — tokeniser strips ALL double quotes, collapses nested JSON
+
+**Context**: F (firmware) + orchestrator (live device test).
+
+**What I needed**: `dash prompt "{\"id\":\"req_001\",\"tool\":\"Bash\","
+`\"hint\":\"rm -rf /tmp/foo\"}"` to reach the firmware parser as the
+verbatim JSON inside the outer quotes.
+
+**What I got**: The v1.7.1 tokeniser had two behaviours for a quote:
+"toggle in_quote, drop the char." So ALL `"` got stripped from any
+token containing them — outer delimiters AND inner JSON keys/values
+alike. The cJSON parser on the device got `{id:req_001,tool:Bash,...}`
+which is invalid syntax. `dash prompt` returned `ERR: prompt id
+required` because cJSON couldn't find any string keys.
+
+**Workaround used**: live-patched `console_protocol.c` to a two-mode
+tokeniser:
+- Tokens starting with `"` — only the matching close-quote at end-of-
+  token terminates the token. Inner `"` pass through verbatim.
+- Tokens NOT starting with `"` — legacy toggle-on-any-quote behaviour
+  preserved (don't break `wifi connect ssid="My Wi-Fi"`).
+
+**Suggested upstream fix**: Same shape as the workaround. Smoke case:
+`dash prompt` with a nested JSON payload survives the tokeniser →
+parses with valid `id`/`tool`/`hint` keys.
+
+**Resolution**: `D:\Code\esp-harness` commit `664b14e` —
+`fix(G-7): tokeniser strips all double quotes, collapses nested JSON`.
+Verified live: prompt scene renders correctly on device with
+permission button hints visible. See `docs/img/dash-prompt.png`.
+
 ## Resolved
 
-(none yet)
+| Gap | Resolution commit |
+|---|---|
+| G-7 (tokeniser collapse) | `esp-harness@664b14e` |
+| (console-overflow drain) | `esp-harness@98affb0` (Agent G) |
+
+(G-1..G-6 still pending; G-1+G-3 deferred to ADR-1; G-6 is the
+v1.8 north star `esp-harness adversarial`.)

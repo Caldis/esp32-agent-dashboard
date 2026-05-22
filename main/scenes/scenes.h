@@ -5,7 +5,11 @@
 extern "C" {
 #endif
 
-extern scene_t scene_hello;
+extern scene_t scene_idle;
+extern scene_t scene_sessions;
+extern scene_t scene_prompt;
+extern scene_t scene_tokens;
+extern scene_t scene_status;
 
 #ifdef __cplusplus
 }

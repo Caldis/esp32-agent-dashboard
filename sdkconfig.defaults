@@ -42,8 +42,10 @@ CONFIG_LV_OS_FREERTOS=y
 # partitions.csv to match if your board has 4 MB / 8 MB flash.
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 
-# Bigger fonts for the scene_hello label. LVGL's Kconfig only ships
-# montserrat_14 by default; enable 22 explicitly so the template's
-# label renders at a readable size on a 466×466 screen.
+# Fonts used across the dashboard scenes:
+#   12 — small captions / counters under big numbers
+#   14 — body text, transcript rows
+#   22 — big numbers + scene headers
+CONFIG_LV_FONT_MONTSERRAT_12=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_MONTSERRAT_22=y
