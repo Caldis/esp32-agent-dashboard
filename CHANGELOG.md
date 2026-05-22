@@ -8,6 +8,13 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-05-23
+
+**Performance baseline + 8-agent scaling plan**
+
+PERF1 lands tools/perf/bench_{bridge,firmware}.py + profile_scene.py (1819 LOC) with baseline JSON results. Bridge sustains ~346 events/s at 10k pace -- 2x host headroom vs the v0.7.0 10k events/min target. Single biggest insight: 8-agent grid is CHEAPER per tick than today's 2-card path (per-card cost drops, total stays bounded); the real bottleneck is wire serialisation -- 8-agent JSON blows past CONSOLE_MAX_LINE=1024, so msgpack-on-wire is the highest-leverage next move. docs/SCALING.md plots the 4->8 migration path. 2 new G-PERF gaps.
+
+
 ## [0.6.0] — 2026-05-23
 
 **OTA + security primitives**
@@ -213,7 +220,8 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
   runner is slow and image-fragile). Real-hardware verification
   happens at release time via `tools/smoke.ps1` (planned).
 
-[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.7.0
 [0.6.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.6.0
 [0.5.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.5.0
 [0.4.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.4.0
@@ -222,6 +230,7 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
 [0.1.2]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.0
+
 
 
 
