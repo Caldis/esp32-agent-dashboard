@@ -8,6 +8,13 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-05-23
+
+**OTA + security primitives**
+
+SEC1 lands ed25519-verify (bundled — IDF v6.0.1 mbedtls has no ed25519), signed firmware OTA design (magic||ver||size||fw via sha512 stream-hash), NVS encryption wrapper for the dashcfg namespace, tools/sign/{generate_keys,sign_firmware}.py, and a 4-adversary threat model (shoulder-surfer + rogue host + WiFi MITM + compromised OTA blob). Build clean. Build integration documented in docs/THREAT_MODEL.md for F2. 3 new G-SEC gaps surfaced upstream.
+
+
 ## [0.5.0] — 2026-05-23
 
 **Agent-kind expansion — open registry**
@@ -206,7 +213,8 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
   runner is slow and image-fragile). Real-hardware verification
   happens at release time via `tools/smoke.ps1` (planned).
 
-[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.6.0
 [0.5.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.5.0
 [0.4.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.3.0
@@ -214,6 +222,7 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
 [0.1.2]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.0
+
 
 
 
