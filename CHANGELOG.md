@@ -8,6 +8,13 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [1.9.0] — 2026-05-23
+
+**On-device AI summarisation**
+
+AI1 ships 1315 LOC: docs/ON_DEVICE_AI.md, docs/MODEL_CARD.md, main/ai/ai_summarise.{c,h} stub, tools/ai/prepare_model.py (GGUF -> on-device blob), tools/ai/eval_summariser.py + eval_dataset.jsonl (20 real transcript-summary pairs). v1 anchor SmolLM-135M-Q4_K_M (Apache-2.0, 80MB); v2 ship target custom-distilled dashboard-t5-tiny ~8M params INT8. Inference engine forked from llama2.c (Karpathy). 5 new G-AI gaps. Privacy: model runs locally, no transcript ever leaves device.
+
+
 ## [1.8.0] — 2026-05-23
 
 **i18n — en / zh-CN / ja**
@@ -297,7 +304,8 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
   runner is slow and image-fragile). Real-hardware verification
   happens at release time via `tools/smoke.ps1` (planned).
 
-[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.9.0
 [1.8.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.8.0
 [1.7.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.7.0
 [1.6.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.6.0
@@ -318,6 +326,7 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
 [0.1.2]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.0
+
 
 
 
