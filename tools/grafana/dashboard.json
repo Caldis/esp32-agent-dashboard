@@ -1,0 +1,343 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "name": "Annotations & Alerts",
+        "type": "dashboard",
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "enable": true
+      }
+    ]
+  },
+  "description": "esp32-agent-dashboard observability. Reads ~/.claude-buddy/telemetry/*.jsonl via the JSON-API datasource. See tools/grafana/README.md for setup.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "title": "Project repo",
+      "url": "https://github.com/Caldis/esp32-agent-dashboard",
+      "type": "link",
+      "icon": "external link",
+      "targetBlank": true
+    }
+  ],
+  "liveNow": false,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Device uptime",
+      "type": "timeseries",
+      "description": "uptime_s_max per device — sawtooth pattern indicates reboots.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "dash-telemetry" },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "timeseries",
+          "url": "file://${jsonl_root}/$__interval.jsonl",
+          "url_options": { "method": "GET" },
+          "root_selector": "",
+          "columns": [
+            { "selector": "ts_unix", "text": "time", "type": "timestamp_epoch_s" },
+            { "selector": "device_id", "text": "device", "type": "string" },
+            { "selector": "uptime_s_max", "text": "uptime_s", "type": "number" }
+          ],
+          "filters": [
+            { "field": "device_id", "operator": "in", "value": ["$device"] }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineWidth": 2, "fillOpacity": 8, "spanNulls": false }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "calcs": ["lastNotNull", "max"] }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Heap free (p50 + min)",
+      "type": "timeseries",
+      "description": "heap_free_p50 vs heap_free_min. Gap = jitter; downward trend = leak.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "dash-telemetry" },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "timeseries",
+          "url": "file://${jsonl_root}/$__interval.jsonl",
+          "columns": [
+            { "selector": "ts_unix",       "text": "time",     "type": "timestamp_epoch_s" },
+            { "selector": "device_id",     "text": "device",   "type": "string" },
+            { "selector": "heap_free_p50", "text": "heap_p50", "type": "number" },
+            { "selector": "heap_free_min", "text": "heap_min", "type": "number" }
+          ],
+          "filters": [
+            { "field": "device_id", "operator": "in", "value": ["$device"] }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",    "value": null },
+              { "color": "orange", "value": 51200 },
+              { "color": "green",  "value": 102400 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "calcs": ["min", "lastNotNull"] }
+      }
+    },
+    {
+      "id": 3,
+      "title": "FPS p50 / p95 (worst-frame proxy)",
+      "type": "timeseries",
+      "description": "p50 is normal frame rate; p95 here means the 5th percentile (slowest 5% of frames).",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "dash-telemetry" },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "timeseries",
+          "url": "file://${jsonl_root}/$__interval.jsonl",
+          "columns": [
+            { "selector": "ts_unix",  "text": "time",    "type": "timestamp_epoch_s" },
+            { "selector": "device_id","text": "device",  "type": "string" },
+            { "selector": "fps_p50",  "text": "fps_p50", "type": "number" },
+            { "selector": "fps_p95",  "text": "fps_p95", "type": "number" }
+          ],
+          "filters": [
+            { "field": "device_id", "operator": "in", "value": ["$device"] }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Hz",
+          "min": 0,
+          "max": 60,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",    "value": null },
+              { "color": "orange", "value": 15 },
+              { "color": "green",  "value": 25 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "title": "Prompt latency histogram (bridge bench)",
+      "type": "barchart",
+      "description": "Counts of prompt-roundtrip samples falling into each latency bucket. Lower-left fat = healthy.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "dash-telemetry" },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "url": "file://${jsonl_root}/$__interval.jsonl",
+          "root_selector": "prompt_latency_buckets_ms",
+          "columns": [
+            { "selector": "<50",    "text": "<50 ms",    "type": "number" },
+            { "selector": "<100",   "text": "<100 ms",   "type": "number" },
+            { "selector": "<250",   "text": "<250 ms",   "type": "number" },
+            { "selector": "<500",   "text": "<500 ms",   "type": "number" },
+            { "selector": "<1000",  "text": "<1000 ms",  "type": "number" },
+            { "selector": ">=1000", "text": ">=1000 ms", "type": "number" }
+          ],
+          "filters": [
+            { "field": "device_id", "operator": "in", "value": ["$device"] }
+          ]
+        }
+      ],
+      "options": {
+        "orientation": "vertical",
+        "showValue": "always",
+        "legend": { "displayMode": "hidden" }
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "title": "Error rate (ERR per 1k OK replies)",
+      "type": "stat",
+      "description": "A step up from baseline almost always points at a regression on the bridge side.",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 16 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "dash-telemetry" },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "timeseries",
+          "url": "file://${jsonl_root}/$__interval.jsonl",
+          "columns": [
+            { "selector": "ts_unix",        "text": "time",  "type": "timestamp_epoch_s" },
+            { "selector": "err_per_1k_ok",  "text": "err",   "type": "number" }
+          ],
+          "filters": [
+            { "field": "device_id", "operator": "in", "value": ["$device"] }
+          ]
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "orange", "value": 5 },
+              { "color": "red",    "value": 20 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "title": "Agent count (p50 / p95)",
+      "type": "timeseries",
+      "description": "Concurrent dash agents over the window. p95 spikes show parallel-agent peaks.",
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 16 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "dash-telemetry" },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "timeseries",
+          "url": "file://${jsonl_root}/$__interval.jsonl",
+          "columns": [
+            { "selector": "ts_unix",          "text": "time",    "type": "timestamp_epoch_s" },
+            { "selector": "agent_count_p50",  "text": "p50",     "type": "number" },
+            { "selector": "agent_count_p95",  "text": "p95",     "type": "number" }
+          ],
+          "filters": [
+            { "field": "device_id", "operator": "in", "value": ["$device"] }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0 },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "title": "Crashes (24h)",
+      "type": "stat",
+      "description": "Sum of crash_count over the time window. Should be 0 in steady state.",
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 16 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "dash-telemetry" },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "timeseries",
+          "url": "file://${jsonl_root}/$__interval.jsonl",
+          "columns": [
+            { "selector": "ts_unix",     "text": "time",    "type": "timestamp_epoch_s" },
+            { "selector": "crash_count", "text": "crashes", "type": "number" }
+          ],
+          "filters": [
+            { "field": "device_id", "operator": "in", "value": ["$device"] }
+          ]
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "orange", "value": 1 },
+              { "color": "red",    "value": 3 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["esp32-agent-dashboard", "telemetry"],
+  "templating": {
+    "list": [
+      {
+        "name": "device",
+        "label": "Device",
+        "type": "query",
+        "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "dash-telemetry" },
+        "query": "select distinct device_id from telemetry",
+        "multi": true,
+        "includeAll": true,
+        "current": { "selected": false, "text": "All", "value": "$__all" }
+      },
+      {
+        "name": "jsonl_root",
+        "label": "JSONL root path",
+        "type": "constant",
+        "current": { "selected": true, "text": "~/.claude-buddy/telemetry", "value": "~/.claude-buddy/telemetry" },
+        "query": "~/.claude-buddy/telemetry",
+        "hide": 0,
+        "description": "Adjust if your telemetry directory lives elsewhere."
+      }
+    ]
+  },
+  "time": { "from": "now-24h", "to": "now" },
+  "timepicker": {
+    "refresh_intervals": ["10s", "30s", "1m", "5m", "15m", "30m", "1h", "6h"]
+  },
+  "timezone": "browser",
+  "title": "esp32-agent-dashboard / telemetry",
+  "uid": "esp32-agent-dashboard-telemetry",
+  "version": 1,
+  "weekStart": ""
+}
