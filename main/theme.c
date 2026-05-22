@@ -88,10 +88,56 @@ const char *theme_current_name(void)
     return s_current->name;
 }
 
+/* Deterministic per-kind hue allocator, used as a fallback when the
+ * kind isn't in the curated set (claude-code, codex). djb2 hash gives
+ * stable per-kind hues across reboots; golden-ratio rotation (137°)
+ * gives maximal hue spread when many kinds appear at once — same
+ * trick used in palette generators for distinct-but-related colours.
+ *
+ * The HSL conversion uses fixed saturation+lightness chosen per theme
+ * to keep the new kinds readable against the active background. See
+ * docs/AGENT_KINDS.md for the wire-level contract and v0.5.0 ship
+ * justification. */
+static uint32_t hsl_to_rgb(uint16_t h, uint8_t s_pct, uint8_t l_pct)
+{
+    /* fixed-point HSL → RGB, no FP. h in [0,360), s/l in [0,100]. */
+    int s = s_pct, l = l_pct;
+    int c = (100 - (l > 50 ? (2*l - 100) : (100 - 2*l))) * s / 100;  /* chroma scaled */
+    int x_num = c * (60 - ((h % 120) > 60 ? (h % 120) - 60 : 60 - (h % 120)));
+    int x = x_num / 60;
+    int m = l - c / 2;
+    int r1=0, g1=0, b1=0;
+    if      (h < 60)  { r1 = c; g1 = x; }
+    else if (h < 120) { r1 = x; g1 = c; }
+    else if (h < 180) { g1 = c; b1 = x; }
+    else if (h < 240) { g1 = x; b1 = c; }
+    else if (h < 300) { r1 = x; b1 = c; }
+    else              { r1 = c; b1 = x; }
+    int r = (r1 + m) * 255 / 100;
+    int g = (g1 + m) * 255 / 100;
+    int b = (b1 + m) * 255 / 100;
+    if (r < 0)   r = 0;
+    if (r > 255) r = 255;
+    if (g < 0)   g = 0;
+    if (g > 255) g = 255;
+    if (b < 0)   b = 0;
+    if (b > 255) b = 255;
+    return ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
+}
+
 uint32_t theme_accent_for_kind(const char *kind)
 {
     if (!kind || kind[0] == '\0') return s_current->accent_other;
     if (strcmp(kind, "claude-code") == 0) return s_current->accent_claude;
     if (strcmp(kind, "codex")       == 0) return s_current->accent_codex;
-    return s_current->accent_other;
+    /* Open registry: pick a deterministic hue for any other kind so
+     * Cursor / Aider / qwen-code / future tools render with distinct
+     * accents without firmware updates. See docs/AGENT_KINDS.md. */
+    uint32_t hash = 5381;
+    for (const char *p = kind; *p; ++p) hash = hash * 33u + (uint8_t)*p;
+    uint16_t hue = (uint16_t)((hash * 137u) % 360u);
+    uint8_t s = (s_current->id == THEME_LAB)  ? 65 : 55;
+    uint8_t l = (s_current->id == THEME_LAB)  ? 40 : 55;
+    if (s_current->id == THEME_MONO) return s_current->accent_other;  /* mono = no accent */
+    return hsl_to_rgb(hue, s, l);
 }
