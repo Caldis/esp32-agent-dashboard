@@ -1,159 +1,219 @@
-# esp32-agent-dashboard wire protocol (v0)
+# esp32-agent-dashboard wire protocol
 
-The contract between the host bridge and the device. Both sides
-must follow this exactly. Versioned `v0` because BLE NUS in `v1`
-will replace the transport but keep the schema.
+`v1` (current). `v0` was USB-Serial-only single-agent. `v1` adds
+per-agent sessions (Claude Code + Codex side-by-side), richer scene
+data, device-side configuration. BLE NUS arrives in `v2`.
 
-## Transport (v0)
+## Transport (v1)
 
-USB-Serial JTAG over the device's USB-C, 115200 baud, accessed via
-the esp-harness `console_protocol` (which sits inside the standard
-ESP-IDF console interface). One JSON object per host→device command,
-host accumulates device replies until it sees `OK:`/`ERR:`/`EVT:`.
+USB-Serial JTAG / 115200 baud / esp-harness `console_protocol`
+line framing. One JSON object per `dash <verb> "<json>"` console
+line. Replies are `OK:` / `ERR:` / `EVT:` prefixed lines.
 
-The console protocol handles the framing — the host bridge uses
-`esp-harness console --cmd 'dash <verb> <json>'` per snapshot (or
-`pyserial` directly for the persistent prompt/decision round-trip).
+The G-7 fix (commit `esp-harness@664b14e`) made the tokeniser
+preserve inner quotes on quote-leading tokens, so nested JSON
+arrives at the device parser intact.
 
 ## Commands (host → device)
 
-Each is one console line: `dash <verb> '<json>'` where the JSON is a
-single argv-token (outer double-quotes around the JSON; inner
-escaped). The console tokenizer's quote support (added in
-esp-harness v1.7.1) handles spaces inside the JSON payload.
-
 ### `dash snapshot`
 
-Periodic state push. Sent every ~250 ms when something changes, plus
-a 10 s keepalive.
+Periodic state push. Throttled by the bridge to ≤ 1 per 250 ms
+(configurable via `--throttle-ms`). Plus a 10 s keepalive.
 
 ```json
 {
-  "total":       3,
-  "running":     1,
-  "waiting":     1,
-  "msg":         "approve: Bash",
-  "entries":     ["10:42 git push", "10:41 yarn test", "10:39 reading file"],
-  "tokens":      184502,
-  "tokens_today":31200,
-  "prompt":      null
+  "agents": [
+    {
+      "kind": "claude-code",
+      "session_id": "cc_abc",
+      "status": "running",
+      "cwd": "D:\\Code\\my-firmware",
+      "msg": "editing main.c",
+      "entries": [
+        {"t":"10:42","tool":"Bash","summary":"git push"},
+        {"t":"10:41","tool":"Edit","summary":"main.c (+8 -2)"},
+        {"t":"10:39","tool":"Read","summary":"main.c (120 lines)"}
+      ],
+      "tokens": 84502,
+      "tokens_today": 21200,
+      "last_active_unix": 1779600000,
+      "prompt": null
+    },
+    {
+      "kind": "codex",
+      "session_id": "cx_xyz",
+      "status": "idle",
+      "cwd": "D:\\Code\\other",
+      "msg": "(stop)",
+      "entries": [
+        {"t":"10:30","tool":"Grep","summary":"login (42 hits)"}
+      ],
+      "tokens": 12300,
+      "tokens_today": 12300,
+      "last_active_unix": 1779599800,
+      "prompt": null
+    }
+  ],
+  "totals": {
+    "total":2, "running":1, "waiting":0,
+    "tokens": 96802, "tokens_today": 33500
+  }
 }
 ```
 
 Field rules:
-- `total` ≥ 0, count of all sessions.
-- `running` ≤ `total`, sessions actively generating.
-- `waiting` ≤ `total`, sessions blocked on a permission prompt.
-- `msg` is a single-line summary suitable for a 466-pixel display.
-  Max 64 UTF-8 bytes on the wire; device may truncate further for
-  display.
-- `entries` is the last N transcript lines (newest first), max 8
-  on the wire. Device renders 4 — overflow is dropped.
-- `tokens` and `tokens_today` are cumulative output tokens
-  (non-decreasing; `tokens_today` resets at host's local midnight).
-- `prompt` is `null` unless a session is blocked on permission, in
-  which case it's the same shape as `dash prompt`'s body (see below).
+- `agents[].kind` ∈ {`claude-code`, `codex`, `other`}. Device picks
+  a colour per kind from its palette.
+- `agents[].status` ∈ {`running`, `waiting`, `idle`}.
+- `agents[].entries[].tool` is the canonical tool name. Device may
+  render an icon based on it (Bash/Edit/Read/Grep/Write/...).
+- `last_active_unix` lets the device show "active 7 s ago" without
+  needing its own clock sync (still useful — see `dash time` below).
+
+Backwards compat: the flat v0 shape (`total`/`running`/`waiting`/
+`msg`/`entries[]`/`tokens`/`tokens_today`/`prompt`) is still
+accepted. The device treats a flat snapshot as a single-agent
+implicit-kind `claude-code`. Bridge >= v1 emits the v1 shape.
 
 ### `dash prompt`
 
-Switches device to the `prompt` scene immediately and waits for a
-user button press.
+Unchanged from v0. The prompt scene now also shows which agent
+submitted the prompt if `agent_kind` is provided:
 
 ```json
 {
-  "id":   "req_abc123",
+  "id": "req_abc123",
   "tool": "Bash",
-  "hint": "rm -rf /tmp/foo"
+  "hint": "rm -rf /tmp/foo",
+  "agent_kind": "claude-code",
+  "session_id": "cc_abc"
 }
 ```
 
-- `id` is whatever string the host wants to correlate decision back.
-  Device echoes it verbatim in the EVT.
-- `tool` is the tool name (any string; e.g. `Bash`, `Edit`, `Read`).
-  Device may abbreviate for display.
-- `hint` is the call-site detail (command for Bash, target path for
-  Edit, etc.). Max 256 UTF-8 bytes; device wraps to fit.
-
-Device fires `EVT: permission id=<id> decision=<once|deny>` when the
-user presses **BOOT** (once) or **USER** (deny). After 60 s with no
-press, device emits `decision=deny` and switches back to whatever
-scene it was on before.
+Device fires `EVT: permission id=<id> decision=<once|deny>` on
+button press, plus `session_id=<id>` so the bridge can route the
+decision back to the right agent.
 
 ### `dash event`
 
-A one-shot completed-turn transcript line. Appended to the rolling
-`entries` buffer that `sessions` scene displays. Drops anything >2 KB.
+A one-shot transcript line (kept in v0 form for bridges that
+haven't migrated):
 
 ```json
 {
-  "role":    "assistant",
-  "content": [{"type":"text","text":"writing the patch now"}]
+  "agent_kind": "claude-code",
+  "session_id": "cc_abc",
+  "role": "assistant",
+  "content": [{"type":"text","text":"writing patch"}]
 }
 ```
 
 ### `dash tokens`
 
-Pushes a token-count sample to the sparkline shown on `tokens` scene.
+Per-agent token sample (sparkline accumulates per agent):
 
 ```json
 {
-  "cumulative":    184502,
-  "today":         31200,
+  "agent_kind": "claude-code",
+  "session_id": "cc_abc",
+  "cumulative": 84502,
+  "today": 21200,
   "latest_sample": 1240
 }
 ```
 
-- `latest_sample` is the count delta for the most recent turn.
-
 ### `dash idle`
 
-No payload. Switches device back to `idle` scene immediately. Used
-when all sessions end.
+No payload. Switches to idle scene.
 
-## Replies (device → host)
+### `dash config` (new in v1)
 
-### `OK:` body
-
-JSON object containing what was applied:
+Set device-side parameters. Persisted to NVS so they survive reboot.
 
 ```json
-OK: {"scene":"sessions","total":3,"running":1}
+{
+  "device_name": "Clawd",
+  "owner": "Felix",
+  "theme": "noir",
+  "default_scene": "sessions"
+}
 ```
 
-### `ERR:` body
+All fields optional; only present fields are updated. Theme values:
+`noir` (current default — dark with rust accent), `lab` (light
+clinical), `mono` (single-colour minimal).
 
-A short reason string. JSON-parseable as a string is fine, prose is
-fine too:
+### `dash time` (new in v1)
 
-```
-ERR: missing required field 'total' in snapshot
-```
-
-### `EVT: permission`
-
-Fired by the prompt scene on physical button press OR on 60 s timeout.
-
-```
-EVT: permission id=<id> decision=once
-EVT: permission id=<id> decision=deny
+```json
+{
+  "epoch_unix": 1779600000,
+  "tz_offset_seconds": -25200
+}
 ```
 
-The host bridge MUST forward this back to the originating CLI (CC
-or Codex) so the blocked session can proceed.
+Lets device compute "active N s ago" + "today" rollover precisely.
+
+### `dash health` (new in v1)
+
+Query device status. Device replies with one snapshot of its own
+internals:
+
+```json
+OK: {
+  "device_name": "Clawd",
+  "owner": "Felix",
+  "scene": "sessions",
+  "uptime_s": 8412,
+  "heap_free": 84200,
+  "heap_min": 78400,
+  "fps": 33.4,
+  "battery_pct": 87,
+  "snapshots_received": 4612,
+  "prompts_received": 14,
+  "decisions_sent": 14,
+  "connection_age_s": 1820,
+  "agent_count": 2
+}
+```
+
+Bridge calls this every ~5 s for the connection-health indicator and
+to populate its own status display.
+
+## Reply tag convention (post G-4 fix)
+
+The `OK:` line for a payload-followed command now embeds the tag
+so the host parser doesn't have to know names by convention:
+
+```
+OK: payload follows tag=HEALTH
+HEALTH_BEGIN fmt=json bytes=420
+{...}
+HEALTH_END
+```
+
+Tags used by dashboard firmware: `HELP` (built-in), `SCENES`
+(built-in), `DUMP` (screenshot), `HEALTH` (new in v1).
+
+## EVT lines
+
+| EVT body | Source | When |
+|---|---|---|
+| `permission id=<id> decision=<once\|deny> [session_id=<id>]` | prompt scene button press / 60s timeout | host bridge correlates to its pending request |
+| `scene_changed idx=<n> id=<id>` | every scene_fw_show | bridge can log |
+| `agent_added kind=<kind> session_id=<id>` | snapshot adds new agent | bridge can log |
+| `agent_removed kind=<kind> session_id=<id>` | snapshot drops an agent | bridge can log |
+| `low_heap free=<bytes>` | heap watchdog (v1) | bridge can warn user |
 
 ## Wire size
 
-`CONSOLE_MAX_LINE = 1024` bytes in esp-harness v1.7.5. A `dash
-snapshot` with 8 entries + a prompt is comfortably under that. The
-host bridge SHOULD reject snapshots that serialize >1000 bytes after
-JSON-compaction — drop the oldest entries first, keep `prompt` /
-`msg` / counters intact.
-
-If the line is too long, the device-side tokenizer silently
-truncates (known esp-harness limitation; see HARNESS_GAPS.md).
+CONSOLE_MAX_LINE = 1024 bytes. v1 snapshots with two agents at full
+detail are typically 400-700 bytes. The bridge MUST truncate
+`entries[]` (oldest first) if a snapshot serialises >900 bytes.
 
 ## Versioning
 
-This file is `v0`. Any breaking change bumps to `v1`. Additive
-fields (new optional keys) don't bump the version — both sides
-ignore unknown fields.
+Bridge sends `{"protocol":"v1"}` in the first command after connect.
+Device replies `OK: {"protocol":"v1","compat":["v0","v1"]}` to
+indicate it accepts both. Old bridges sending raw v0 still work.
