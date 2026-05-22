@@ -8,6 +8,13 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-05-23
+
+**Community kit — hardware guide, examples, demo script**
+
+COMM1 ships docs/HARDWARE_GUIDE.md (BOM ~42 USD reference build), docs/GET_STARTED.md (30-minute zero-to-working path), docs/TROUBLESHOOTING.md (9 failure modes by symptom), docs/DEMO_VIDEO_SCRIPT.md (2-3 min HN-ready video script), 3 runnable examples (01_minimal, 02_two_agents, 03_prompt_roundtrip) all exiting 0 against mock_device_v1, 2 hand-authored SVG hardware diagrams. Lowers the barrier from README-only to a graceful ramp where curious readers can prove the toolchain talks to itself before they buy the board.
+
+
 ## [0.7.0] — 2026-05-23
 
 **Performance baseline + 8-agent scaling plan**
@@ -220,7 +227,8 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
   runner is slow and image-fragile). Real-hardware verification
   happens at release time via `tools/smoke.ps1` (planned).
 
-[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.8.0
 [0.7.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.7.0
 [0.6.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.6.0
 [0.5.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.5.0
@@ -230,6 +238,7 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
 [0.1.2]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.0
+
 
 
 
