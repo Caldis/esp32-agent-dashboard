@@ -40,7 +40,10 @@ static bool skip_value(const char **pp, const char *end)
         return false;
     }
     if (c == '{' || c == '[') {
-        char close = (c == '{') ? '}' : ']';
+        /* Track total bracket depth regardless of kind, so nested
+         * arrays inside objects (or vice versa) don't mis-balance.
+         * The outer kind only matters to assert we close at depth 0
+         * with the same character. */
         int depth = 1;
         p++;
         while (p < end && depth > 0) {
@@ -55,10 +58,7 @@ static bool skip_value(const char **pp, const char *end)
                 continue;
             }
             if (*p == '{' || *p == '[') depth++;
-            else if (*p == '}' || *p == ']') {
-                if (*p == close) depth--;
-                /* mismatched close is malformed but we'll still progress */
-            }
+            else if (*p == '}' || *p == ']') depth--;
             p++;
         }
         if (depth != 0) return false;

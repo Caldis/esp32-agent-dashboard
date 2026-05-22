@@ -59,10 +59,8 @@ class MockDeviceV1:
         line = line.strip()
         if not line:
             return
-        self._log("LINE_IN", f"len={len(line)} head={line[:60]!r} tail={line[-60:]!r}")
         argv = self._tokenise(line)
         if not argv or argv[0] != "dash":
-            self._log("LINE_SKIP", argv[:2] if argv else "empty")
             return
         if len(argv) < 2:
             send("ERR: usage: dash <verb> [json]\n")

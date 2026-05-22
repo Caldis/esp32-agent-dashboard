@@ -301,6 +301,94 @@ verb (much stronger contract than dry-run printing).
 
 **Resolution**: (pending — non-blocking for v0.1.0.)
 
+### G-H1 — bridge needs payload-follows reply framing helper
+
+**Context**: H1 (host bridge v1 upgrade).
+
+**What I needed**: A documented, library-supplied way to consume the
+new `OK: payload follows tag=<TAG>` / `<TAG>_BEGIN ... <TAG>_END`
+multi-line reply shape introduced in PROTOCOL.md v1 (currently used
+by `dash health`, future `dash screenshot`, etc.). The host bridge
+has to roll its own state machine to (a) recognise the trigger line,
+(b) skip the `<TAG>_BEGIN fmt=json bytes=N` framing line, (c) collect
+inner lines, (d) flush on `<TAG>_END`. Each consumer will re-invent
+this and inevitably differ in edge cases (mine missed the BEGIN-skip
+on first try and got "Expecting value: char 0" because the framing
+line went into the JSON buffer).
+
+**What I got**: protocol spec mentions the convention but no helper.
+The pyserial line iterator gives us raw lines and we glue the state
+machine ourselves.
+
+**Workaround used**: hand-rolled `_process_line()` + `_await_tag` /
+`_await_buf` in `tools/claude_buddy_bridge.py:DevicePusher`.
+
+**Suggested upstream fix**: ship `esp_harness.core.parser.PayloadFollowsReader`
+or similar — give it an iterator of OK/EVT/ERR lines and it yields
+either a single-line OK/ERR/EVT or a parsed `(tag, blob)` tuple. Then
+both `claude_buddy_bridge` and any other consumer reuse identical logic.
+
+**Resolution**: (pending — flagging for esp-harness consumption.)
+
+### G-H2 — no canonical Python G-7 tokeniser yet for *quote-leading mode*
+
+**Context**: H1 (had to extend mock_device for v1 verbs).
+
+**What I needed**: When `mock_device.py` (which is V1-C's domain) does
+not yet exist for v1, agents writing their own v1 mock (`tools/mock_device_v1.py`)
+need to import the exact G-7 quote-leading tokeniser used by the device.
+G-8 surfaced this and the resolution claims `esp_harness.core.parser.tokenise_console_line`
+ships it. But during the H1 cycle that module wasn't importable from
+this repo (path-injection ergonomics), so I re-implemented it by hand —
+and got it WRONG on the first try (my version terminated quote-leading
+tokens at the next whitespace rather than at the next `"`-followed-by-whitespace).
+That broke every snapshot whose `msg` field contained a space (which is
+basically every realistic prompt: `"> refactor the auth flow"`).
+
+**What I got**: silent failure mode — bridge sent 10 snapshots, mock
+received them, mock's stale parser returned a half-token, json.loads
+raised `Unterminated string starting at char 113`. Mock send `ERR: ...`
+back to the bridge but the bridge ignores ERR lines. Mock log showed
+LINE_IN entries but no RX entries for ~30 seconds before I added
+MALFORMED logging.
+
+**Workaround used**: corrected my tokeniser in `tools/mock_device_v1.py`
+to find the closing `"` followed by whitespace/EOL, not the next whitespace.
+
+**Suggested upstream fix**: same as G-8 — make the canonical Python
+tokeniser trivially importable from a consumer's `tools/` dir. Also
+add G-7 parity test cases that include spaces inside the quoted JSON
+payload (e.g. `dash snapshot "{"msg":"hi there"}"`); the existing
+parity suite apparently didn't cover this since the agents that wrote
+it never had a `msg` with whitespace in the test corpus.
+
+**Resolution**: (pending — would close out G-8 properly.)
+
+### G-H3 — bridge should log ERR replies from device
+
+**Context**: H1 (debugging session loss).
+
+**What I needed**: When the device (or mock) returns
+`ERR: dash <verb>: malformed JSON (...)`, the bridge currently swallows
+it silently in `_process_line()` — only OK / EVT lines are processed.
+That made the "snapshot doesn't appear on device" failure mode invisible
+until I instrumented the mock side. The bridge log just showed timing
+stats "10 pushes successful" because `sendall()` returned cleanly, but
+the device side had errored out on every single one.
+
+**What I got**: bridge logs nothing about ERR lines.
+
+**Workaround used**: noted; will add an ERR-line warning in a follow-up
+patch (would change observable behaviour mid-cycle, so leaving for next
+iteration).
+
+**Suggested upstream fix**: `esp_harness.core.console_session` should
+surface ERR lines via a dedicated callback (or expose them through the
+iter_lines stream with a tag so consumers can choose to log/raise).
+Bridges that ignore them are bridges that pretend to work.
+
+**Resolution**: (pending — H1 follow-up.)
+
 ## Resolved
 
 | Gap | Resolution commit |
@@ -308,7 +396,9 @@ verb (much stronger contract than dry-run printing).
 | G-7 (tokeniser collapse) | `esp-harness@664b14e` |
 | (console-overflow drain) | `esp-harness@98affb0` (Agent G) |
 | G-8 (consumer-mock parser drift) | `esp-harness@fb5a549` — `esp_harness.core.parser` + 25 parity tests |
+| G-D2 (bridge has no TCP port-kind) | `esp32-agent-dashboard@H1` — bridge v1 adds `--port-kind {serial,tcp}` and `--port HOST:PORT`. |
 
 (G-1..G-6 still pending; G-1+G-3 deferred to ADR-1; G-6 is the
-v1.8 north star `esp-harness adversarial`; G-8 now resolved; G-D1
-and G-D2 surfaced by V1-D, non-blocking for v0.1.0.)
+v1.8 north star `esp-harness adversarial`; G-8 surfaced again as
+G-H2; G-D1 surfaced by V1-D, non-blocking for v0.1.0; G-D2 resolved
+by H1's bridge v1; G-H1..G-H3 freshly surfaced by H1.)

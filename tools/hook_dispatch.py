@@ -23,10 +23,12 @@ import sys
 
 DEFAULT_HOST = os.environ.get("CLAUDE_BUDDY_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.environ.get("CLAUDE_BUDDY_PORT", "7321"))
-DEFAULT_TIMEOUT = float(os.environ.get("CLAUDE_BUDDY_TIMEOUT", "2.0"))
-# PreToolUse permission round-trip can take a while (user has to physically
-# tap a button on the device). Override with a generous default.
-PROMPT_TIMEOUT = float(os.environ.get("CLAUDE_BUDDY_PROMPT_TIMEOUT", "45.0"))
+# v1: 5s for non-PreToolUse events (never block CC for longer); the bridge
+# itself replies within ~1ms in the common case.
+DEFAULT_TIMEOUT = float(os.environ.get("CLAUDE_BUDDY_TIMEOUT", "5.0"))
+# v1: PreToolUse permission round-trip can take up to 60 s (user has to
+# physically tap a button on the device, default permission-timeout-s).
+PROMPT_TIMEOUT = float(os.environ.get("CLAUDE_BUDDY_PROMPT_TIMEOUT", "60.0"))
 
 
 def _passthrough(reason: str = "") -> int:
@@ -59,8 +61,9 @@ def main(argv: list[str]) -> int:
     timeout = PROMPT_TIMEOUT if event_type == "pre_tool_use" else DEFAULT_TIMEOUT
 
     try:
+        # Short connect timeout so a dead bridge doesn't stall CC.
         with socket.create_connection((DEFAULT_HOST, DEFAULT_PORT),
-                                      timeout=DEFAULT_TIMEOUT) as sock:
+                                      timeout=1.0) as sock:
             sock.sendall((json.dumps(payload) + "\n").encode("utf-8"))
             sock.settimeout(timeout)
             line = sock.makefile("r", encoding="utf-8").readline()
