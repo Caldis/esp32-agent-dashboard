@@ -8,6 +8,13 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-05-23
+
+**Adversarial primitive — v1.8 north star landed**
+
+esp-harness@0fea03b ships esp-harness adversarial — multi-persona falsification harness with built-in verify + falsify personas, aggregator (dedupe by code location, cross-check via second persona), runner (with --rounds and --until-converged), CLI (esp-harness adversarial --personas ... --findings-out ...), and 11 smoke tests. The same 6-round manual loop that converged v1.7.0->v1.7.5 is now one command. Closes G-6. Real-AI dispatcher is staged for v0.3.1; the abstraction is in place. See docs/USING_ADVERSARIAL.md.
+
+
 ## [0.2.0] — 2026-05-23
 
 **Framework hardening — close G-1, G-3, G-4, G-H1, G-H3, G-F1b**
@@ -185,10 +192,12 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
   runner is slow and image-fragile). Real-hardware verification
   happens at release time via `tools/smoke.ps1` (planned).
 
-[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.2.0
 [0.1.2]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.0
+
 
 
