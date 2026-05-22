@@ -1,0 +1,30 @@
+# Example plugin manifest — minimum viable plugin under the v1.1.0 SDK.
+#
+# See docs/PLUGIN_SDK.md §3 for the field reference. This manifest is
+# checked into the repo as the canonical reference; sign_plugin.py
+# will produce manifest.toml.sig.author + manifest.toml.sig.user
+# alongside it before the firmware loader will accept it.
+
+[plugin]
+name             = "weather"
+display_name     = "Weather"
+version          = "0.1.0"
+description      = "Four-day weather forecast for a configured city."
+
+[abi]
+plugin_abi_version = 1
+min_firmware       = "1.1.0"
+max_firmware       = "<2.0.0"
+
+[exports]
+scenes           = ["scene_weather"]
+console_commands = [
+    "plugin.weather.set_city",
+    "plugin.weather.refresh",
+]
+
+[signing]
+author_key_id    = "ed25519:plug-author-DEV"
+
+[assets]
+embed = []
