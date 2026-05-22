@@ -8,6 +8,13 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-05-23
+
+**Mobile companion design**
+
+docs/MOBILE_COMPANION.md drafts the iOS/Android Flutter app: BLE NUS peer for first-boot provisioning, push notifications for permission prompts, decide-from-phone, spectator mode. Wire additions: dash mobile_subscribe + dash mobile_decide. App codebase lives in sibling repo esp32-agent-dashboard-mobile when v1.6.x lands.
+
+
 ## [1.5.0] — 2026-05-23
 
 **Session replay / timeline scrubbing**
@@ -276,7 +283,8 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
   runner is slow and image-fragile). Real-hardware verification
   happens at release time via `tools/smoke.ps1` (planned).
 
-[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.6.0
 [1.5.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.5.0
 [1.4.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.4.0
 [1.3.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.3.0
@@ -294,6 +302,7 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
 [0.1.2]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.0
+
 
 
 
