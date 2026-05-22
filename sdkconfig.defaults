@@ -1,0 +1,49 @@
+# Recommended starting Kconfig values for an aurora-harness project.
+# Conservative defaults; tune per your board.
+
+# Target — explicitly set so `idf.py build` on a fresh clone doesn't
+# default to plain `esp32` (which wouldn't have PSRAM and would break
+# the LVGL framebuffer allocation below). Change to esp32c6 / esp32p4
+# etc. as appropriate AND rerun `idf.py set-target` before first build.
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_IDF_TARGET_ESP32S3=y
+
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+# LVGL typically needs PSRAM for full-screen buffers.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+
+# console_protocol prefers USB-Serial-JTAG (no extra wires on most dev kits).
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+CONFIG_NVS_ENABLED=y
+
+# aurora-harness ships a `?dump` screenshot command that uses
+# lv_snapshot_take_to_draw_buf — that LVGL feature is OFF by default.
+# Without this, `components/aurora-harness/src/screenshot.c` fails to
+# compile with `implicit declaration of function 'lv_snapshot_take_to_draw_buf'`.
+CONFIG_LV_USE_SNAPSHOT=y
+
+# LVGL's libc-malloc adapters (we use them in Aurora; keeping the
+# defaults here means PSRAM is the malloc backend automatically).
+CONFIG_LV_USE_CLIB_MALLOC=y
+CONFIG_LV_USE_CLIB_STRING=y
+CONFIG_LV_USE_CLIB_SPRINTF=y
+
+# LVGL OS layer: aurora-harness assumes FreeRTOS-backed mutexes for
+# inter-task safety. Default is "none" which breaks lv_async_call
+# correctness in console-driven flows.
+CONFIG_LV_OS_FREERTOS=y
+
+# 16 MB flash with two OTA slots is the Aurora default. Adjust
+# partitions.csv to match if your board has 4 MB / 8 MB flash.
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+
+# Bigger fonts for the scene_hello label. LVGL's Kconfig only ships
+# montserrat_14 by default; enable 22 explicitly so the template's
+# label renders at a readable size on a 466×466 screen.
+CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_MONTSERRAT_22=y
