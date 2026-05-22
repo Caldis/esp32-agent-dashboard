@@ -46,6 +46,25 @@ except ImportError:  # pragma: no cover
     tomllib = None  # type: ignore
 
 
+# v0.2.0 of the esp-harness framework ships the public persistent-
+# session API (gaps G-1, G-3) and the PayloadFollowsReader helper
+# (gap G-H1) that this bridge previously rolled by hand. The lazy
+# path injection keeps working out-of-the-box when the user installs
+# esp-harness from source into a sibling venv. If the import fails
+# we fall back to a clear error — the legacy bespoke transport is
+# GONE in this revision.
+_ESP_HARNESS_SRC = r"D:\Code\esp-harness\tools\esp-harness\src"
+if _ESP_HARNESS_SRC not in sys.path:
+    sys.path.insert(0, _ESP_HARNESS_SRC)
+
+from esp_harness.client import (  # noqa: E402
+    ReplyEvent,
+    SessionHandle,
+    TransportError,
+    open_persistent_session,
+)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Defaults
 # ─────────────────────────────────────────────────────────────────────────────
@@ -331,150 +350,28 @@ class DeviceHealth:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Transport: TCP (mock_device.py) and Serial (esp-harness ConsoleSession)
+# Transport — now provided by esp_harness.client.open_persistent_session.
+# Previously the bridge carried its own _TCPTransport + _SerialTransport
+# (~140 LOC); both moved upstream in esp-harness v0.2.0 (gaps G-1, G-3).
+# We keep a thin format helper so the existing serve/replay/status/bench
+# argparse plumbing (port-kind serial|tcp, port "COM9"|"host:port") still
+# uses a single string everywhere.
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TransportError(Exception):
-    pass
 
+def _resolve_port_arg(port_kind: str, port: str) -> str:
+    """Turn (port_kind, port) into the single-string port argument the
+    new ``open_persistent_session`` factory consumes.
 
-class _TCPTransport:
-    """Newline-framed TCP transport. One persistent socket, line-oriented."""
-
-    def __init__(self, addr: str) -> None:
-        host, port_s = addr.split(":")
-        self._host = host
-        self._port = int(port_s)
-        self._sock: Optional[socket.socket] = None
-        self._buf = b""
-        self._lock = threading.Lock()
-
-    def open(self) -> None:
-        with self._lock:
-            if self._sock is not None:
-                return
-            try:
-                self._sock = socket.create_connection((self._host, self._port), timeout=3.0)
-            except OSError as e:
-                raise TransportError(f"tcp connect {self._host}:{self._port} failed: {e}") from e
-            self._sock.settimeout(0.5)
-            self._buf = b""
-
-    def close(self) -> None:
-        with self._lock:
-            if self._sock:
-                try:
-                    self._sock.close()
-                except OSError:
-                    pass
-            self._sock = None
-            self._buf = b""
-
-    def is_open(self) -> bool:
-        return self._sock is not None
-
-    def write_line(self, line: str) -> None:
-        with self._lock:
-            if self._sock is None:
-                raise TransportError("transport not open")
-            try:
-                self._sock.sendall((line.rstrip("\n") + "\n").encode("utf-8"))
-            except OSError as e:
-                self._sock = None
-                raise TransportError(f"write failed: {e}") from e
-
-    def read_lines(self, deadline: float) -> list[str]:
-        """Read available lines until *deadline* (monotonic seconds)."""
-        out: list[str] = []
-        while time.monotonic() < deadline:
-            sock = self._sock
-            if sock is None:
-                raise TransportError("transport not open")
-            try:
-                chunk = sock.recv(4096)
-            except socket.timeout:
-                if out:
-                    return out
-                continue
-            except OSError as e:
-                self._sock = None
-                raise TransportError(f"read failed: {e}") from e
-            if not chunk:
-                self._sock = None
-                raise TransportError("EOF from peer")
-            self._buf += chunk
-            while b"\n" in self._buf:
-                one, self._buf = self._buf.split(b"\n", 1)
-                out.append(one.decode("utf-8", errors="replace").rstrip("\r"))
-            if out:
-                return out
-        return out
-
-
-class _SerialTransport:
-    """Persistent USB-Serial transport via esp-harness ConsoleSession."""
-
-    def __init__(self, port: str) -> None:
-        self._port = port
-        self._sess = None
-        self._lock = threading.Lock()
-        # Lazy path injection
-        esp_src = r"D:\Code\esp-harness\tools\esp-harness\src"
-        if esp_src not in sys.path:
-            sys.path.insert(0, esp_src)
-
-    def open(self) -> None:
-        with self._lock:
-            if self._sess is not None:
-                return
-            try:
-                from esp_harness.core.console_session import ConsoleSession  # type: ignore
-            except Exception as e:
-                raise TransportError(f"cannot import ConsoleSession: {e}") from e
-            try:
-                self._sess = ConsoleSession(self._port).__enter__()
-            except Exception as e:
-                raise TransportError(f"serial open {self._port} failed: {e}") from e
-
-    def close(self) -> None:
-        with self._lock:
-            if self._sess is not None:
-                try:
-                    self._sess.__exit__(None, None, None)
-                except Exception:
-                    pass
-            self._sess = None
-
-    def is_open(self) -> bool:
-        return self._sess is not None
-
-    def write_line(self, line: str) -> None:
-        with self._lock:
-            if self._sess is None:
-                raise TransportError("transport not open")
-            try:
-                self._sess._ser.write((line.rstrip("\n") + "\n").encode("utf-8"))
-                self._sess._ser.flush()
-            except Exception as e:
-                self._sess = None
-                raise TransportError(f"serial write failed: {e}") from e
-
-    def read_lines(self, deadline: float) -> list[str]:
-        sess = self._sess
-        if sess is None:
-            raise TransportError("transport not open")
-        try:
-            return [ln for ln in sess._iter_lines(deadline) if ln and ln != "\0"]
-        except Exception as e:
-            self._sess = None
-            raise TransportError(f"serial read failed: {e}") from e
-
-
-def make_transport(port_kind: str, port: str):
+    The factory auto-detects serial vs TCP by looking for ``host:port``
+    shape, so for serial we pass the bare COM name and for TCP we pass
+    ``host:port``. The legacy CLI shape with --port-kind is preserved
+    so existing scripts / docs keep working.
+    """
     if port_kind == "tcp":
-        return _TCPTransport(port)
+        return port
     if port_kind == "serial":
-        return _SerialTransport(port)
+        return port
     raise ValueError(f"unknown port-kind: {port_kind!r}")
 
 
@@ -486,7 +383,15 @@ _PERM_RE = re.compile(r"permission\s+id=(\S+)\s+decision=(\w+)")
 
 
 class DevicePusher:
-    """v1 transport-agnostic pusher with reconnect, buffering, EVT reader."""
+    """Transport-agnostic pusher with reconnect, buffering, EVT reader.
+
+    Built on :class:`esp_harness.client.SessionHandle` — the bridge
+    previously rolled its own transport + reader-loop + payload-follows
+    parser. All three moved upstream in esp-harness v0.2.0 (gaps G-1,
+    G-3, G-H1, G-H3). The bridge keeps the surface area that's
+    consumer-specific: reconnect orchestration, snapshot buffering,
+    health bookkeeping, permission round-trip, and dry-run handling.
+    """
 
     def __init__(
         self,
@@ -502,29 +407,25 @@ class DevicePusher:
         self.dry_run = dry_run
         self.health = health
         self.on_reconnect = on_reconnect
-        self._transport = None if dry_run else make_transport(port_kind, port)
+        self._port_arg = _resolve_port_arg(port_kind, port) if not dry_run else ""
+        self._session: Optional[SessionHandle] = None
         self._lock = threading.Lock()
         self._timings: list[float] = []
         self._permission_waiters: dict[str, queue.Queue[str]] = {}
         self._buffered_snapshot: Optional[dict] = None
-        self._reader_thread: Optional[threading.Thread] = None
-        self._stop_reader = threading.Event()
-        # Pending payload-follows parser state
-        self._await_tag: Optional[str] = None
-        self._await_bytes: int = 0
-        self._await_buf: list[str] = []
+        self._stop = threading.Event()
+        self._reconnect_thread: Optional[threading.Thread] = None
 
     # ── lifecycle ─────────────────────────────────────────────────────
     def open_with_retry(self, *, retry_total_s: float = 30.0, retry_every_s: float = 2.0) -> bool:
         if self.dry_run:
             return True
         deadline = time.monotonic() + retry_total_s
-        last_err = None
+        last_err: Exception | None = None
         while time.monotonic() < deadline:
             try:
-                self._transport.open()
+                self._open_session()
                 self.health.connected = True
-                self._start_reader()
                 return True
             except TransportError as e:
                 last_err = e
@@ -533,28 +434,37 @@ class DevicePusher:
         print(f"[bridge] open failed after {retry_total_s}s: {last_err}", file=sys.stderr)
         return False
 
-    def close(self) -> None:
-        self._stop_reader.set()
-        if self._transport is not None:
-            self._transport.close()
-        self.health.connected = False
+    def _open_session(self) -> None:
+        """Open a SessionHandle and wire up our event subscribers.
 
-    def _start_reader(self) -> None:
-        if self._reader_thread and self._reader_thread.is_alive():
-            return
-        self._stop_reader.clear()
-        self._reader_thread = threading.Thread(
-            target=self._evt_reader_loop, daemon=True, name="evt-reader"
-        )
-        self._reader_thread.start()
+        Called from open_with_retry and from the reconnect path. We
+        register handlers for `evt` (permission round-trips) and
+        `payload` (HEALTH blob) plus an on_err to log device-side
+        errors so they're never silently dropped (gap G-H3).
+        """
+        session = open_persistent_session(self._port_arg)
+        session.on_event(self._on_payload, kinds=frozenset({"payload"}))
+        session.on_event(self._on_evt, kinds=frozenset({"evt"}))
+        session.on_err(self._on_err)
+        self._session = session
+
+    def close(self) -> None:
+        self._stop.set()
+        if self._session is not None:
+            try:
+                self._session.close()
+            except Exception:
+                pass
+            self._session = None
+        self.health.connected = False
 
     # ── line push ─────────────────────────────────────────────────────
     def push(self, cmd: str, payload: Optional[dict]) -> dict:
         """Push one ``dash <cmd>`` line. Returns {ok, elapsed_ms, ...}.
 
-        Payload is wrapped in double-quotes so the device tokeniser (post G-7
-        fix) preserves nested JSON quotes intact. The leading `"` triggers the
-        "preserve inner quotes" mode in the device parser.
+        Payload is wrapped in double-quotes so the device tokeniser (post
+        G-7 fix) preserves nested JSON quotes intact. The leading `"`
+        triggers the "preserve inner quotes" mode in the device parser.
         """
         if payload is None:
             line = f"dash {cmd}"
@@ -565,23 +475,26 @@ class DevicePusher:
             return {"ok": True, "dry_run": True}
         started = time.monotonic()
         try:
-            if not self._transport.is_open():
+            sess = self._session
+            if sess is None or not sess.is_open:
                 # Attempt fast reconnect for in-flight push
-                self._transport.open()
+                self._open_session()
                 if self.on_reconnect:
                     try:
                         self.on_reconnect()
                     except Exception as e:
                         print(f"[bridge] on_reconnect raised: {e}", file=sys.stderr)
-                self._start_reader()
                 self.health.connected = True
-            self._transport.write_line(line)
+                sess = self._session
+                assert sess is not None
+            sess.write_line(line)
             elapsed_ms = (time.monotonic() - started) * 1000
             with self._lock:
                 self._timings.append(elapsed_ms)
             return {"ok": True, "elapsed_ms": elapsed_ms}
         except TransportError as e:
             self.health.connected = False
+            self._schedule_reconnect()
             return {"ok": False, "error": str(e)}
         except Exception as e:
             self.health.connected = False
@@ -600,30 +513,62 @@ class DevicePusher:
     def is_connected(self) -> bool:
         return bool(self.health.connected)
 
-    # ── EVT reader (background) ───────────────────────────────────────
-    def _evt_reader_loop(self) -> None:
-        try:
-            while not self._stop_reader.is_set():
-                try:
-                    lines = self._transport.read_lines(time.monotonic() + 1.0)
-                except TransportError as e:
-                    if self._stop_reader.is_set():
-                        return  # clean shutdown
-                    self.health.connected = False
-                    print(f"[bridge] reader transport lost: {e}", file=sys.stderr)
-                    self._try_reconnect()
-                    continue
-                for ln in lines:
-                    self._process_line(ln)
-        except Exception as e:  # NEVER let the reader die unhandled
-            if not self._stop_reader.is_set():
-                print(f"[bridge] evt reader crashed (caught): {e}", file=sys.stderr)
-
-    def _try_reconnect(self) -> None:
-        deadline = time.monotonic() + 30.0
-        while time.monotonic() < deadline and not self._stop_reader.is_set():
+    # ── event handlers (called from SessionHandle reader thread) ──────
+    def _on_payload(self, evt: ReplyEvent) -> None:
+        """Multi-line OK: payload follows tag=<TAG> bodies arrive here.
+        Today only HEALTH is consumed; future payload tags (e.g.
+        screenshots streamed via DUMP) can plug in by adding a branch."""
+        if evt.tag == "HEALTH":
             try:
-                self._transport.open()
+                obj = json.loads(evt.blob)
+            except json.JSONDecodeError as e:
+                print(f"[bridge] bad HEALTH json: {e}", file=sys.stderr)
+                return
+            self._record_health(obj)
+
+    def _on_evt(self, evt: ReplyEvent) -> None:
+        """EVT lines arrive here. We extract permission decisions
+        (`permission id=<req_id> decision=<allow|deny|once>`) and dispatch
+        to whichever request_permission() call is waiting on that id."""
+        m = _PERM_RE.search(evt.text)
+        if not m:
+            return
+        req_id, decision = m.group(1), m.group(2)
+        with self._lock:
+            q = self._permission_waiters.get(req_id)
+        if q is not None:
+            try:
+                q.put_nowait(decision)
+            except queue.Full:
+                pass
+
+    def _on_err(self, evt: ReplyEvent) -> None:
+        """ERR replies (gap G-H3) — log to stderr so the operator sees
+        them. The pre-v0.2 bridge silently dropped these."""
+        print(f"[bridge] device ERR: {evt.text}", file=sys.stderr)
+
+    def _schedule_reconnect(self) -> None:
+        """Spawn a background reconnect attempt if one isn't already
+        running. Keeps the snapshot publisher responsive — push()
+        returns immediately, the reconnect happens out-of-line."""
+        with self._lock:
+            if self._reconnect_thread and self._reconnect_thread.is_alive():
+                return
+            self._reconnect_thread = threading.Thread(
+                target=self._reconnect_loop, daemon=True, name="bridge-reconnect",
+            )
+            self._reconnect_thread.start()
+
+    def _reconnect_loop(self) -> None:
+        deadline = time.monotonic() + 30.0
+        while time.monotonic() < deadline and not self._stop.is_set():
+            try:
+                if self._session is not None:
+                    try:
+                        self._session.close()
+                    except Exception:
+                        pass
+                self._open_session()
                 self.health.connected = True
                 print("[bridge] reconnected", file=sys.stderr)
                 if self.on_reconnect:
@@ -631,66 +576,12 @@ class DevicePusher:
                         self.on_reconnect()
                     except Exception as e:
                         print(f"[bridge] on_reconnect raised: {e}", file=sys.stderr)
-                # flush buffered snapshot if present
                 buf = self.take_buffered()
                 if buf is not None:
                     self.push("snapshot", buf)
                 return
             except TransportError:
                 time.sleep(2.0)
-
-    def _process_line(self, ln: str) -> None:
-        if not ln:
-            return
-        # Payload-follows multi-line replies (HEALTH_BEGIN ... HEALTH_END)
-        if self._await_tag:
-            # Skip the framing line `<TAG>_BEGIN fmt=... bytes=...`
-            if ln.startswith(f"{self._await_tag}_BEGIN"):
-                return
-            if ln == f"{self._await_tag}_END":
-                blob = "\n".join(self._await_buf)
-                self._await_buf.clear()
-                tag = self._await_tag
-                self._await_tag = None
-                self._handle_tagged_blob(tag, blob)
-                return
-            self._await_buf.append(ln)
-            return
-        if ln.startswith("OK:"):
-            body = ln[3:].strip()
-            # Detect "payload follows tag=NAME"
-            m = re.search(r"payload follows tag=(\w+)", body)
-            if m:
-                self._await_tag = m.group(1)
-                self._await_buf.clear()
-                return
-            # Plain OK: possibly inline JSON
-            self._maybe_consume_ok_inline(body)
-            return
-        if ln.startswith("EVT:"):
-            self._handle_evt(ln[4:].strip())
-            return
-        # Otherwise ignore (could be ERR, log line, etc.)
-
-    def _maybe_consume_ok_inline(self, body: str) -> None:
-        # health used to come inline in early v1 firmware; tolerate.
-        if not body.startswith("{"):
-            return
-        try:
-            obj = json.loads(body)
-        except json.JSONDecodeError:
-            return
-        if "uptime_s" in obj:
-            self._record_health(obj)
-
-    def _handle_tagged_blob(self, tag: str, blob: str) -> None:
-        if tag == "HEALTH":
-            try:
-                obj = json.loads(blob)
-            except json.JSONDecodeError as e:
-                print(f"[bridge] bad HEALTH json: {e}", file=sys.stderr)
-                return
-            self._record_health(obj)
 
     def _record_health(self, obj: dict) -> None:
         prev_uptime = self.health.last_uptime_s
@@ -707,19 +598,6 @@ class DevicePusher:
                 self.on_reconnect()
             except Exception as e:
                 print(f"[bridge] on_reconnect (reboot) raised: {e}", file=sys.stderr)
-
-    def _handle_evt(self, body: str) -> None:
-        m = _PERM_RE.search(body)
-        if not m:
-            return
-        req_id, decision = m.group(1), m.group(2)
-        with self._lock:
-            q = self._permission_waiters.get(req_id)
-        if q is not None:
-            try:
-                q.put_nowait(decision)
-            except queue.Full:
-                pass
 
     # ── permission round-trip ─────────────────────────────────────────
     def request_permission(self, prompt: dict, *, timeout: float) -> str | None:

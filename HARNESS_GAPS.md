@@ -347,7 +347,16 @@ or similar — give it an iterator of OK/EVT/ERR lines and it yields
 either a single-line OK/ERR/EVT or a parsed `(tag, blob)` tuple. Then
 both `claude_buddy_bridge` and any other consumer reuse identical logic.
 
-**Resolution**: (pending — flagging for esp-harness consumption.)
+**Resolution**: `esp-harness@39018e2` — shipped
+`esp_harness.core.parser.PayloadFollowsReader`. Feed it the device's
+line stream (per-line via `feed()` or iterable via `feed_lines()`)
+and it yields `ReplyEvent(kind=..., text=..., tag=..., meta=...,
+blob=...)` for ok / err / evt / payload / log events. 15 contract
+tests cover single-line replies, multi-line payloads, payload+EVT
+interleave, partial line-by-line feed, reset, orphan BEGIN, and
+the self-describing-OK + legacy `payload follows` paths. The new
+`open_persistent_session` API uses it internally; the dashboard
+bridge dropped the hand-rolled state machine.
 
 ### G-H2 — no canonical Python G-7 tokeniser yet for *quote-leading mode*
 
@@ -406,7 +415,15 @@ surface ERR lines via a dedicated callback (or expose them through the
 iter_lines stream with a tag so consumers can choose to log/raise).
 Bridges that ignore them are bridges that pretend to work.
 
-**Resolution**: (pending — H1 follow-up.)
+**Resolution**: `esp-harness@6084c1e` + `esp-harness@ba44c06` —
+`ConsoleSession` gains `on_err` callback parameter AND collects
+every observed ERR in `Response.errs: list[str]` (in addition to
+the first one populating `Response.text`). The new
+`SessionHandle` yields ERRs through `iter_events()` as
+`ReplyEvent(kind="err")` and offers a convenience `on_err(cb)`
+hook. Verified live: bridge now logs `[bridge] device ERR: dash:
+unknown verb 'config'` for the three pre-v1 verbs the mock
+device rejects (previously these were silently dropped).
 
 ### G-F1a — `tiny_json.skip_value` mis-balances nested `{}` inside `[]`
 
@@ -463,7 +480,16 @@ width. At 466×466×2 ≈ 434 KB raw → ~579 KB base64. Streaming the
 payload via `console_write_raw` in chunks keeps memory steady; the
 harness `--payload` reader already handles multi-line bodies.
 
-**Resolution**: (pending — file against aurora-harness.)
+**Resolution**: `esp-harness@cb72e87` —
+`components/aurora-harness/src/screenshot.c::cmd_dump` now accepts
+`w` in [32, 2048] and clamps to the active panel width. The OK
+line carries `w_requested=N w_actual=M reason=<below_min|above_max|
+panel_cap|default|ok>` so host parsers detect silent downgrades.
+PSRAM impact is bounded by the existing free-size check; realistic
+captures (≤ panel size 466×466) stay well inside budget. NOTE:
+this is a firmware change — the dashboard board must re-flash to
+pick it up. Until then, screenshots remain capped at 128×128 on
+the live device.
 
 ## Resolved
 
@@ -474,9 +500,14 @@ harness `--payload` reader already handles multi-line bodies.
 | G-8 (consumer-mock parser drift) | `esp-harness@fb5a549` — `esp_harness.core.parser` + 25 parity tests |
 | G-D2 (bridge has no TCP port-kind) | `esp32-agent-dashboard@H1` — bridge v1 adds `--port-kind {serial,tcp}` and `--port HOST:PORT`. |
 | G-F1a (tiny_json depth) | `esp32-agent-dashboard@F1` — fixed in `main/tiny_json.c::skip_value`. |
+| G-H1 (payload-follows helper) | `esp-harness@39018e2` — `esp_harness.core.parser.PayloadFollowsReader` + 15 tests. |
+| G-1 + G-3 (persistent session) | `esp-harness@ba44c06` — `esp_harness.client.open_persistent_session(port)` + 12 tests; bridge adopted in `esp32-agent-dashboard@G2`. |
+| G-H3 (ERR surfacing) | `esp-harness@6084c1e` + `esp-harness@ba44c06` — `ConsoleSession.on_err` + `SessionHandle.on_err` + ERR yielded through iter_events. |
+| G-4 (explicit-tag convention) | `esp-harness@335d435` — convention documented in `console_protocol.h`, both READMEs; reader parses any `tag=NAME` body. |
+| G-F1b (?dump w cap) | `esp-harness@cb72e87` — cap raised to 2048 / panel width; OK line emits `w_requested=` / `w_actual=` / `reason=`. Live device requires re-flash to take effect. |
 
-(G-1..G-6 still pending; G-1+G-3 deferred to ADR-1; G-6 is the
-v1.8 north star `esp-harness adversarial`; G-8 surfaced again as
-G-H2; G-D1 surfaced by V1-D, non-blocking for v0.1.0; G-D2 resolved
-by H1's bridge v1; G-H1..G-H3 freshly surfaced by H1; G-F1b open
-against aurora-harness.)
+(G-1..G-6, G-H1..G-H3, G-F1b CLOSED this cycle (v0.2.0). G-2 / G-5 / G-6
+remain as docs/out-of-scope/north-star items. G-D1 surfaced by V1-D
+remains non-blocking. G-H2 was about consumer-side mock parity and
+was effectively absorbed by the G-8 resolution + G-H1's reader
+helper — the mock no longer needs its own state machine.)
