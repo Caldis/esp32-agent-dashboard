@@ -8,6 +8,13 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-05-23
+
+**Plugin SDK — extension system scaffold**
+
+PLUG1 ships 2111 LOC: docs/PLUGIN_SDK.md (load-time signed plugins via section-symbol discovery), main/plugin/{plugin_api,plugin_loader} (registration macro + signature-verified loader, fail-closed stubs), tools/sdk/scaffold.py (idempotent new-plugin generator) + sign_plugin.py (reuses SEC1 ed25519 infra), and examples/sdk_example_scene/ (full weather-plugin example with manifest.toml + scene_weather.{c,h} + CMakeLists). 3 new G-PLUG gaps.
+
+
 ## [1.0.0] — 2026-05-23
 
 **Public release — v0.x sweep complete**
@@ -241,7 +248,8 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
   runner is slow and image-fragile). Real-hardware verification
   happens at release time via `tools/smoke.ps1` (planned).
 
-[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.0.0
 [0.9.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.9.0
 [0.8.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.8.0
@@ -254,6 +262,7 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
 [0.1.2]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.0
+
 
 
 
