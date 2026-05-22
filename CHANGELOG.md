@@ -8,6 +8,13 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-05-23
+
+**Orchestrator rails + post-v0.1.1 polish**
+
+tools/release.ps1 + docs/RELEASE_PROCESS.md + ROADMAP.md + docs/AGENT_ROLES.md ship the infrastructure for the overnight 20-version push. Also lands H1 reflection patches (tiny_json polish, hook_dispatch fidelity, TransportError wrap) and v1 acceptance shots.
+
+
 ### Added
 - `tools/release.ps1` — one-command per-version release script enforcing
   the 10 quality gates from `ROADMAP.md` (build, pytest, stress, bench,
@@ -154,3 +161,4 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
 [Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v0.1.1...HEAD
 [0.1.1]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.0
+
