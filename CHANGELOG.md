@@ -8,6 +8,13 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-05-23
+
+**Wire v2 + BLE/WiFi/mDNS transport scaffolding**
+
+TRANS1 ships 2308 LOC: transport_serial (refactor), transport_ble_nus (stub), transport_wifi (stub), mdns_discovery (advertise + tools/transport/discover.py resolver), ble_smoke.py host validator. PROTOCOL_v2.md drafts the dash hello negotiation + failover EVT shape. Failover chain: serial->BLE->WiFi (BLE before WiFi to bootstrap v1.3.0 provisioning). BLE+WiFi paths #ifdef-gated so default build unaffected. 4 new G-TRANS-N gaps.
+
+
 ## [0.3.0] — 2026-05-23
 
 **Adversarial primitive — v1.8 north star landed**
@@ -192,12 +199,14 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
   runner is slow and image-fragile). Real-hardware verification
   happens at release time via `tools/smoke.ps1` (planned).
 
-[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.2.0
 [0.1.2]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.0
+
 
 
 
