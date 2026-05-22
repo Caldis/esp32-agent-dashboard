@@ -389,6 +389,63 @@ Bridges that ignore them are bridges that pretend to work.
 
 **Resolution**: (pending — H1 follow-up.)
 
+### G-F1a — `tiny_json.skip_value` mis-balances nested `{}` inside `[]`
+
+**Context**: F1 (firmware v1 upgrade).
+
+**What I needed**: `tj_object_find(json, end, "totals", ...)` to succeed
+even when the preceding `"agents":[{...},{...}]` value contains nested
+objects. The skip_value walker must balance brackets across mixed `{`
+and `[`.
+
+**What I got**: The original v0 walker only decremented depth when the
+closing char matched the OUTER kind (object vs array). For an array
+`[{...}]` it incremented on inner `{` but never decremented on inner
+`}`, leaving depth ≥ 1 forever and the walker returned false. The
+caller silently fell into the v0 single-agent fallback and only
+registered ONE agent regardless of the array length. Symptom: a
+two-agent snapshot replied `{"applied":true,"agents":1}` plus
+`EVT: agent_added kind=claude-code session_id=` (empty session_id —
+v0 path doesn't read kind/sid). v0 only ever had `entries[]` at top
+level so the bug never manifested before.
+
+**Workaround used**: Patched `main/tiny_json.c::skip_value` to count
+BOTH `{}` and `[]` toward the same depth counter (one-line change).
+Outer bracket kind is no longer used for matching. Verified live:
+two-agent snapshot now replies `agents:2` and emits two `agent_added`
+EVTs with correct session_ids.
+
+**Suggested upstream fix**: This is a consumer-tree bug (tiny_json
+lives per-project). Worth blessing a small `aurora-harness/json.h`
+helper so each new consumer doesn't re-introduce the same class of
+walker bug.
+
+### G-F1b — `?dump` is hard-capped at 128×128, masking right-pane content
+
+**Context**: F1 — surfaced during v1 acceptance shots.
+
+**What I needed**: A 466×466 (full panel) screenshot of the v1 dual-pane
+sessions scene so both panes appear in the capture. The right pane sits
+at x ≥ 233 on the panel; a 128×128 dump shows only the top-left and the
+codex pane never appears in any capture.
+
+**What I got**: `?dump w=466` silently downgrades to `w=128` on the
+device side (`OK: dump start ... w=128 h=128 fmt=RGB565LE bytes=32768`)
+regardless of the requested dimension. The harness `console --payload
+DUMP` correctly forwards the request; the cap is firmware-side in
+`components/aurora-harness/src/screenshot.c`.
+
+**Workaround used**: Acceptance screenshots show the LEFT pane only;
+visual eyeball of the on-device sessions scene confirms the right
+pane renders symmetrically with the codex accent.
+
+**Suggested upstream fix**: Let `?dump w=N` accept any N up to panel
+width. At 466×466×2 ≈ 434 KB raw → ~579 KB base64. Streaming the
+payload via `console_write_raw` in chunks keeps memory steady; the
+harness `--payload` reader already handles multi-line bodies.
+
+**Resolution**: (pending — file against aurora-harness.)
+
 ## Resolved
 
 | Gap | Resolution commit |
@@ -397,8 +454,10 @@ Bridges that ignore them are bridges that pretend to work.
 | (console-overflow drain) | `esp-harness@98affb0` (Agent G) |
 | G-8 (consumer-mock parser drift) | `esp-harness@fb5a549` — `esp_harness.core.parser` + 25 parity tests |
 | G-D2 (bridge has no TCP port-kind) | `esp32-agent-dashboard@H1` — bridge v1 adds `--port-kind {serial,tcp}` and `--port HOST:PORT`. |
+| G-F1a (tiny_json depth) | `esp32-agent-dashboard@F1` — fixed in `main/tiny_json.c::skip_value`. |
 
 (G-1..G-6 still pending; G-1+G-3 deferred to ADR-1; G-6 is the
 v1.8 north star `esp-harness adversarial`; G-8 surfaced again as
 G-H2; G-D1 surfaced by V1-D, non-blocking for v0.1.0; G-D2 resolved
-by H1's bridge v1; G-H1..G-H3 freshly surfaced by H1.)
+by H1's bridge v1; G-H1..G-H3 freshly surfaced by H1; G-F1b open
+against aurora-harness.)

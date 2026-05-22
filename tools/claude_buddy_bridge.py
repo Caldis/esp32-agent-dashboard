@@ -353,7 +353,10 @@ class _TCPTransport:
         with self._lock:
             if self._sock is not None:
                 return
-            self._sock = socket.create_connection((self._host, self._port), timeout=3.0)
+            try:
+                self._sock = socket.create_connection((self._host, self._port), timeout=3.0)
+            except OSError as e:
+                raise TransportError(f"tcp connect {self._host}:{self._port} failed: {e}") from e
             self._sock.settimeout(0.5)
             self._buf = b""
 
