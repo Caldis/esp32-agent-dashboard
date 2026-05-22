@@ -8,8 +8,56 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
-Anything landed on `master` after `v0.1.0` and before the next tag
-lives here.
+### Added
+- `tools/release.ps1` — one-command per-version release script enforcing
+  the 10 quality gates from `ROADMAP.md` (build, pytest, stress, bench,
+  CHANGELOG bump, commit, tag, push). Refuses to tag on the first red gate.
+- `docs/RELEASE_PROCESS.md` — orchestrator runbook covering waves,
+  conflict policy, per-version release-notes template.
+- `ROADMAP.md` — 20-version overnight delivery plan (v0.2.0 → v2.2.0).
+- `docs/AGENT_ROLES.md` — orchestrator/agent contract registry.
+
+### Fixed
+- `main/tiny_json.c` — tighter tolerant key-matcher (post G-F1a polish).
+- `tools/hook_dispatch.py` — forward bridge permission reply verbatim
+  instead of dropping unrecognised fields.
+- `tools/claude_buddy_bridge.py` — wrap TCP connect failure in
+  `TransportError` so the retry loop treats it as recoverable.
+
+### Documented
+- HARNESS_GAPS additions G-H1 (PayloadFollowsReader), G-H2 (resolved by
+  esp-harness@85770d8 — whitespace-in-JSON parity test), G-H3 (ERR-line
+  logging), G-F1a (resolved — tiny_json depth-tracking), G-F1b (open —
+  `?dump` 128×128 hard cap).
+
+## [0.1.1] — 2026-05-23
+
+**v1 firmware + bridge integration.** The first follow-up after v0.1.0
+brings the multi-agent v1 protocol implementation to both the firmware
+and the host bridge, plus the brand assets the public v0.1.0 README
+already referenced but the commit hadn't included.
+
+### Added
+- **Firmware**: multi-agent state model (`AGENT_SLOT_MAX=4`, stable
+  left/right placement by `(kind, session_id)`); three named themes
+  (noir / lab / mono); `scene_dashboard` as the new default scene;
+  tool icons; heap watchdog.
+- **Bridge**: pluggable transport `--port-kind {serial,tcp}`,
+  `~/.claude-buddy/config.toml` + 11-flag CLI surface, `status` +
+  `bench` subcommands, persistent reader thread (closes G-1's
+  steady-state floor), reboot detection, multi-agent
+  `SessionRegistry`.
+- **Brand**: logo + dark variant + wordmark + favicon + social card +
+  palette.md + hero PNG + scenes strip.
+- **Stress**: 5-test suite (`tools/stress.py`) — flood / oversize /
+  reconnect / prompt-latency / idle-keepalive. 5/5 PASS at 99 snap/s.
+
+### Fixed (upstream)
+- `esp-harness@fb5a549` — G-8: `esp_harness.core.parser` Python
+  reference tokeniser + 25 parity tests. Closes consumer-mock drift
+  class structurally.
+- `esp-harness@85770d8` — G-8 corpus extension: whitespace-inside-JSON
+  parity cases (surfaced by H1's accidental tokeniser re-implementation).
 
 ## [0.1.0] — 2026-05-23
 
@@ -103,5 +151,6 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
   runner is slow and image-fragile). Real-hardware verification
   happens at release time via `tools/smoke.ps1` (planned).
 
-[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.0
