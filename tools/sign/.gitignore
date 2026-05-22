@@ -1,0 +1,5 @@
+# Owned by SEC1 (v0.6.0 staged). Keep ed25519 OTA private keys
+# out of git no matter what. The matching public key lives in
+# main/secure/ota_pubkey.h (committed).
+private.pem
+*.pem
