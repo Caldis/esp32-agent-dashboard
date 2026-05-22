@@ -48,7 +48,12 @@ reader anyway) the bridge sidesteps the subprocess entirely and imports
 commands without re-importing/re-opening per call. A `--bench` flag on
 console would also let us measure this regression as harness evolves.
 
-**Resolution**: (pending)
+**Resolution**: `esp-harness@ba44c06` — `esp_harness.client.open_persistent_session(port)`
+returns a `SessionHandle` that holds ONE connection open for the
+lifetime of the bridge. The ~140 ms startup cost amortises to zero
+across N pushes; bench numbers stay at v0.1.1 levels (~310 events/s
+in dry-run, median 5 µs) while gaining concurrent read+write on the
+same wire. Bridge adoption: `esp32-agent-dashboard@G2` (this cycle).
 
 ### G-2 — `subprocess.run(..., text=True)` crashes on GBK Windows console
 
@@ -97,7 +102,13 @@ device line to stdout, or `from esp_harness.client import
 open_persistent_session(port) -> SessionHandle` that the user can share
 across snapshot/EVT consumers.
 
-**Resolution**: (pending)
+**Resolution**: `esp-harness@ba44c06` — `SessionHandle` supports
+concurrent `write_line()` (from any thread) AND `iter_events()` /
+`on_event` callbacks (reader thread). Tested with a writer thread
+pushing 20 snapshots while iter_events() awaits an EVT — both
+arrive on the same wire. Bridge now uses one open handle for
+snapshots + permission EVTs (replaces the pre-v0.2 bespoke
+`_evt_reader_loop`).
 
 ### G-4 — `?help json` payload tag is undocumented (`HELP`)
 
@@ -114,7 +125,15 @@ visible doc — had to grep firmware source.
 `OK: manifest follows tag=HELP`, and/or add a one-liner to the harness
 README's "discoverable commands" section.
 
-**Resolution**: (pending)
+**Resolution**: `esp-harness@335d435` — the firmware was already
+emitting `tag=HELP` / `tag=SCENES` / `tag=DUMP` / `tag=HEALTH` since
+v1.7.5; v0.2.0 documents the convention as the explicit-tag contract
+in `console_protocol.h`, the aurora-harness README, and the toolkit
+README. The host-side helper `PayloadFollowsReader` (shipped this
+cycle as G-H1) detects the tag via the regex
+`\btag=([A-Z][A-Z0-9_]*)\b` on every OK body and routes the
+following block accordingly; legacy `OK: payload follows` without
+a tag is still accepted for backward compatibility.
 
 ### G-5 — Codex CLI has no native hook system (host-side gap, not harness)
 
