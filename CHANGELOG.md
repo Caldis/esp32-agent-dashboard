@@ -8,6 +8,13 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-05-23
+
+**Observability — opt-in telemetry, crash dumps, Grafana**
+
+OBS1 ships 1768 LOC: docs/TELEMETRY_SPEC.md (privacy-first 800-byte envelope, 6h cadence, default-OFF), docs/OBSERVABILITY.md (operator runbook), main/telemetry/{telemetry,crash_dump}.{h,c} (60-sample ring + NVS-backed crash record + EVT crash_dump_available emit), tools/grafana/dashboard.json (7-panel: uptime/heap/fps/latency/error-rate/agent-count/crashes). No PII anywhere in envelope; default-OFF gates remote endpoint; crash dumps local-only. 3 new G-OBS gaps.
+
+
 ## [0.8.0] — 2026-05-23
 
 **Community kit — hardware guide, examples, demo script**
@@ -227,7 +234,8 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
   runner is slow and image-fragile). Real-hardware verification
   happens at release time via `tools/smoke.ps1` (planned).
 
-[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.9.0
 [0.8.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.8.0
 [0.7.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.7.0
 [0.6.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.6.0
@@ -238,6 +246,7 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
 [0.1.2]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.0
+
 
 
 
