@@ -1,0 +1,16 @@
+{"type":"user_prompt_submit","agent":"claude-code","session_id":"cc_dual01","prompt":"refactor the auth flow","cwd":"D:\\Code\\my-firmware"}
+{"type":"user_prompt_submit","agent":"codex","session_id":"cx_dual02","prompt":"review PR #42","cwd":"D:\\Code\\other"}
+{"type":"pre_tool_use","agent":"claude-code","session_id":"cc_dual01","tool_name":"Read","tool_input":{"file_path":"src/auth.py"}}
+{"type":"pre_tool_use","agent":"codex","session_id":"cx_dual02","tool_name":"Grep","tool_input":{"pattern":"login"}}
+{"type":"post_tool_use","agent":"claude-code","session_id":"cc_dual01","tool_name":"Read","tokens":480,"summary":"src/auth.py (120 lines)"}
+{"type":"post_tool_use","agent":"codex","session_id":"cx_dual02","tool_name":"Grep","tokens":92,"summary":"login (42 hits)"}
+{"type":"assistant_event","agent":"claude-code","session_id":"cc_dual01","text":"reviewing auth structure"}
+{"type":"assistant_event","agent":"codex","session_id":"cx_dual02","text":"diffing branches"}
+{"type":"pre_tool_use","agent":"claude-code","session_id":"cc_dual01","tool_name":"Edit","tool_input":{"file_path":"src/auth.py"},"summary":"src/auth.py (+8 -2)"}
+{"type":"pre_tool_use","agent":"codex","session_id":"cx_dual02","tool_name":"shell","tool_input":{"command":"git diff main..HEAD"},"tokens":80}
+{"type":"post_tool_use","agent":"claude-code","session_id":"cc_dual01","tool_name":"Edit","tokens":210,"summary":"src/auth.py (+8 -2)"}
+{"type":"post_tool_use","agent":"codex","session_id":"cx_dual02","tool_name":"shell","tokens":140,"summary":"shell ok"}
+{"type":"pre_tool_use","agent":"claude-code","session_id":"cc_dual01","tool_name":"Bash","tool_input":{"command":"git push"},"summary":"git push"}
+{"type":"post_tool_use","agent":"claude-code","session_id":"cc_dual01","tool_name":"Bash","tokens":40,"summary":"git push"}
+{"type":"stop","agent":"codex","session_id":"cx_dual02"}
+{"type":"stop","agent":"claude-code","session_id":"cc_dual01"}
