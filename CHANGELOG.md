@@ -8,6 +8,13 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [1.8.0] — 2026-05-23
+
+**i18n — en / zh-CN / ja**
+
+docs/I18N.md + main/i18n/strings.h enum-keyed string registry. dash config locale=zh-CN switches the active table; missing keys fall back to en. Bridge auto-detects host locale. CJK rendering uses Noto Sans CJK Light lazy-loaded from OTA partition (3.5MB). v1.8.x adds zh + ja translations + extract tool.
+
+
 ## [1.7.0] — 2026-05-23
 
 **Power management**
@@ -290,7 +297,8 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
   runner is slow and image-fragile). Real-hardware verification
   happens at release time via `tools/smoke.ps1` (planned).
 
-[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.8.0
 [1.7.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.7.0
 [1.6.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.6.0
 [1.5.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.5.0
@@ -310,6 +318,7 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
 [0.1.2]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.0
+
 
 
 
