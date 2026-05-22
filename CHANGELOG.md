@@ -8,6 +8,26 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+Anything landed on master after `v0.1.2` and before the next tag.
+Current contents (will fold into the next version stanza when the
+overnight wave integrates):
+
+### Added (docs)
+- `docs/UX_REVIEW.md` — U1's 1953-word firmware UX critique with
+  top-10 ranked improvements.
+- `docs/releases/{v0.1.0,v0.1.1,README}.md` — per-version release
+  notes pages.
+- `docs/blog/2026-05-23-multi-agent-from-scratch.md` — 2029-word
+  story of the multi-agent overnight build.
+- `docs/blog/README.md` + index.html nav link.
+- `docs/releases/v1.0.0-checklist.md` — stable-API gate-list.
+- `docs/AGENT_KINDS.md` — v0.5.0 agent-kind registry spec.
+
+### Fixed
+- `main/theme.c` — palettes realigned to `docs/brand/palette.md`
+  (U1 P0); 8-token drift closed, rust/teal restored to brand
+  source-of-truth values.
+
 ## [0.1.2] — 2026-05-23
 
 **Orchestrator rails + post-v0.1.1 polish**
