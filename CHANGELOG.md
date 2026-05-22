@@ -8,6 +8,13 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-05-23
+
+**Agent-kind expansion — open registry**
+
+theme.c gains a deterministic per-kind hue allocator (djb2 + golden-angle rotation -> HSL -> RGB) for any agent kind beyond curated claude-code/codex. Cursor, Aider, qwen-code and any future tool now get distinct accent colours without firmware updates. Mono theme keeps single-hue invariant. Build clean, +160 bytes. See docs/AGENT_KINDS.md for the wire-level contract.
+
+
 ## [0.4.0] — 2026-05-23
 
 **Wire v2 + BLE/WiFi/mDNS transport scaffolding**
@@ -199,13 +206,15 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
   runner is slow and image-fragile). Real-hardware verification
   happens at release time via `tools/smoke.ps1` (planned).
 
-[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.5.0
 [0.4.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.2.0
 [0.1.2]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.0
+
 
 
 
