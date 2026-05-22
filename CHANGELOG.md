@@ -8,6 +8,13 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-05-23
+
+**Voice — TTS prompt-read + STT decision**
+
+docs/VOICE.md + main/audio/voice_tts.h. Speaker reads dash prompt hint; mic captures approve/deny/explain/cancel via INT8 wake-word + 4-class classifier (~50KB model). On-device esp_tts preferred; bridge WAV fallback for higher-quality voice. Confidence less than 0.85 falls back to visual buttons -- never silently mis-decides permission.
+
+
 ## [1.3.0] — 2026-05-23
 
 **BLE WiFi provisioning**
@@ -262,7 +269,8 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
   runner is slow and image-fragile). Real-hardware verification
   happens at release time via `tools/smoke.ps1` (planned).
 
-[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.4.0
 [1.3.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.3.0
 [1.2.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.2.0
 [1.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.1.0
@@ -278,6 +286,7 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
 [0.1.2]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.0
+
 
 
 
