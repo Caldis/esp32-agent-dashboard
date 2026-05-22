@@ -8,6 +8,13 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [1.0.0] — 2026-05-23
+
+**Public release — v0.x sweep complete**
+
+Eleven v0.x versions shipped overnight (v0.1.0 to v0.9.0). Multi-agent firmware with 6 LVGL scenes + theme palette + tool icons. Persistent-session host bridge with TCP + serial transports + config file + status/bench subcommands. Brand pack (logo + palette + hero). Adversarial primitive (esp-harness adversarial). Transport scaffolding (BLE + WiFi + mDNS). OTA + ed25519 verify + NVS encryption. Performance baseline + 8-agent scaling plan. Community kit (3 examples + hardware guide + troubleshooting). Observability (opt-in telemetry + crash dumps + Grafana). Open agent-kind registry (cursor / aider / qwen-code colours auto-allocated). 15 framework gaps surfaced; 10 resolved upstream in esp-harness; 5 deferred to v1.0.x. See docs/releases/v1.0.0-checklist.md for the remaining items (8-hour soak, community contribution) — those gate v1.0.1.
+
+
 ## [0.9.0] — 2026-05-23
 
 **Observability — opt-in telemetry, crash dumps, Grafana**
@@ -234,7 +241,8 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
   runner is slow and image-fragile). Real-hardware verification
   happens at release time via `tools/smoke.ps1` (planned).
 
-[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.0.0
 [0.9.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.9.0
 [0.8.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.8.0
 [0.7.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.7.0
@@ -246,6 +254,7 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
 [0.1.2]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.0
+
 
 
 
