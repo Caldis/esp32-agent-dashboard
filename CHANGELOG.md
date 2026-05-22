@@ -8,6 +8,13 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [2.1.0] — 2026-05-23
+
+**Web dashboard mirror**
+
+docs/WEB_MIRROR.md + tools/web/serve.py (placeholder HTTP server). Browser renders the same five LVGL scenes via WASM (emscripten-compiled main/scenes/*.c). Read-only mirror; decisions still use device/mobile/CLI. Full implementation in v2.1.x.
+
+
 ## [2.0.0] — 2026-05-23
 
 **Public 2.0 — SDK + marketplace launch**
@@ -311,7 +318,8 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
   runner is slow and image-fragile). Real-hardware verification
   happens at release time via `tools/smoke.ps1` (planned).
 
-[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v2.1.0
 [2.0.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v2.0.0
 [1.9.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.9.0
 [1.8.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v1.8.0
@@ -334,6 +342,7 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
 [0.1.2]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.0
+
 
 
 
