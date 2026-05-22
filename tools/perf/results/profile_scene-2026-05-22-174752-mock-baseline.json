@@ -1,0 +1,103 @@
+{
+  "schema": "profile_scene.v1",
+  "started_utc": "2026-05-22T17:47:46Z",
+  "endpoint": "127.0.0.1:9876",
+  "settle_s": 0.5,
+  "samples_per_scene": 3,
+  "rows": [
+    {
+      "scene": "idle",
+      "force_ok": true,
+      "scene_force_unsupported": false,
+      "samples": 3,
+      "fps_min": 33.4,
+      "fps_mean": 33.4,
+      "fps_max": 33.4,
+      "heap_free_min": 84200,
+      "heap_free_mean": 84200,
+      "heap_free_max": 84200,
+      "heap_delta_observed": 0,
+      "scene_reported_before": "idle",
+      "scene_reported_after": "idle"
+    },
+    {
+      "scene": "dashboard",
+      "force_ok": false,
+      "scene_force_unsupported": false,
+      "samples": 3,
+      "fps_min": 33.4,
+      "fps_mean": 33.4,
+      "fps_max": 33.4,
+      "heap_free_min": 84200,
+      "heap_free_mean": 84200,
+      "heap_free_max": 84200,
+      "heap_delta_observed": 0,
+      "scene_reported_before": "idle",
+      "scene_reported_after": "idle"
+    },
+    {
+      "scene": "sessions",
+      "force_ok": false,
+      "scene_force_unsupported": false,
+      "samples": 3,
+      "fps_min": 33.4,
+      "fps_mean": 33.4,
+      "fps_max": 33.4,
+      "heap_free_min": 84200,
+      "heap_free_mean": 84200,
+      "heap_free_max": 84200,
+      "heap_delta_observed": 0,
+      "scene_reported_before": "idle",
+      "scene_reported_after": "idle"
+    },
+    {
+      "scene": "prompt",
+      "force_ok": false,
+      "scene_force_unsupported": false,
+      "samples": 3,
+      "fps_min": 33.4,
+      "fps_mean": 33.4,
+      "fps_max": 33.4,
+      "heap_free_min": 84200,
+      "heap_free_mean": 84200,
+      "heap_free_max": 84200,
+      "heap_delta_observed": 0,
+      "scene_reported_before": "idle",
+      "scene_reported_after": "idle"
+    },
+    {
+      "scene": "tokens",
+      "force_ok": false,
+      "scene_force_unsupported": true,
+      "samples": 3,
+      "fps_min": 33.4,
+      "fps_mean": 33.4,
+      "fps_max": 33.4,
+      "heap_free_min": 84200,
+      "heap_free_mean": 84200,
+      "heap_free_max": 84200,
+      "heap_delta_observed": 0,
+      "scene_reported_before": "idle",
+      "scene_reported_after": "idle"
+    },
+    {
+      "scene": "status",
+      "force_ok": true,
+      "scene_force_unsupported": true,
+      "samples": 3,
+      "fps_min": 33.4,
+      "fps_mean": 33.4,
+      "fps_max": 33.4,
+      "heap_free_min": 84200,
+      "heap_free_mean": 84200,
+      "heap_free_max": 84200,
+      "heap_delta_observed": 0,
+      "scene_reported_before": "idle",
+      "scene_reported_after": "idle"
+    }
+  ],
+  "notes": [
+    "tokens / status scenes are entered via the rotary encoder, not the wire. Their rows reflect whatever scene the device was on after the force-attempt \u2014 see scene_reported_after.",
+    "heap_delta_observed compares one sample before forcing vs one sample after sampling, so it includes the scene's init + first-tick allocations. Non-zero is expected on first run."
+  ]
+}

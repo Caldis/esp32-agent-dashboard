@@ -1,0 +1,64 @@
+{
+  "schema": "bench_bridge.v1",
+  "started_utc": "2026-05-22T17:49:06Z",
+  "label": "baseline-v0.6",
+  "platform": {
+    "python": "3.14.0",
+    "platform": "Windows-11-10.0.26100-SP0",
+    "machine": "AMD64",
+    "host": "windows"
+  },
+  "sweep": [
+    {
+      "events": 1000,
+      "pace_ms": 0,
+      "throttle_ms": 250,
+      "elapsed_s": 3.144,
+      "snapshot_pushes": 13,
+      "expected_pushes_from_throttle": 12,
+      "median_event_us": 5.0,
+      "p95_event_us": 37474.9,
+      "events_per_s": 318.0,
+      "keepalive_ms": 10000,
+      "wall_s": 3.252,
+      "cmd_exit": 0
+    },
+    {
+      "events": 5000,
+      "pace_ms": 0,
+      "throttle_ms": 250,
+      "elapsed_s": 14.642,
+      "snapshot_pushes": 59,
+      "expected_pushes_from_throttle": 58,
+      "median_event_us": 5.1,
+      "p95_event_us": 30693.3,
+      "events_per_s": 341.5,
+      "keepalive_ms": 10000,
+      "wall_s": 14.752,
+      "cmd_exit": 0
+    },
+    {
+      "events": 10000,
+      "pace_ms": 0,
+      "throttle_ms": 250,
+      "elapsed_s": 28.861,
+      "snapshot_pushes": 116,
+      "expected_pushes_from_throttle": 115,
+      "median_event_us": 4.7,
+      "p95_event_us": 30969.8,
+      "events_per_s": 346.5,
+      "keepalive_ms": 10000,
+      "wall_s": 28.972,
+      "cmd_exit": 0
+    }
+  ],
+  "summary": {
+    "cells_total": 3,
+    "cells_with_result": 3,
+    "events_per_s_min": 318.0,
+    "events_per_s_max": 346.5,
+    "events_per_s_mean": 335.3,
+    "median_event_us_mean": 4.9,
+    "p95_event_us_max": 37474.9
+  }
+}

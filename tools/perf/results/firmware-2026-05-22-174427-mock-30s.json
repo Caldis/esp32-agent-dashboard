@@ -1,0 +1,391 @@
+{
+  "schema": "bench_firmware.v1",
+  "started_utc": "2026-05-22T17:43:57Z",
+  "endpoint": "127.0.0.1:9876",
+  "duration_s": 30,
+  "period_s": 1.0,
+  "samples_total": 30,
+  "sample_failures": 0,
+  "samples": [
+    {
+      "t_s": 0.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 8,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 1.001,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 9,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 2.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 10,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 3.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 11,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 4.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 12,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 5.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 13,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 6.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 14,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 7.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 15,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 8.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 16,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 9.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 17,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 10.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 18,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 11.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 19,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 12.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 20,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 13.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 21,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 14.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 22,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 15.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 23,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 16.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 24,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 17.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 25,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 18.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 26,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 19.001,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 27,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 20.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 28,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 21.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 29,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 22.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 30,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 23.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 31,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 24.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 32,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 25.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 33,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 26.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 34,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 27.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 35,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 28.0,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 36,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    },
+    {
+      "t_s": 29.001,
+      "fps": 33.4,
+      "heap_free": 84200,
+      "heap_min": 78400,
+      "uptime_s": 37,
+      "snapshots_received": 0,
+      "prompts_received": 0,
+      "decisions_sent": 0,
+      "agent_count": 0
+    }
+  ],
+  "fps": {
+    "count": 30,
+    "min": 33.4,
+    "max": 33.4,
+    "mean": 33.4,
+    "stdev": 0.0,
+    "p50": 33.4,
+    "p95": 33.4,
+    "hist": {
+      "<15": 0,
+      "<20": 0,
+      "<25": 0,
+      "<28": 0,
+      "<30": 0,
+      "<32": 0,
+      ">=32": 30
+    }
+  },
+  "heap_free": {
+    "count": 30,
+    "min": 84200,
+    "max": 84200,
+    "mean": 84200,
+    "stdev": 0.0,
+    "p50": 84200,
+    "p95": 84200,
+    "hist": {
+      "<40000": 0,
+      "<60000": 0,
+      "<75000": 0,
+      "<85000": 30,
+      "<100000": 0,
+      ">=100000": 0
+    }
+  },
+  "heap_min": {
+    "count": 30,
+    "min": 78400,
+    "max": 78400,
+    "mean": 78400,
+    "stdev": 0.0,
+    "p50": 78400,
+    "p95": 78400
+  },
+  "drift": {
+    "heap_free_per_min": 0.0,
+    "fps_slope_per_s": 0.0,
+    "first_sample_t_s": 0.0,
+    "last_sample_t_s": 29.001
+  }
+}
