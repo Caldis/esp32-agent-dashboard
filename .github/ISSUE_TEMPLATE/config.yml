@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discussion on a specific integration
+    url: https://github.com/Caldis/esp32-agent-dashboard/discussions
+    about: For general questions / brainstorms / "would you accept a PR for X", please use Discussions.
+  - name: esp-harness framework issue
+    url: https://github.com/Caldis/esp-harness/issues/new/choose
+    about: If your issue is really about the esp-harness framework (toolkit, console protocol, scene framework), file it there instead.

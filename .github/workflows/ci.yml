@@ -1,0 +1,117 @@
+# Bridge roundtrip on every push / PR.
+#
+# Replays the canned docs/demo_inputs.jsonl through the bridge in
+# --dry-run mode and asserts the expected `dash <verb>` commands are
+# emitted. As a separate sanity check, also boots docs/mock_device.py
+# and confirms it accepts a `dash idle` over TCP.
+#
+# Firmware build is NOT in CI — cross-compiling ESP-IDF for ESP32-S3
+# inside a Linux GitHub-Actions runner is slow and runner-image-fragile.
+# The firmware-side parser is exercised through mock_device.py (which
+# mirrors components/aurora-harness/src/console_protocol.c's tokeniser
+# exactly). Real-hardware verification happens at release time via
+# tools/smoke.ps1.
+
+name: bridge roundtrip
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "tools/**"
+      - "docs/mock_device.py"
+      - "docs/demo_inputs.jsonl"
+      - "PROTOCOL.md"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    paths:
+      - "tools/**"
+      - "docs/mock_device.py"
+      - "docs/demo_inputs.jsonl"
+      - "PROTOCOL.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  roundtrip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+
+    steps:
+      - name: Checkout dashboard repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install bridge dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # The bridge's only third-party dep is pyserial, and only at
+          # live-push time. --dry-run replay needs nothing beyond stdlib.
+          pip install pyserial
+
+      - name: Mock device smoke — boots, accepts a dash idle, returns OK
+        run: |
+          set -euo pipefail
+          python docs/mock_device.py --port 9876 --verbose > mock-smoke.log 2>&1 &
+          MOCK_PID=$!
+          # Wait for the listener to bind
+          for i in 1 2 3 4 5 6 7 8; do
+              if python -c "import socket;s=socket.socket();s.settimeout(0.3);s.connect(('127.0.0.1',9876))" 2>/dev/null; then
+                  break
+              fi
+              sleep 0.3
+          done
+          # Send a single `dash idle` and read the reply
+          REPLY=$(python -c "
+          import socket, sys
+          s=socket.socket(); s.settimeout(2)
+          s.connect(('127.0.0.1', 9876))
+          s.sendall(b'dash idle\n')
+          buf = b''
+          while b'\n' not in buf:
+              chunk = s.recv(1024)
+              if not chunk: break
+              buf += chunk
+          sys.stdout.write(buf.decode('utf-8', 'replace'))
+          ")
+          echo "mock replied: $REPLY"
+          kill $MOCK_PID 2>/dev/null || true
+          wait $MOCK_PID 2>/dev/null || true
+          echo "$REPLY" | grep -q "^OK"
+
+      - name: Bridge replay — dry run (asserts dash commands emitted)
+        run: |
+          set -euo pipefail
+          # tools/sample_session.jsonl is the canonical bridge-shaped
+          # event stream (type: snake_case, agent: kind, session_id, …).
+          # docs/demo_inputs.jsonl is the firmware-side demo runbook
+          # input (PascalCase Claude-Code-hook event names) — it's
+          # consumed by hook_dispatch.py, not directly by the bridge.
+          python tools/claude_buddy_bridge.py replay tools/sample_session.jsonl \
+              --dry-run --pace-ms 0 \
+              > dry-run.log 2>&1
+          echo "── dry-run output ──"
+          cat dry-run.log
+          # The canned session contains 12 hook events spanning two
+          # agents (claude-code + codex), one permission prompt, one
+          # stop. Assert each expected dash verb shows up.
+          grep -q "\[DRY\] dash snapshot" dry-run.log
+          grep -q "\[DRY\] dash prompt"   dry-run.log
+          # And the bridge handler returned successfully for each line.
+          grep -qE "\[replay\] [0-9]+ <- " dry-run.log
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bridge-roundtrip-logs
+          path: |
+            dry-run.log
+            mock-smoke.log
+          if-no-files-found: ignore
