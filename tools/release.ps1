@@ -173,6 +173,16 @@ if ($changelog -notmatch '## \[Unreleased\]') {
 }
 $changelog = $changelog -replace '## \[Unreleased\]', "## [Unreleased]`r`n`r`n$newStanza## [Unreleased-archive]"
 $changelog = $changelog -replace '## \[Unreleased-archive\]', ''
+
+# Update the GitHub compare-link references at the bottom of the file.
+# Replace the first [Unreleased]: line, then insert a [vX.Y.Z]: line
+# under it so the table-of-tags stays in sync with the stanzas above.
+$prevTag = git -C $ProjectRoot tag --list "v*" | Sort-Object -Property @{Expression={[version]($_ -replace '^v','')}} | Select-Object -Last 1
+if (-not $prevTag) { $prevTag = "v0.0.0" }
+$newUnreleased = "[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v$Version...HEAD"
+$newTagLink    = "[$Version]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v$Version"
+$changelog = $changelog -replace '\[Unreleased\]: https://github\.com/Caldis/esp32-agent-dashboard/compare/[^\r\n]+', "$newUnreleased`r`n$newTagLink"
+
 Set-Content $changelogPath $changelog -Encoding utf8
 
 # ──────────────────────────────────────────────────────────────────────
