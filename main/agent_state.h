@@ -43,6 +43,20 @@ extern "C" {
 #define AGENT_DEVICE_NAME_MAX  32
 #define AGENT_OWNER_MAX        32
 #define AGENT_DEFAULT_SCENE_MAX 16
+/* v2.3.0: AWAITING takeover state — what kind of input the agent is
+ * blocking on, plus 1-3 short context lines the takeover scene shows
+ * under the headline. */
+#define AGENT_AWAITING_CONTEXT_LINES  3
+#define AGENT_AWAITING_CONTEXT_MAX    48   /* per line */
+
+typedef enum {
+    AWAITING_NONE     = 0,   /* not blocked on user */
+    AWAITING_CONTINUE,       /* generic end-of-turn (Stop event) */
+    AWAITING_APPROVE,        /* PreToolUse needs y/n decision */
+    AWAITING_PICK,           /* assistant offered numbered options */
+    AWAITING_TYPE,           /* assistant asked open-ended question */
+    AWAITING_CLARIFY,        /* assistant flagged ambiguity */
+} awaiting_kind_t;
 
 typedef struct {
     char     role[16];               /* "user" / "assistant" / "tool" / ... */
@@ -81,6 +95,17 @@ typedef struct {
 
     uint32_t       last_active_unix;            /* host clock, if known */
     uint32_t       last_seen_monotonic_ms;      /* lv_tick at last snapshot */
+
+    /* v2.3.0: AWAITING takeover state — set by the snapshot handler when
+     * the bridge says this slot is blocking on user input. The scene
+     * picks the most-recent-entered awaiting slot as the takeover
+     * anchor. AWAITING_NONE means the slot is in ambient mode. */
+    awaiting_kind_t awaiting_kind;
+    char            awaiting_context[AGENT_AWAITING_CONTEXT_LINES]
+                                    [AGENT_AWAITING_CONTEXT_MAX];
+    int             awaiting_context_count;
+    uint32_t        awaiting_since_unix;        /* host clock when awaiting began */
+    uint32_t        awaiting_entered_ms;        /* lv_tick when we received it */
 } agent_slot_t;
 
 typedef struct {
@@ -165,6 +190,29 @@ void agent_state_push_entry(agent_slot_t *slot,
 
 /* Push one tokens sparkline sample. Lock held. */
 void agent_state_push_spark(agent_slot_t *slot, uint32_t sample);
+
+/* v2.3.0: find the slot most recently entered into AWAITING state.
+ * Returns NULL if no slot is awaiting. The takeover scene reads from
+ * this slot. Lock held. */
+agent_slot_t *agent_state_most_recent_awaiting(void);
+
+/* v2.3.0: count slots currently in AWAITING_* (excluding the most
+ * recent one). Used by the takeover footer's "+N more waiting". */
+int agent_state_other_awaiting_count(const agent_slot_t *anchor);
+
+/* v2.3.0: parse a kind string from the wire snapshot (`"approve"`,
+ * `"pick"`, etc.) into the enum. Returns AWAITING_NONE on unknown. */
+awaiting_kind_t agent_state_parse_awaiting_kind(const char *s);
+
+/* v2.3.0: clear AWAITING state on a slot. Lock held. */
+void agent_state_clear_awaiting(agent_slot_t *slot);
+
+/* v2.3.0: set AWAITING state on a slot, including up to 3 context
+ * lines (NULL-terminated input strings). Each is truncated to
+ * AGENT_AWAITING_CONTEXT_MAX-1. Lock held. */
+void agent_state_set_awaiting(agent_slot_t *slot, awaiting_kind_t kind,
+                              const char *const *context_lines,
+                              int line_count, uint32_t since_unix);
 
 #ifdef __cplusplus
 }

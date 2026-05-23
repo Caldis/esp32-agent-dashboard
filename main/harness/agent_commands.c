@@ -164,6 +164,46 @@ static void merge_agent_object(tj_span_t obj, const char *default_kind)
             cursor = it.end;
         }
     }
+
+    /* v2.3.0: AWAITING fields. Bridge only emits awaiting_kind when a
+     * session is actually awaiting; if absent we clear the slot's
+     * AWAITING state so the auto_switch_cb returns to the ambient
+     * scene. */
+    char awaiting_kind_str[16] = {0};
+    if (tj_object_get_string(obj.begin, obj.end, "awaiting_kind",
+                             awaiting_kind_str, sizeof(awaiting_kind_str))
+        && awaiting_kind_str[0] != '\0')
+    {
+        awaiting_kind_t k = agent_state_parse_awaiting_kind(awaiting_kind_str);
+        double since = 0;
+        tj_object_get_double(obj.begin, obj.end, "awaiting_since", &since);
+
+        /* Pull up to 3 context lines from the awaiting_context array. */
+        tj_span_t ctx_v;
+        const char *ctx_lines[AGENT_AWAITING_CONTEXT_LINES] = {0};
+        char ctx_bufs[AGENT_AWAITING_CONTEXT_LINES][AGENT_AWAITING_CONTEXT_MAX] = {{0}};
+        int ctx_count = 0;
+        if (tj_object_find(obj.begin, obj.end, "awaiting_context", &ctx_v) &&
+            tj_value_is_array(ctx_v))
+        {
+            const char *cur2 = NULL;
+            tj_span_t line;
+            while (ctx_count < AGENT_AWAITING_CONTEXT_LINES
+                   && tj_array_next(ctx_v, cur2, &line))
+            {
+                cur2 = line.end;
+                if (line.begin < line.end && *line.begin == '"') {
+                    tj_value_string(line, ctx_bufs[ctx_count],
+                                    AGENT_AWAITING_CONTEXT_MAX);
+                    ctx_lines[ctx_count] = ctx_bufs[ctx_count];
+                    ctx_count++;
+                }
+            }
+        }
+        agent_state_set_awaiting(slot, k, ctx_lines, ctx_count, (uint32_t)since);
+    } else {
+        agent_state_clear_awaiting(slot);
+    }
 }
 
 /* ── dash snapshot ───────────────────────────────────────────────── */

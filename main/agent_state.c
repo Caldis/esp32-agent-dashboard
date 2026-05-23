@@ -132,3 +132,87 @@ void agent_state_push_spark(agent_slot_t *slot, uint32_t sample)
     slot->spark_head = (slot->spark_head + 1) % AGENT_SPARK_SAMPLES;
     if (slot->spark_count < AGENT_SPARK_SAMPLES) slot->spark_count++;
 }
+
+/* ── v2.3.0: AWAITING helpers ────────────────────────────────────── */
+
+awaiting_kind_t agent_state_parse_awaiting_kind(const char *s)
+{
+    if (!s || !*s) return AWAITING_NONE;
+    if (strcmp(s, "continue") == 0) return AWAITING_CONTINUE;
+    if (strcmp(s, "approve")  == 0) return AWAITING_APPROVE;
+    if (strcmp(s, "pick")     == 0) return AWAITING_PICK;
+    if (strcmp(s, "type")     == 0) return AWAITING_TYPE;
+    if (strcmp(s, "clarify")  == 0) return AWAITING_CLARIFY;
+    return AWAITING_NONE;
+}
+
+void agent_state_clear_awaiting(agent_slot_t *slot)
+{
+    if (!slot) return;
+    slot->awaiting_kind = AWAITING_NONE;
+    slot->awaiting_context_count = 0;
+    slot->awaiting_since_unix = 0;
+    slot->awaiting_entered_ms = 0;
+    for (int i = 0; i < AGENT_AWAITING_CONTEXT_LINES; ++i) {
+        slot->awaiting_context[i][0] = '\0';
+    }
+}
+
+void agent_state_set_awaiting(agent_slot_t *slot, awaiting_kind_t kind,
+                              const char *const *context_lines,
+                              int line_count, uint32_t since_unix)
+{
+    if (!slot) return;
+    /* Only bump entered_ms on a fresh awaiting (slot was clear before,
+     * OR the kind changed). Keep the existing entered_ms across snapshots
+     * that just re-affirm the same kind — so "waiting Xs" counts from
+     * the actual start of the wait, not from each snapshot. */
+    bool transitioning = (slot->awaiting_kind != kind);
+    slot->awaiting_kind = kind;
+    if (transitioning) {
+        slot->awaiting_entered_ms = lv_tick_get();
+    }
+    slot->awaiting_since_unix = since_unix ? since_unix : slot->awaiting_since_unix;
+    if (slot->awaiting_since_unix == 0) {
+        slot->awaiting_since_unix = since_unix;
+    }
+    int n = line_count;
+    if (n < 0) n = 0;
+    if (n > AGENT_AWAITING_CONTEXT_LINES) n = AGENT_AWAITING_CONTEXT_LINES;
+    for (int i = 0; i < n; ++i) {
+        copy_bounded(slot->awaiting_context[i],
+                     AGENT_AWAITING_CONTEXT_MAX,
+                     context_lines && context_lines[i] ? context_lines[i] : "");
+    }
+    for (int i = n; i < AGENT_AWAITING_CONTEXT_LINES; ++i) {
+        slot->awaiting_context[i][0] = '\0';
+    }
+    slot->awaiting_context_count = n;
+}
+
+agent_slot_t *agent_state_most_recent_awaiting(void)
+{
+    agent_slot_t *best = NULL;
+    uint32_t best_ms = 0;
+    for (int i = 0; i < AGENT_SLOT_MAX; ++i) {
+        agent_slot_t *s = &s_state.slots[i];
+        if (!s->in_use || s->awaiting_kind == AWAITING_NONE) continue;
+        if (best == NULL || s->awaiting_entered_ms > best_ms) {
+            best = s;
+            best_ms = s->awaiting_entered_ms;
+        }
+    }
+    return best;
+}
+
+int agent_state_other_awaiting_count(const agent_slot_t *anchor)
+{
+    int n = 0;
+    for (int i = 0; i < AGENT_SLOT_MAX; ++i) {
+        const agent_slot_t *s = &s_state.slots[i];
+        if (!s->in_use || s->awaiting_kind == AWAITING_NONE) continue;
+        if (s == anchor) continue;
+        n++;
+    }
+    return n;
+}

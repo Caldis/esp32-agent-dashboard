@@ -13,10 +13,13 @@ idf_component_register(
         "scenes/scene_prompt.c"
         "scenes/scene_tokens.c"
         "scenes/scene_status.c"
+        "scenes/scene_awaiting.c"
+        "anim/apple_ease.c"
     INCLUDE_DIRS
         "."
         "scenes"
         "harness"
+        "anim"
     REQUIRES
         lvgl__lvgl
         aurora-harness

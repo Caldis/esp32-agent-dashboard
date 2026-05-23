@@ -49,10 +49,20 @@ CONFIG_LV_OS_FREERTOS=y
 # partitions.csv to match if your board has 4 MB / 8 MB flash.
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 
-# Fonts used across the dashboard scenes:
+# Fonts used across the dashboard scenes (v2.3.0 typography scale-up).
 #   12 — small captions / counters under big numbers
-#   14 — body text, transcript rows
-#   22 — big numbers + scene headers
+#   14 — eyebrow text + agent_chip mini-tag
+#   16 — footer ("waiting Xs · +N more"), feed-row time column
+#   20 — push banner detail line
+#   22 — context lines under AWAITING headline + feed-row target column
+#   28 — feed-row verb (Edit / Bash / ...), AWAITING agent chip
+#   36 — AWAITING glyph (LV_SYMBOL_WARNING etc.)
+#   48 — AWAITING headline ("your turn" / "approve?" / ...)
 CONFIG_LV_FONT_MONTSERRAT_12=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_MONTSERRAT_16=y
+CONFIG_LV_FONT_MONTSERRAT_20=y
 CONFIG_LV_FONT_MONTSERRAT_22=y
+CONFIG_LV_FONT_MONTSERRAT_28=y
+CONFIG_LV_FONT_MONTSERRAT_36=y
+CONFIG_LV_FONT_MONTSERRAT_48=y

@@ -75,6 +75,38 @@ static void on_scene_changed(int idx, const scene_t *current)
     }
 }
 
+/* v2.3.0: auto-switch between AWAITING takeover and the active
+ * non-awaiting scene. Remembers what the user was on before the
+ * takeover so we restore them when awaiting clears. */
+static int s_pre_awaiting_scene_idx = -1;
+
+void scene_auto_switch_cb(lv_timer_t *t)
+{
+    (void)t;
+    int awaiting_idx = scene_fw_find_by_id("awaiting");
+    int current_idx = scene_fw_current_index();
+    if (awaiting_idx < 0 || current_idx < 0) return;
+
+    bool any_awaiting = false;
+    agent_state_lock();
+    if (agent_state_most_recent_awaiting() != NULL) any_awaiting = true;
+    agent_state_unlock();
+
+    bool on_awaiting = (current_idx == awaiting_idx);
+    if (any_awaiting && !on_awaiting) {
+        s_pre_awaiting_scene_idx = current_idx;
+        bsp_display_lock(-1);
+        scene_fw_show(awaiting_idx);
+        bsp_display_unlock();
+    } else if (!any_awaiting && on_awaiting) {
+        int back = (s_pre_awaiting_scene_idx >= 0) ? s_pre_awaiting_scene_idx : 0;
+        bsp_display_lock(-1);
+        scene_fw_show(back);
+        bsp_display_unlock();
+        s_pre_awaiting_scene_idx = -1;
+    }
+}
+
 void app_main(void)
 {
     esp_err_t err = nvs_flash_init();
@@ -110,9 +142,20 @@ void app_main(void)
     scene_fw_register(&scene_prompt);
     scene_fw_register(&scene_tokens);
     scene_fw_register(&scene_status);
+    /* v2.3.0 AWAITING takeover — the scene that fires when any agent
+     * is blocking on user input. Not the default (entered automatically
+     * by the auto_switch_cb timer when slots report awaiting state). */
+    scene_fw_register(&scene_awaiting);
 
     lv_timer_create(frame_cb, 33, NULL);
     lv_timer_create(heap_watchdog_cb, HEAP_WD_PERIOD_MS, NULL);
+
+    /* v2.3.0 auto-switch: poll agent_state every 500ms; if any slot is
+     * AWAITING_* we switch to scene_awaiting; if no slot is awaiting and
+     * we're currently on awaiting, switch back to the previously-active
+     * scene (or default_scene). */
+    extern void scene_auto_switch_cb(lv_timer_t *t);
+    lv_timer_create(scene_auto_switch_cb, 500, NULL);
 
     bsp_display_unlock();
 
