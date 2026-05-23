@@ -8,6 +8,13 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [2.4.0] — 2026-05-23
+
+**dash-state contract -- agent emits summary + options**
+
+Every agent turn appends <dash-state> with summary + 2-4 executable options. hook_dispatch extracts, bridge forwards, firmware renders marquee (LV_LABEL_LONG_SCROLL_CIRCULAR) + numbered list. User reads from desk, types '3' in terminal. See docs/DASH_STATE_CONTRACT.md and docs/img/live-awaiting-options.png.
+
+
 ## [2.3.0] — 2026-05-23
 
 **AWAITING takeover -- ball-in-your-court UX**
@@ -332,7 +339,8 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
   runner is slow and image-fragile). Real-hardware verification
   happens at release time via `tools/smoke.ps1` (planned).
 
-[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v2.3.0...HEAD
+[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v2.4.0...HEAD
+[2.4.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v2.4.0
 [2.3.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v2.3.0
 [2.2.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v2.2.0
 [2.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v2.1.0
@@ -358,6 +366,7 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
 [0.1.2]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.0
+
 
 
 
