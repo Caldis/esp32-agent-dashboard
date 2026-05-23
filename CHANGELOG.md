@@ -8,6 +8,13 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [2.5.0] — 2026-05-24
+
+**Ambient feed-style dashboard (replaces multi-card grid)**
+
+scene_dashboard rewritten as the AMBIENT feed view: big 48pt clock + 6 single-label rows (verb 22pt + time/status/chip/target compact) + footer with active count and tokens. Replaces v0.1.x multi-card grid. Auto-switches to scene_awaiting when any session blocks on user. See docs/img/live-ambient-v251.png. Single-label-per-row eliminated multi-column overlap class. esp-harness@<lessons> updates docs/lessons-v2.5-consumer.md with 6 patterns.
+
+
 ## [2.4.0] — 2026-05-23
 
 **dash-state contract -- agent emits summary + options**
@@ -339,7 +346,8 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
   runner is slow and image-fragile). Real-hardware verification
   happens at release time via `tools/smoke.ps1` (planned).
 
-[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v2.5.0...HEAD
+[2.5.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v2.5.0
 [2.4.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v2.4.0
 [2.3.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v2.3.0
 [2.2.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v2.2.0
@@ -366,6 +374,7 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
 [0.1.2]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.0
+
 
 
 
