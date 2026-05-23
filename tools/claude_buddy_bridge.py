@@ -162,6 +162,18 @@ class AgentSession:
     tokens_today_date: str = field(default_factory=lambda: date.today().isoformat())
     last_active_unix: int = field(default_factory=lambda: int(time.time()))
     pending_prompt: Optional[dict] = None  # {id, tool, hint, agent_kind, session_id}
+    # v2.3.0: AWAITING state for the device's takeover scene. When the
+    # agent is blocking on user input, awaiting_kind is one of:
+    #   "continue" - end-of-turn, generic "your turn"
+    #   "approve"  - PreToolUse(permission_required); decide via buttons
+    #   "pick"     - assistant offered numbered options in last message
+    #   "type"     - assistant asked an open-ended question
+    #   "clarify"  - assistant flagged ambiguity / asked to clarify
+    # Cleared (set None) on next UserPromptSubmit or session drop.
+    awaiting_kind: Optional[str] = None
+    awaiting_context: list[str] = field(default_factory=list)  # 1-3 lines for AWAITING ctx
+    awaiting_since_unix: int = 0
+    last_assistant_text: str = ""          # buffered for the classifier on Stop
 
     def add_entry(self, tool: str, summary: str) -> None:
         ts = time.strftime("%H:%M")
@@ -182,7 +194,7 @@ class AgentSession:
         self.last_active_unix = int(time.time())
 
     def as_dict(self) -> dict:
-        return {
+        d = {
             "kind": self.kind,
             "session_id": self.session_id,
             "status": self.status,
@@ -194,6 +206,13 @@ class AgentSession:
             "last_active_unix": self.last_active_unix,
             "prompt": self.pending_prompt,
         }
+        # v2.3.0: only emit awaiting_* fields when the session is actually
+        # waiting — keeps the snapshot wire-size lean for the common case.
+        if self.awaiting_kind is not None:
+            d["awaiting_kind"]    = self.awaiting_kind
+            d["awaiting_context"] = self.awaiting_context[:3]
+            d["awaiting_since"]   = self.awaiting_since_unix
+        return d
 
 
 class SessionRegistry:
@@ -253,6 +272,45 @@ class SessionRegistry:
             sess.status = "waiting" if prompt else "running"
             sess.last_active_unix = int(time.time())
 
+    def set_awaiting(self, agent_kind: str, session_id: str, *,
+                      kind: str | None = None,
+                      context: list[str] | None = None) -> None:
+        """Enter AWAITING for the device's takeover scene.
+
+        ``agent_kind`` is the AGENT (claude-code / codex / other);
+        ``kind`` is the AWAITING KIND
+        ('continue' / 'approve' / 'pick' / 'type' / 'clarify').
+        Renamed positional from `kind` to `agent_kind` so callers can
+        pass `kind=` as kwarg without name collision.
+        """
+        with self._lock:
+            k = self._key(agent_kind, session_id)
+            sess = self._sessions.get(k)
+            if sess is None:
+                sess = AgentSession(kind=agent_kind, session_id=session_id)
+                self._sessions[k] = sess
+            sess.awaiting_kind = kind
+            sess.awaiting_context = list(context or [])
+            sess.awaiting_since_unix = int(time.time())
+            sess.status = "waiting"
+            sess.last_active_unix = int(time.time())
+
+    def clear_awaiting(self, agent_kind: str, session_id: str) -> None:
+        with self._lock:
+            sess = self._sessions.get(self._key(agent_kind, session_id))
+            if sess is None:
+                return
+            sess.awaiting_kind = None
+            sess.awaiting_context = []
+            sess.awaiting_since_unix = 0
+
+    def set_last_assistant_text(self, agent_kind: str, session_id: str, text: str) -> None:
+        with self._lock:
+            sess = self._sessions.get(self._key(agent_kind, session_id))
+            if sess is None:
+                return
+            sess.last_assistant_text = text[:4000]
+
     def known_kinds(self) -> set[str]:
         with self._lock:
             return {s.kind for s in self._sessions.values()}
@@ -283,16 +341,77 @@ class SessionRegistry:
             },
         }
 
-        # Wire-size cap: shrink entries oldest-first until under cap.
+        # Wire-size cap: progressive belt-tightening to fit CONSOLE_MAX_LINE.
+        # Step 1: shrink entries oldest-first (cheapest, most expendable info).
+        # Step 2: keep awaiting_kind/awaiting_since but drop awaiting_context
+        #         on agents that aren't the most-recent waiting one (only the
+        #         most-recent drives the takeover UI anyway).
+        # Step 3: drop cwd field (long paths) from non-waiting agents.
+        # Step 4: drop oldest non-waiting agents entirely. Never drop the
+        #         most-recent waiting agent — that's the takeover anchor.
+        def wire_size() -> int:
+            return len(json.dumps(snap, separators=(",", ":")))
+
+        def most_recent_waiting_idx() -> int | None:
+            waiting = [(i, a) for i, a in enumerate(snap["agents"])
+                       if a.get("awaiting_kind")]
+            if not waiting:
+                return None
+            return max(waiting, key=lambda x: x[1].get("awaiting_since", 0))[0]
+
+        # Step 1
         attempts = 0
-        while len(json.dumps(snap, separators=(",", ":"))) > WIRE_MAX_BYTES and attempts < 64:
+        while wire_size() > WIRE_MAX_BYTES and attempts < 64:
             attempts += 1
-            # find the agent with the most entries and pop the oldest
             biggest = max(snap["agents"], key=lambda a: len(a["entries"]), default=None)
             if biggest is None or not biggest["entries"]:
                 break
-            biggest["entries"].pop()  # last item = oldest (insert-at-0 order)
+            biggest["entries"].pop()
+
+        # Step 2
+        if wire_size() > WIRE_MAX_BYTES:
+            keep_idx = most_recent_waiting_idx()
+            for i, a in enumerate(snap["agents"]):
+                if i != keep_idx and "awaiting_context" in a:
+                    a.pop("awaiting_context", None)
+
+        # Step 3
+        if wire_size() > WIRE_MAX_BYTES:
+            keep_idx = most_recent_waiting_idx()
+            for i, a in enumerate(snap["agents"]):
+                if i != keep_idx and a.get("cwd"):
+                    a["cwd"] = ""
+
+        # Step 4: drop oldest non-waiting agents until fit.
+        while wire_size() > WIRE_MAX_BYTES and len(snap["agents"]) > 1:
+            keep_idx = most_recent_waiting_idx()
+            droppable = [
+                (i, a) for i, a in enumerate(snap["agents"])
+                if i != keep_idx and not a.get("awaiting_kind")
+            ]
+            if not droppable:
+                break
+            # Oldest = smallest last_active_unix.
+            oldest_i, _ = min(droppable, key=lambda x: x[1].get("last_active_unix", 0))
+            snap["agents"].pop(oldest_i)
         return snap
+
+    def sweep_stale(self, idle_after_s: int = 300) -> int:
+        """Drop sessions idle past `idle_after_s` with no awaiting state.
+        Returns the number dropped. Called periodically by the publisher."""
+        now = int(time.time())
+        dropped = 0
+        with self._lock:
+            stale = [
+                k for k, s in self._sessions.items()
+                if not s.awaiting_kind
+                and s.status != "waiting"
+                and (now - s.last_active_unix) > idle_after_s
+            ]
+            for k in stale:
+                self._sessions.pop(k, None)
+                dropped += 1
+        return dropped
 
     def snapshot_v0_flat(self) -> dict:
         """Backwards-compat flat shape for tests/dry-run only — not used live."""
@@ -762,6 +881,142 @@ def looks_like_permission_required(event: dict) -> bool:
     return False
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Awaiting classifier (v2.3.0)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Maps the agent's last assistant message + event type onto one of five
+# AWAITING kinds. The device renders a different headline + glyph per kind
+# so the user knows at a glance what kind of input is needed *before* they
+# context-switch into the terminal.
+#
+# The CC native hook surface only signals two kinds directly:
+#   - PreToolUse(permission_required) -> approve
+#   - Stop                            -> generic end-of-turn
+#
+# For Stop we look at the assistant's LAST text and apply heuristics to
+# infer pick / type / clarify. Misclassifications degrade to "continue"
+# which is always a safe fallback. The classifier is small + cheap to
+# extend: add a new pattern in the right block and the next snapshot
+# carries the new kind.
+
+import re as _re
+
+_NUMBERED_LINE_RE = _re.compile(
+    r"^\s*(?:[\d]+\s*[\.\)]\s+|[\-\*•]\s+|[a-eA-E]\s*[\.\)]\s+)",
+    _re.MULTILINE,
+)
+_CLARIFY_KEYWORDS = (
+    "did you mean", "do you mean", "could you clarify", "could you confirm",
+    "to clarify", "ambiguous", "unclear", "not sure which", "which one",
+    "which of these", "should i assume", "want me to", "shall i",
+)
+
+
+def _has_numbered_options(text: str, min_options: int = 2) -> bool:
+    """True iff text contains at least min_options numbered/bulleted lines."""
+    if not text:
+        return False
+    matches = _NUMBERED_LINE_RE.findall(text)
+    return len(matches) >= min_options
+
+
+def _extract_options(text: str, max_n: int = 4) -> list[str]:
+    """Pull the option labels (without numbering) from a numbered list."""
+    out = []
+    for line in text.splitlines():
+        m = _re.match(
+            r"^\s*(?:\d+\s*[\.\)]|\-|\*|•|[a-eA-E]\s*[\.\)])\s+(.+?)\s*$",
+            line,
+        )
+        if m:
+            out.append(m.group(1)[:32])
+            if len(out) >= max_n:
+                break
+    return out
+
+
+def _short_sentences(text: str, max_chars: int = 80) -> list[str]:
+    """Split into two short lines for the AWAITING ctx slot."""
+    text = " ".join(text.split())          # collapse whitespace
+    text = text.rstrip(".?!:;,")
+    if len(text) <= max_chars:
+        return [text]
+    # Try to split at a natural break point near the middle
+    half = max_chars // 2 + 8
+    cut = text.rfind(" ", 0, max_chars)
+    if cut < 12:
+        cut = max_chars
+    return [text[:cut], text[cut:].lstrip()[:max_chars - 4] + "…"]
+
+
+def _ends_with_question(text: str) -> bool:
+    s = text.rstrip()
+    return s.endswith("?") or s.endswith("？")
+
+
+def classify_awaiting(
+    event_type: str,
+    last_assistant_text: str,
+    tool_name: str = "",
+    tool_input_summary: str = "",
+) -> tuple[str, list[str]]:
+    """Classify the AWAITING kind + build the device-facing context lines.
+
+    Returns ``(kind, context_lines)`` where ``kind`` is one of
+    ``continue / approve / pick / type / clarify`` and ``context_lines``
+    is a list of ≤ 3 short strings (each ≤ ~40 chars) the device renders
+    under the headline.
+
+    Designed to never raise — bad input just falls through to "continue".
+    """
+    # ── 1. Permission gate (CC native signal) ──
+    if event_type == "pre_tool_use_permission":
+        ctx = [f"{tool_name}:" if tool_name else "tool:"]
+        if tool_input_summary:
+            ctx.append(tool_input_summary[:60])
+        return "approve", ctx
+
+    text = (last_assistant_text or "").strip()
+    if not text:
+        return "continue", ["finished its turn"]
+
+    # ── 2. Numbered options → pick ──
+    if _has_numbered_options(text, min_options=2):
+        opts = _extract_options(text, max_n=4)
+        if opts:
+            # Headline above intro line (if any) plus option preview
+            # e.g. ["migrate strategy:", "inline · defer · abort"]
+            joined = " · ".join(opts[:3])
+            # Try to find an intro / lead-in sentence (text before first numbered line)
+            lead = text.split("\n", 1)[0]
+            first_num = _NUMBERED_LINE_RE.search(text)
+            if first_num and first_num.start() > 0:
+                lead = text[:first_num.start()].strip().splitlines()
+                lead = lead[-1] if lead else ""
+                lead = lead.rstrip(":.").strip()
+            if lead and len(lead) < 60:
+                return "pick", [lead[:48] + ":", joined[:60]]
+            return "pick", [f"{len(opts)} options:", joined[:60]]
+
+    # ── 3. Clarify keywords ──
+    lowered = text.lower()
+    if any(kw in lowered for kw in _CLARIFY_KEYWORDS):
+        return "clarify", _short_sentences(text)
+
+    # ── 4. Open-ended question ending with ? ──
+    # Look at the last sentence specifically — full message may end in
+    # something else like "Done." even though there's a question above.
+    sentences = _re.split(r"(?<=[\.\!\?])\s+", text)
+    last_sent = sentences[-1] if sentences else ""
+    if _ends_with_question(last_sent) and 4 < len(last_sent) < 200:
+        return "type", _short_sentences(last_sent)
+
+    # ── 5. Default: continue ──
+    # Build a calm "what did you just do" summary from the text.
+    return "continue", _short_sentences(text)
+
+
 def normalize_event(raw: dict) -> dict:
     agent = raw.get("agent") or raw.get("agent_kind") or "claude-code"
     if agent not in ("claude-code", "codex", "other"):
@@ -780,6 +1035,15 @@ def normalize_event(raw: dict) -> dict:
         "tokens": int(raw.get("tokens") or 0),
         "permission_required": bool(raw.get("permission_required")),
         "cwd": raw.get("cwd", ""),
+        # v2.3.0: assistant's last message text, used by the AWAITING
+        # classifier on Stop events. hook_dispatch.py is responsible for
+        # extracting it from the transcript file when available.
+        "last_assistant_text": (
+            raw.get("last_assistant_text")
+            or raw.get("text")
+            or raw.get("last_message")
+            or ""
+        ),
     }
     if not out["summary"]:
         if out["type"] == "pre_tool_use":
@@ -831,18 +1095,28 @@ class Bridge:
         sid = evt["session_id"]
 
         if t == "user_prompt_submit":
+            # User just submitted a new prompt → the agent moves out of
+            # any "awaiting you" state. Clear awaiting_* fields so the
+            # device leaves the AWAITING takeover and returns to ambient.
             self.registry.upsert(agent, sid, status="running",
                                  cwd=evt["cwd"] or None,
                                  msg=evt["summary"])
+            self.registry.clear_awaiting(agent, sid)
             self.publisher.bump()
             return {"continue": True}
 
         if t == "pre_tool_use":
+            # msg owner = UserPromptSubmit. Tool calls become entries[]
+            # rows; they do NOT overwrite the user-visible prompt at the
+            # top of the agent card. Previously each tool call clobbered
+            # the prompt and the user lost the "what did I ask" anchor.
             self.registry.upsert(agent, sid, status="running",
                                  cwd=evt["cwd"] or None,
-                                 msg=evt["summary"],
                                  tool=evt["tool_name"] or "tool",
                                  summary=evt["summary"])
+            # v2.3.0: any tool firing means the model is NOT awaiting
+            # user input. Clear stale awaiting state from a prior turn.
+            self.registry.clear_awaiting(agent, sid)
             if looks_like_permission_required(evt):
                 prompt = {
                     "id": f"req_{uuid.uuid4().hex[:8]}",
@@ -852,11 +1126,25 @@ class Bridge:
                     "session_id": sid,
                 }
                 self.registry.set_pending(agent, sid, prompt)
+                # AWAITING(approve) — the device shows a takeover with
+                # the lock glyph + tool name + command preview, plus the
+                # BOOT/USER button affordances. Decision still flows
+                # through `request_permission()` below; the AWAITING is
+                # the visible side of the same wait.
+                kind, ctx = classify_awaiting(
+                    "pre_tool_use_permission",
+                    "",
+                    tool_name=evt["tool_name"],
+                    tool_input_summary=evt["summary"],
+                )
+                self.registry.set_awaiting(agent, sid, kind=kind, context=ctx)
                 self.publisher.bump()
                 decision = self.pusher.request_permission(
                     prompt, timeout=self.permission_timeout_s,
                 )
                 self.registry.set_pending(agent, sid, None)
+                # Permission resolved → leave AWAITING.
+                self.registry.clear_awaiting(agent, sid)
                 self.publisher.bump()
                 if decision in ("once", "allow"):
                     return {"hookSpecificOutput": {
@@ -875,30 +1163,48 @@ class Bridge:
             return {"continue": True}
 
         if t == "post_tool_use":
+            # See pre_tool_use note: msg stays the user prompt; tool
+            # completion goes to entries[] (already handled via the
+            # `tool=` upsert kwarg when summary is present), and tokens
+            # accumulate.
             self.registry.upsert(agent, sid, status="running",
-                                 msg=evt["summary"] or "tool ok",
+                                 tool=evt["tool_name"] or "tool",
+                                 summary=evt["summary"] or "ok",
                                  tokens=evt["tokens"])
             self.publisher.bump()
             return {"continue": True}
 
         if t == "stop":
-            self.registry.upsert(agent, sid, status="idle",
-                                 msg=evt["summary"] or "(idle)")
+            # v2.3.0: Stop = "ball in user's court". Status moves to
+            # `waiting` (not `idle`), and the classifier picks the
+            # AWAITING kind from the assistant's last message so the
+            # device's takeover scene shows the right headline + glyph.
+            #
+            # The session is NOT dropped from the registry on Stop —
+            # the user might come back to it. A long-idle sweeper
+            # (running in DevicePusher's keepalive loop) drops sessions
+            # that stay in waiting for > 30 minutes with no activity.
+            kind, ctx = classify_awaiting(
+                "stop",
+                evt.get("last_assistant_text", ""),
+            )
+            self.registry.upsert(agent, sid, status="waiting")
+            self.registry.set_awaiting(agent, sid, kind=kind, context=ctx)
             self.publisher.bump()
-
-            def _drop():
-                try:
-                    time.sleep(2.0)
-                    self.registry.drop(agent, sid)
-                    self.publisher.bump()
-                except Exception as e:
-                    print(f"[bridge] _drop crashed (caught): {e}", file=sys.stderr)
-            threading.Thread(target=_drop, daemon=True).start()
             return {"continue": True}
 
         if t == "assistant_event":
+            # Assistant text doesn't replace the prompt either — model
+            # response becomes its own entries[] row. Keeps the card's
+            # top line stable as "what the user asked". Also stash the
+            # full text on the session so a later Stop event's
+            # classifier can read it.
             self.registry.upsert(agent, sid, status="running",
-                                 msg=evt["summary"])
+                                 tool="assistant",
+                                 summary=evt["summary"])
+            text = (evt.get("last_assistant_text") or "")
+            if text:
+                self.registry.set_last_assistant_text(agent, sid, text)
             self.publisher.bump()
             return {"continue": True}
 
