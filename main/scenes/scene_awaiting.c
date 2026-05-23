@@ -51,6 +51,9 @@ typedef struct {
     lv_obj_t *headline;
     lv_obj_t *agent_chip;
     lv_obj_t *ctx_lines[AGENT_AWAITING_CONTEXT_LINES];
+    /* v2.4.0: marquee summary + numbered options list */
+    lv_obj_t *summary_marquee;
+    lv_obj_t *option_rows[AGENT_AWAITING_OPTIONS_MAX];
     lv_obj_t *footer;
     awaiting_kind_t last_rendered_kind;
     char        last_session_id[AGENT_SESSION_ID_MAX];
@@ -83,13 +86,20 @@ static bool is_urgent(awaiting_kind_t k)
 #define SCREEN_W  466
 #define SCREEN_H  466
 
-#define EYEBROW_Y     54
-#define GLYPH_CY     128
-#define HEADLINE_Y   228
-#define AGENT_Y      284
-#define CTX_Y0       326
+/* v2.4.0 layout. Two modes share most positions; option-mode reduces
+ * the glyph + headline footprints to make room for marquee + 1-4
+ * numbered option rows. Mode is decided per-frame from
+ * `slot->awaiting_options_count` + `slot->awaiting_summary[0]`. */
+#define EYEBROW_Y     40
+#define GLYPH_CY      96
+#define HEADLINE_Y   160
+#define AGENT_Y      208
+#define SUMMARY_Y    248
+#define OPTIONS_Y0   286
+#define OPTION_ROW_H  32
+#define CTX_Y0       286            /* shares Y with options; only one mode at a time */
 #define CTX_LINE_H    32
-#define FOOTER_Y     412
+#define FOOTER_Y     430
 
 /* ── Glyph rendering ────────────────────────────────────────────── */
 
@@ -266,9 +276,44 @@ static void tick(lv_timer_t *t)
     snprintf(chip, sizeof(chip), "%s  %s", short_kind, sid_short);
     lv_label_set_text(s_ui.agent_chip, chip);
 
-    /* Context lines */
+    /* v2.4.0: decide layout mode for this frame.
+     *  - has_summary → marquee at SUMMARY_Y, hide ctx_lines
+     *  - has_options → numbered list at OPTIONS_Y0, hide ctx_lines
+     *  - neither    → fall back to v2.3.0 ctx_lines layout */
+    bool has_summary = (anchor->awaiting_summary[0] != '\0');
+    bool has_options = (anchor->awaiting_options_count > 0);
+
+    if (has_summary) {
+        lv_label_set_text(s_ui.summary_marquee, anchor->awaiting_summary);
+        lv_obj_clear_flag(s_ui.summary_marquee, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(s_ui.summary_marquee, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    if (has_options) {
+        for (int i = 0; i < AGENT_AWAITING_OPTIONS_MAX; ++i) {
+            if (i < anchor->awaiting_options_count
+                && anchor->awaiting_options[i][0] != '\0') {
+                char row[64];
+                snprintf(row, sizeof(row), "%d.  %s",
+                         i + 1, anchor->awaiting_options[i]);
+                lv_label_set_text(s_ui.option_rows[i], row);
+                lv_obj_clear_flag(s_ui.option_rows[i], LV_OBJ_FLAG_HIDDEN);
+            } else {
+                lv_obj_add_flag(s_ui.option_rows[i], LV_OBJ_FLAG_HIDDEN);
+            }
+        }
+    } else {
+        for (int i = 0; i < AGENT_AWAITING_OPTIONS_MAX; ++i) {
+            lv_obj_add_flag(s_ui.option_rows[i], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    /* Context lines only when neither summary nor options present —
+     * i.e. v2.3.0 fallback. */
+    bool show_ctx = !has_summary && !has_options;
     for (int i = 0; i < AGENT_AWAITING_CONTEXT_LINES; ++i) {
-        if (i < anchor->awaiting_context_count
+        if (show_ctx && i < anchor->awaiting_context_count
             && anchor->awaiting_context[i][0] != '\0') {
             lv_label_set_text(s_ui.ctx_lines[i], anchor->awaiting_context[i]);
             lv_obj_clear_flag(s_ui.ctx_lines[i], LV_OBJ_FLAG_HIDDEN);
@@ -346,10 +391,7 @@ static void init(scene_t *s, lv_obj_t *parent)
     lv_label_set_text(s_ui.agent_chip, "");
     lv_obj_align(s_ui.agent_chip, LV_ALIGN_TOP_MID, 0, AGENT_Y);
 
-    /* Context lines. Each is sized to the inscribed-square width
-     * (~370px out of 466) so long sentences truncate with an ellipsis
-     * rather than running off the round panel's left/right edges.
-     * LV_LABEL_LONG_DOT keeps the line on one row + "…" trailing. */
+    /* Context lines (used when no dash-state summary). */
     for (int i = 0; i < AGENT_AWAITING_CONTEXT_LINES; ++i) {
         s_ui.ctx_lines[i] = lv_label_create(root);
         lv_obj_set_width(s_ui.ctx_lines[i], 370);
@@ -360,6 +402,38 @@ static void init(scene_t *s, lv_obj_t *parent)
         lv_label_set_text(s_ui.ctx_lines[i], "");
         lv_obj_align(s_ui.ctx_lines[i], LV_ALIGN_TOP_MID, 0, CTX_Y0 + i * CTX_LINE_H);
         lv_obj_add_flag(s_ui.ctx_lines[i], LV_OBJ_FLAG_HIDDEN);
+    }
+
+    /* v2.4.0: marquee summary — single line, scrolls left if text wider
+     * than container. LV_LABEL_LONG_SCROLL is LVGL's "airport-board"
+     * mode: text moves left at a steady ~30 px/s, wraps after a gap,
+     * loops indefinitely. Width set to inscribed-square so it never
+     * clips the round panel edges. */
+    s_ui.summary_marquee = lv_label_create(root);
+    lv_obj_set_width(s_ui.summary_marquee, 380);
+    lv_label_set_long_mode(s_ui.summary_marquee, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_set_style_text_color(s_ui.summary_marquee, lv_color_hex(0xF3EEE2), 0);
+    lv_obj_set_style_text_font(s_ui.summary_marquee, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_align(s_ui.summary_marquee, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(s_ui.summary_marquee, "");
+    lv_obj_align(s_ui.summary_marquee, LV_ALIGN_TOP_MID, 0, SUMMARY_Y);
+    lv_obj_add_flag(s_ui.summary_marquee, LV_OBJ_FLAG_HIDDEN);
+
+    /* Numbered options 1..4 — each row "N.  <option text>". The number
+     * is in accent color, the text in TEXT_DIM. User reads, switches
+     * to terminal, types the digit (CC accepts the verbatim option as
+     * the next prompt). */
+    for (int i = 0; i < AGENT_AWAITING_OPTIONS_MAX; ++i) {
+        s_ui.option_rows[i] = lv_label_create(root);
+        lv_obj_set_width(s_ui.option_rows[i], 380);
+        lv_label_set_long_mode(s_ui.option_rows[i], LV_LABEL_LONG_DOT);
+        lv_obj_set_style_text_color(s_ui.option_rows[i], lv_color_hex(0xF3EEE2), 0);
+        lv_obj_set_style_text_font(s_ui.option_rows[i], &lv_font_montserrat_22, 0);
+        lv_obj_set_style_text_align(s_ui.option_rows[i], LV_TEXT_ALIGN_LEFT, 0);
+        lv_label_set_text(s_ui.option_rows[i], "");
+        lv_obj_align(s_ui.option_rows[i], LV_ALIGN_TOP_LEFT,
+                     (SCREEN_W - 380) / 2, OPTIONS_Y0 + i * OPTION_ROW_H);
+        lv_obj_add_flag(s_ui.option_rows[i], LV_OBJ_FLAG_HIDDEN);
     }
 
     /* Footer */

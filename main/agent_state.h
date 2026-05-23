@@ -48,6 +48,10 @@ extern "C" {
  * under the headline. */
 #define AGENT_AWAITING_CONTEXT_LINES  3
 #define AGENT_AWAITING_CONTEXT_MAX    48   /* per line */
+/* v2.4.0 dash-state contract: marquee summary + numbered option list. */
+#define AGENT_AWAITING_SUMMARY_MAX   208   /* one-line marquee */
+#define AGENT_AWAITING_OPTIONS_MAX     4
+#define AGENT_AWAITING_OPTION_MAX     36   /* per option */
 
 typedef enum {
     AWAITING_NONE     = 0,   /* not blocked on user */
@@ -106,6 +110,14 @@ typedef struct {
     int             awaiting_context_count;
     uint32_t        awaiting_since_unix;        /* host clock when awaiting began */
     uint32_t        awaiting_entered_ms;        /* lv_tick when we received it */
+    /* v2.4.0: dash-state — agent-emitted summary + executable options.
+     * If awaiting_summary[0] != 0, scene_awaiting prefers it over
+     * awaiting_context for the marquee. If awaiting_options_count > 0,
+     * the takeover renders a numbered list below the marquee. */
+    char            awaiting_summary[AGENT_AWAITING_SUMMARY_MAX];
+    char            awaiting_options[AGENT_AWAITING_OPTIONS_MAX]
+                                    [AGENT_AWAITING_OPTION_MAX];
+    int             awaiting_options_count;
 } agent_slot_t;
 
 typedef struct {
@@ -213,6 +225,15 @@ void agent_state_clear_awaiting(agent_slot_t *slot);
 void agent_state_set_awaiting(agent_slot_t *slot, awaiting_kind_t kind,
                               const char *const *context_lines,
                               int line_count, uint32_t since_unix);
+
+/* v2.4.0: set the dash-state summary + options on an already-awaiting
+ * slot. Pass NULL/0 to clear. Each option is truncated to
+ * AGENT_AWAITING_OPTION_MAX-1. Lock held. */
+void agent_state_set_awaiting_summary(agent_slot_t *slot,
+                                       const char *summary);
+void agent_state_set_awaiting_options(agent_slot_t *slot,
+                                       const char *const *options,
+                                       int option_count);
 
 #ifdef __cplusplus
 }

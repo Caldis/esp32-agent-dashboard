@@ -201,6 +201,41 @@ static void merge_agent_object(tj_span_t obj, const char *default_kind)
             }
         }
         agent_state_set_awaiting(slot, k, ctx_lines, ctx_count, (uint32_t)since);
+
+        /* v2.4.0: dash-state — summary + options from the snapshot.
+         * Both are optional; absence clears the corresponding field. */
+        char summary_buf[AGENT_AWAITING_SUMMARY_MAX] = {0};
+        if (tj_object_get_string(obj.begin, obj.end, "awaiting_summary",
+                                 summary_buf, sizeof(summary_buf))) {
+            agent_state_set_awaiting_summary(slot, summary_buf);
+        } else {
+            agent_state_set_awaiting_summary(slot, "");
+        }
+
+        tj_span_t opts_v;
+        if (tj_object_find(obj.begin, obj.end, "awaiting_options", &opts_v) &&
+            tj_value_is_array(opts_v))
+        {
+            const char *opts_cursor = NULL;
+            tj_span_t opt;
+            char opt_bufs[AGENT_AWAITING_OPTIONS_MAX][AGENT_AWAITING_OPTION_MAX] = {{0}};
+            const char *opts[AGENT_AWAITING_OPTIONS_MAX] = {0};
+            int n_opts = 0;
+            while (n_opts < AGENT_AWAITING_OPTIONS_MAX
+                   && tj_array_next(opts_v, opts_cursor, &opt))
+            {
+                opts_cursor = opt.end;
+                if (opt.begin < opt.end && *opt.begin == '"') {
+                    tj_value_string(opt, opt_bufs[n_opts],
+                                    AGENT_AWAITING_OPTION_MAX);
+                    opts[n_opts] = opt_bufs[n_opts];
+                    n_opts++;
+                }
+            }
+            agent_state_set_awaiting_options(slot, opts, n_opts);
+        } else {
+            agent_state_set_awaiting_options(slot, NULL, 0);
+        }
     } else {
         agent_state_clear_awaiting(slot);
     }

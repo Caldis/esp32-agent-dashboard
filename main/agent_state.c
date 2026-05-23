@@ -156,6 +156,38 @@ void agent_state_clear_awaiting(agent_slot_t *slot)
     for (int i = 0; i < AGENT_AWAITING_CONTEXT_LINES; ++i) {
         slot->awaiting_context[i][0] = '\0';
     }
+    /* v2.4.0: also clear summary + options. */
+    slot->awaiting_summary[0] = '\0';
+    slot->awaiting_options_count = 0;
+    for (int i = 0; i < AGENT_AWAITING_OPTIONS_MAX; ++i) {
+        slot->awaiting_options[i][0] = '\0';
+    }
+}
+
+void agent_state_set_awaiting_summary(agent_slot_t *slot, const char *summary)
+{
+    if (!slot) return;
+    copy_bounded(slot->awaiting_summary, AGENT_AWAITING_SUMMARY_MAX,
+                 summary ? summary : "");
+}
+
+void agent_state_set_awaiting_options(agent_slot_t *slot,
+                                       const char *const *options,
+                                       int option_count)
+{
+    if (!slot) return;
+    int n = option_count;
+    if (n < 0) n = 0;
+    if (n > AGENT_AWAITING_OPTIONS_MAX) n = AGENT_AWAITING_OPTIONS_MAX;
+    for (int i = 0; i < n; ++i) {
+        copy_bounded(slot->awaiting_options[i],
+                     AGENT_AWAITING_OPTION_MAX,
+                     (options && options[i]) ? options[i] : "");
+    }
+    for (int i = n; i < AGENT_AWAITING_OPTIONS_MAX; ++i) {
+        slot->awaiting_options[i][0] = '\0';
+    }
+    slot->awaiting_options_count = n;
 }
 
 void agent_state_set_awaiting(agent_slot_t *slot, awaiting_kind_t kind,

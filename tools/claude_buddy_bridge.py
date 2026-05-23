@@ -174,6 +174,14 @@ class AgentSession:
     awaiting_context: list[str] = field(default_factory=list)  # 1-3 lines for AWAITING ctx
     awaiting_since_unix: int = 0
     last_assistant_text: str = ""          # buffered for the classifier on Stop
+    # v2.4.0: dash-state contract. When the agent appends a <dash-state>
+    # block at the end of its message, hook_dispatch extracts it and the
+    # bridge stores it here. The device's AWAITING takeover renders:
+    #   - awaiting_summary as a marquee (LV_LABEL_LONG_SCROLL)
+    #   - awaiting_options as a numbered list (1-4)
+    # See docs/DASH_STATE_CONTRACT.md.
+    awaiting_summary: str = ""
+    awaiting_options: list[str] = field(default_factory=list)
 
     def add_entry(self, tool: str, summary: str) -> None:
         ts = time.strftime("%H:%M")
@@ -212,6 +220,11 @@ class AgentSession:
             d["awaiting_kind"]    = self.awaiting_kind
             d["awaiting_context"] = self.awaiting_context[:3]
             d["awaiting_since"]   = self.awaiting_since_unix
+            # v2.4.0: include summary + options when set (dash-state contract).
+            if self.awaiting_summary:
+                d["awaiting_summary"] = self.awaiting_summary[:200]
+            if self.awaiting_options:
+                d["awaiting_options"] = [o[:32] for o in self.awaiting_options[:4]]
         return d
 
 
@@ -274,7 +287,9 @@ class SessionRegistry:
 
     def set_awaiting(self, agent_kind: str, session_id: str, *,
                       kind: str | None = None,
-                      context: list[str] | None = None) -> None:
+                      context: list[str] | None = None,
+                      summary: str | None = None,
+                      options: list[str] | None = None) -> None:
         """Enter AWAITING for the device's takeover scene.
 
         ``agent_kind`` is the AGENT (claude-code / codex / other);
@@ -294,6 +309,13 @@ class SessionRegistry:
             sess.awaiting_since_unix = int(time.time())
             sess.status = "waiting"
             sess.last_active_unix = int(time.time())
+            # v2.4.0: dash-state summary + options. Empty values clear
+            # the field so an option-less turn replaces a previous
+            # option-ful turn cleanly.
+            if summary is not None:
+                sess.awaiting_summary = summary
+            if options is not None:
+                sess.awaiting_options = list(options)
 
     def clear_awaiting(self, agent_kind: str, session_id: str) -> None:
         with self._lock:
@@ -303,6 +325,8 @@ class SessionRegistry:
             sess.awaiting_kind = None
             sess.awaiting_context = []
             sess.awaiting_since_unix = 0
+            sess.awaiting_summary = ""
+            sess.awaiting_options = []
 
     def set_last_assistant_text(self, agent_kind: str, session_id: str, text: str) -> None:
         with self._lock:
@@ -1048,6 +1072,9 @@ def normalize_event(raw: dict) -> dict:
             or raw.get("last_message")
             or ""
         ),
+        # v2.4.0: dash-state block extracted by hook_dispatch.py.
+        # Shape: {"summary": "...", "options": ["...", ...]} or None.
+        "dash_state": raw.get("dash_state") or None,
     }
     if not out["summary"]:
         if out["type"] == "pre_tool_use":
@@ -1183,17 +1210,30 @@ class Bridge:
             # `waiting` (not `idle`), and the classifier picks the
             # AWAITING kind from the assistant's last message so the
             # device's takeover scene shows the right headline + glyph.
-            #
-            # The session is NOT dropped from the registry on Stop —
-            # the user might come back to it. A long-idle sweeper
-            # (running in DevicePusher's keepalive loop) drops sessions
-            # that stay in waiting for > 30 minutes with no activity.
+            # v2.4.0: if the agent included a <dash-state> block, the
+            # summary + options enrich the takeover (marquee + numbered
+            # option list). dash_state.summary overrides the classifier's
+            # default context lines so the user sees the agent's own
+            # framing rather than the heuristic guess.
             kind, ctx = classify_awaiting(
                 "stop",
                 evt.get("last_assistant_text", ""),
             )
+            ds = evt.get("dash_state") or {}
+            summary = (ds.get("summary") or "")[:240]
+            options = [o[:32] for o in (ds.get("options") or [])][:4]
+            # If summary is present, use it as the single ctx line for
+            # backwards-compat (devices that don't parse summary still
+            # see something useful). The device's scene_awaiting will
+            # prefer summary when present.
+            if summary:
+                ctx = [summary[:48]]
             self.registry.upsert(agent, sid, status="waiting")
-            self.registry.set_awaiting(agent, sid, kind=kind, context=ctx)
+            self.registry.set_awaiting(
+                agent, sid,
+                kind=kind, context=ctx,
+                summary=summary, options=options,
+            )
             self.publisher.bump()
             return {"continue": True}
 
