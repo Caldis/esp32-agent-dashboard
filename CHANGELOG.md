@@ -8,6 +8,13 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [2.3.0] — 2026-05-23
+
+**AWAITING takeover -- ball-in-your-court UX**
+
+v2.3.0 ships the AWAITING takeover scene that fires when an agent is blocking on user input. Five kind variants share one template (continue/approve/pick/type/clarify), each with its own glyph + headline + urgency-coded accent (teal for relaxed, gold for blocked). Bridge gains a 9-test classifier that parses CC Stop events and PreToolUse(permission) into the right kind. Apple-style ease curves via cubic-bezier LUT. Verified end-to-end on real Waveshare AMOLED 2.16 device; see docs/img/live-awaiting-*.png for the 5 captured variants. scene_dashboard feed+banner rewrite is deferred to v2.3.x.
+
+
 ## [2.2.0] — 2026-05-23
 
 **Native desktop client (Tauri)**
@@ -325,7 +332,8 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
   runner is slow and image-fragile). Real-hardware verification
   happens at release time via `tools/smoke.ps1` (planned).
 
-[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v2.3.0...HEAD
+[2.3.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v2.3.0
 [2.2.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v2.2.0
 [2.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v2.1.0
 [2.0.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v2.0.0
@@ -350,6 +358,7 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
 [0.1.2]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.0
+
 
 
 
