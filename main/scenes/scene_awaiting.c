@@ -86,20 +86,23 @@ static bool is_urgent(awaiting_kind_t k)
 #define SCREEN_W  466
 #define SCREEN_H  466
 
-/* v2.4.0 layout. Two modes share most positions; option-mode reduces
- * the glyph + headline footprints to make room for marquee + 1-4
- * numbered option rows. Mode is decided per-frame from
- * `slot->awaiting_options_count` + `slot->awaiting_summary[0]`. */
-#define EYEBROW_Y     40
-#define GLYPH_CY      96
-#define HEADLINE_Y   160
-#define AGENT_Y      208
-#define SUMMARY_Y    248
-#define OPTIONS_Y0   286
-#define OPTION_ROW_H  32
-#define CTX_Y0       286            /* shares Y with options; only one mode at a time */
-#define CTX_LINE_H    32
-#define FOOTER_Y     430
+/* v2.4.0 layout. The core group (glyph + headline + agent + summary +
+ * options/ctx) is vertically centered per-frame so a 3-option turn
+ * doesn't leave a void at the bottom and a 0-option turn doesn't
+ * top-stick. Eyebrow and footer are anchored to panel edges and
+ * unchanged; everything in between gets a dynamic top offset
+ * computed in tick(). The constants below are the "stack heights" —
+ * how tall each element is in lv coordinates — used to sum content
+ * height for the centering math. */
+#define EYEBROW_Y         44   /* fixed: top of panel inscribed area */
+#define FOOTER_Y         432   /* fixed: bottom */
+#define GLYPH_H           76   /* glyph container is 96x96 visually; usable centerline */
+#define HEADLINE_H        54   /* 48pt montserrat line height */
+#define AGENT_H           36
+#define SUMMARY_H         34   /* marquee strip */
+#define OPTION_ROW_H      32
+#define CTX_LINE_H        32
+#define INTER_GAP          6   /* between adjacent vertical elements */
 
 /* ── Glyph rendering ────────────────────────────────────────────── */
 
@@ -276,12 +279,60 @@ static void tick(lv_timer_t *t)
     snprintf(chip, sizeof(chip), "%s  %s", short_kind, sid_short);
     lv_label_set_text(s_ui.agent_chip, chip);
 
-    /* v2.4.0: decide layout mode for this frame.
-     *  - has_summary → marquee at SUMMARY_Y, hide ctx_lines
-     *  - has_options → numbered list at OPTIONS_Y0, hide ctx_lines
-     *  - neither    → fall back to v2.3.0 ctx_lines layout */
+    /* v2.4.0: decide layout mode for this frame + compute the dynamic
+     * vertical-center offset so the core group sits balanced regardless
+     * of how many options / context lines are visible. The available
+     * vertical real estate is from EYEBROW_Y+12 to FOOTER_Y-12. We sum
+     * the visible content height (glyph + headline + agent + summary?
+     * + N_options × row_h | + N_ctx × ctx_h), compute remaining
+     * whitespace, and split it half-above the group. */
     bool has_summary = (anchor->awaiting_summary[0] != '\0');
     bool has_options = (anchor->awaiting_options_count > 0);
+    int n_opts = anchor->awaiting_options_count;
+    if (n_opts > AGENT_AWAITING_OPTIONS_MAX) n_opts = AGENT_AWAITING_OPTIONS_MAX;
+    int n_ctx = anchor->awaiting_context_count;
+    if (n_ctx > AGENT_AWAITING_CONTEXT_LINES) n_ctx = AGENT_AWAITING_CONTEXT_LINES;
+
+    int content_h = GLYPH_H + INTER_GAP
+                  + HEADLINE_H + INTER_GAP
+                  + AGENT_H;
+    if (has_summary)              content_h += INTER_GAP + SUMMARY_H;
+    if (has_options)              content_h += INTER_GAP + n_opts * OPTION_ROW_H;
+    if (!has_options && !has_summary && n_ctx > 0) {
+        content_h += INTER_GAP + n_ctx * CTX_LINE_H;
+    }
+
+    int avail_top    = EYEBROW_Y + 16;        /* below eyebrow */
+    int avail_bottom = FOOTER_Y - 14;         /* above footer */
+    int avail_h      = avail_bottom - avail_top;
+    int top_pad      = (avail_h - content_h) / 2;
+    if (top_pad < 0) top_pad = 0;
+    int y = avail_top + top_pad;
+
+    /* Re-align the core group at the new y. */
+    lv_obj_align(s_ui.glyph,      LV_ALIGN_TOP_MID, 0, y);
+    y += GLYPH_H + INTER_GAP;
+    lv_obj_align(s_ui.headline,   LV_ALIGN_TOP_MID, 0, y);
+    y += HEADLINE_H + INTER_GAP;
+    lv_obj_align(s_ui.agent_chip, LV_ALIGN_TOP_MID, 0, y);
+    y += AGENT_H + INTER_GAP;
+
+    if (has_summary) {
+        lv_obj_align(s_ui.summary_marquee, LV_ALIGN_TOP_MID, 0, y);
+        y += SUMMARY_H + INTER_GAP;
+    }
+    if (has_options) {
+        int ox = (SCREEN_W - 380) / 2;
+        for (int i = 0; i < AGENT_AWAITING_OPTIONS_MAX; ++i) {
+            lv_obj_align(s_ui.option_rows[i], LV_ALIGN_TOP_LEFT, ox, y);
+            if (i < n_opts) y += OPTION_ROW_H;
+        }
+    } else if (!has_summary) {
+        for (int i = 0; i < AGENT_AWAITING_CONTEXT_LINES; ++i) {
+            lv_obj_align(s_ui.ctx_lines[i], LV_ALIGN_TOP_MID, 0, y);
+            if (i < n_ctx) y += CTX_LINE_H;
+        }
+    }
 
     if (has_summary) {
         lv_label_set_text(s_ui.summary_marquee, anchor->awaiting_summary);
@@ -368,28 +419,28 @@ static void init(scene_t *s, lv_obj_t *parent)
     lv_label_set_text(s_ui.eyebrow, "");
     lv_obj_align(s_ui.eyebrow, LV_ALIGN_TOP_MID, 0, EYEBROW_Y);
 
-    /* Glyph container */
+    /* Glyph container — initial position; tick() re-aligns per-frame. */
     s_ui.glyph = lv_obj_create(root);
     lv_obj_set_size(s_ui.glyph, 96, 96);
-    lv_obj_set_pos(s_ui.glyph, (SCREEN_W - 96) / 2, GLYPH_CY - 48);
     lv_obj_set_style_bg_opa(s_ui.glyph, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_ui.glyph, 0, 0);
     lv_obj_set_style_pad_all(s_ui.glyph, 0, 0);
     lv_obj_clear_flag(s_ui.glyph, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(s_ui.glyph, LV_ALIGN_TOP_MID, 0, EYEBROW_Y + 24);
 
-    /* Headline */
+    /* Headline — initial position; tick() re-aligns. */
     s_ui.headline = lv_label_create(root);
     lv_obj_set_style_text_color(s_ui.headline, lv_color_hex(0xF3EEE2), 0);
     lv_obj_set_style_text_font(s_ui.headline, &lv_font_montserrat_48, 0);
     lv_label_set_text(s_ui.headline, "");
-    lv_obj_align(s_ui.headline, LV_ALIGN_TOP_MID, 0, HEADLINE_Y);
+    lv_obj_align(s_ui.headline, LV_ALIGN_TOP_MID, 0, EYEBROW_Y + 100);
 
-    /* Agent chip */
+    /* Agent chip — initial position; tick() re-aligns. */
     s_ui.agent_chip = lv_label_create(root);
     lv_obj_set_style_text_color(s_ui.agent_chip, lv_color_hex(0x2BB3B1), 0);
     lv_obj_set_style_text_font(s_ui.agent_chip, &lv_font_montserrat_28, 0);
     lv_label_set_text(s_ui.agent_chip, "");
-    lv_obj_align(s_ui.agent_chip, LV_ALIGN_TOP_MID, 0, AGENT_Y);
+    lv_obj_align(s_ui.agent_chip, LV_ALIGN_TOP_MID, 0, EYEBROW_Y + 154);
 
     /* Context lines (used when no dash-state summary). */
     for (int i = 0; i < AGENT_AWAITING_CONTEXT_LINES; ++i) {
@@ -400,8 +451,9 @@ static void init(scene_t *s, lv_obj_t *parent)
         lv_obj_set_style_text_color(s_ui.ctx_lines[i], lv_color_hex(0x8A807A), 0);
         lv_obj_set_style_text_font(s_ui.ctx_lines[i], &lv_font_montserrat_22, 0);
         lv_label_set_text(s_ui.ctx_lines[i], "");
-        lv_obj_align(s_ui.ctx_lines[i], LV_ALIGN_TOP_MID, 0, CTX_Y0 + i * CTX_LINE_H);
         lv_obj_add_flag(s_ui.ctx_lines[i], LV_OBJ_FLAG_HIDDEN);
+        /* Initial position; tick() re-aligns. */
+        lv_obj_align(s_ui.ctx_lines[i], LV_ALIGN_TOP_MID, 0, EYEBROW_Y + 220);
     }
 
     /* v2.4.0: marquee summary — single line, scrolls left if text wider
@@ -416,8 +468,9 @@ static void init(scene_t *s, lv_obj_t *parent)
     lv_obj_set_style_text_font(s_ui.summary_marquee, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_align(s_ui.summary_marquee, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(s_ui.summary_marquee, "");
-    lv_obj_align(s_ui.summary_marquee, LV_ALIGN_TOP_MID, 0, SUMMARY_Y);
     lv_obj_add_flag(s_ui.summary_marquee, LV_OBJ_FLAG_HIDDEN);
+    /* Initial position; tick() re-aligns. */
+    lv_obj_align(s_ui.summary_marquee, LV_ALIGN_TOP_MID, 0, EYEBROW_Y + 220);
 
     /* Numbered options 1..4 — each row "N.  <option text>". The number
      * is in accent color, the text in TEXT_DIM. User reads, switches
@@ -431,8 +484,6 @@ static void init(scene_t *s, lv_obj_t *parent)
         lv_obj_set_style_text_font(s_ui.option_rows[i], &lv_font_montserrat_22, 0);
         lv_obj_set_style_text_align(s_ui.option_rows[i], LV_TEXT_ALIGN_LEFT, 0);
         lv_label_set_text(s_ui.option_rows[i], "");
-        lv_obj_align(s_ui.option_rows[i], LV_ALIGN_TOP_LEFT,
-                     (SCREEN_W - 380) / 2, OPTIONS_Y0 + i * OPTION_ROW_H);
         lv_obj_add_flag(s_ui.option_rows[i], LV_OBJ_FLAG_HIDDEN);
     }
 
