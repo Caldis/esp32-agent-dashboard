@@ -8,6 +8,13 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [2.6.0] — 2026-05-24
+
+**Visual acceptance + esp-harness v3.0 alignment**
+
+Live device captures of AMBIENT feed + 5 AWAITING variants (continue/approve/pick/type/clarify). All shots from real Waveshare AMOLED 2.16; vertical centering balanced, no overlap, glyphs render correctly. REQUIRES esp-harness-core (renamed from aurora-harness in esp-harness v3.0). See docs/img/v260-*.png.
+
+
 ## [2.5.0] — 2026-05-24
 
 **Ambient feed-style dashboard (replaces multi-card grid)**
@@ -346,7 +353,8 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
   runner is slow and image-fragile). Real-hardware verification
   happens at release time via `tools/smoke.ps1` (planned).
 
-[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v2.5.0...HEAD
+[Unreleased]: https://github.com/Caldis/esp32-agent-dashboard/compare/v2.6.0...HEAD
+[2.6.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v2.6.0
 [2.5.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v2.5.0
 [2.4.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v2.4.0
 [2.3.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v2.3.0
@@ -374,6 +382,7 @@ Code and Codex CLI, running on the Waveshare ESP32-S3-Touch-AMOLED-2.16.
 [0.1.2]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Caldis/esp32-agent-dashboard/releases/tag/v0.1.0
+
 
 
 
