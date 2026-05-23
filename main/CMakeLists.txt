@@ -22,9 +22,12 @@ idf_component_register(
         "anim"
     REQUIRES
         lvgl__lvgl
-        aurora-harness
-        # Waveshare AMOLED 2.16 (Aurora's board) — pulled from
-        # ${ESP_HARNESS_ROOT}/boards/ via EXTRA_COMPONENT_DIRS.
+        # Renamed from `aurora-harness` to `esp-harness-core` in
+        # esp-harness v3.0 — same library, clearer name (it was never
+        # Aurora-specific, just historical).
+        esp-harness-core
+        # Waveshare AMOLED 2.16 (the board this project targets) —
+        # pulled from ${ESP_HARNESS_ROOT}/boards/ via EXTRA_COMPONENT_DIRS.
         esp32_s3_touch_amoled_2_16
         # Physical buttons (BOOT / USER) for the permission prompt scene.
         espressif__button
