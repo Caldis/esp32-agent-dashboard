@@ -987,7 +987,7 @@ def classify_awaiting(
         if opts:
             # Headline above intro line (if any) plus option preview
             # e.g. ["migrate strategy:", "inline · defer · abort"]
-            joined = " · ".join(opts[:3])
+            joined = "  ".join(opts[:3])
             # Try to find an intro / lead-in sentence (text before first numbered line)
             lead = text.split("\n", 1)[0]
             first_num = _NUMBERED_LINE_RE.search(text)
@@ -996,7 +996,11 @@ def classify_awaiting(
                 lead = lead[-1] if lead else ""
                 lead = lead.rstrip(":.").strip()
             if lead and len(lead) < 60:
-                return "pick", [lead[:48] + ":", joined[:60]]
+                # Strip any trailing punctuation before appending ':' so
+                # we don't render "strategy?:" when the lead is already a
+                # question.
+                lead_clean = lead.rstrip("?!.:;").strip()
+                return "pick", [lead_clean[:48] + ":", joined[:60]]
             return "pick", [f"{len(opts)} options:", joined[:60]]
 
     # ── 3. Clarify keywords ──
