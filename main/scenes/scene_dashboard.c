@@ -271,7 +271,7 @@ static lv_obj_t *make_row_label(lv_obj_t *parent, int x, int y,
     lv_obj_set_style_text_color(l, lv_color_hex(color), 0);
     lv_obj_set_style_text_font(l, font, 0);
     lv_label_set_text(l, "");
-    lv_obj_set_width(l, width);
+    lv_obj_set_size(l, width, lv_font_get_line_height(font) + 4);
     lv_obj_set_style_text_align(l, align, 0);
     lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
     lv_obj_set_pos(l, x, y);
