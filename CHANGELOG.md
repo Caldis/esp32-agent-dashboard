@@ -8,6 +8,12 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [2.7.0] — 2026-05-24
+
+**Persona-driven UX fixes + PUSH banner + circuit breaker**
+
+Four-persona user testing (power user, newcomer, bystander, accessibility) drove 10 P0 fixes across firmware, bridge, and docs. Firmware: WCAG contrast fix (ink-mute→ink-fade 5.13:1), SID display format (first-4+":"+last-2), agent chip hierarchy (28→22pt), approve BOOT/USER affordance row, motion_reduced config (NVS-persisted, gates breath animation + marquee scroll for vestibular safety). Bridge: circuit breaker in hook_dispatch (3 timeouts/30s → skip 60s prevents CC stalling), PUSH banner (top-slide-down 3s toast via lv_layer_top on PostToolUse, new `dash push` command). Docs: honest quickstart timing, 3 new troubleshooting entries, mock device path consolidation, 7-scene table, persona testing SUMMARY.md.
+
 ## [2.6.0] — 2026-05-24
 
 **Visual acceptance + esp-harness v3.0 alignment**
