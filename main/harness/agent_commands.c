@@ -425,11 +425,13 @@ static int cmd_prompt(const console_args_t *a)
     char hint[AGENT_HINT_MAX]          = {0};
     char kind[AGENT_KIND_MAX]          = {0};
     char sid[AGENT_SESSION_ID_MAX]     = {0};
+    char mode[16]                      = {0};
     tj_object_get_string(json, end, "id",         id,   sizeof(id));
     tj_object_get_string(json, end, "tool",       tool, sizeof(tool));
     tj_object_get_string(json, end, "hint",       hint, sizeof(hint));
     tj_object_get_string(json, end, "agent_kind", kind, sizeof(kind));
     tj_object_get_string(json, end, "session_id", sid,  sizeof(sid));
+    tj_object_get_string(json, end, "mode",       mode, sizeof(mode));
 
     if (id[0] == '\0') { console_reply_err("prompt id required"); return 0; }
 
@@ -440,6 +442,7 @@ static int cmd_prompt(const console_args_t *a)
     memcpy(s->prompt_hint,       hint, sizeof(s->prompt_hint));
     memcpy(s->prompt_agent_kind, kind, sizeof(s->prompt_agent_kind));
     memcpy(s->prompt_session_id, sid,  sizeof(s->prompt_session_id));
+    s->prompt_mode_reply = (strcmp(mode, "reply") == 0);
     s->prompt_active = true;
     s->prompt_shown_ms = lv_tick_get();
     s->prompts_received++;

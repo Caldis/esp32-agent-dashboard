@@ -138,6 +138,7 @@ typedef struct {
     /* Permission prompt — global, not per agent (only one prompt visible
      * at a time on this device). */
     bool          prompt_active;
+    bool          prompt_mode_reply;
     char          prompt_id[AGENT_PROMPT_ID_MAX];
     char          prompt_tool[AGENT_TOOL_MAX];
     char          prompt_hint[AGENT_HINT_MAX];

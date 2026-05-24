@@ -531,6 +531,7 @@ def _resolve_port_arg(port_kind: str, port: str) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 _PERM_RE = re.compile(r"permission\s+id=(\S+)\s+decision=(\w+)")
+_REPLY_RE = re.compile(r"reply\s+id=(\S+)\s+choice=(\d+)")
 
 
 class DevicePusher:
@@ -563,6 +564,7 @@ class DevicePusher:
         self._lock = threading.Lock()
         self._timings: list[float] = []
         self._permission_waiters: dict[str, queue.Queue[str]] = {}
+        self._reply_waiters: dict[str, queue.Queue[int]] = {}
         self._buffered_snapshot: Optional[dict] = None
         self._stop = threading.Event()
         self._reconnect_thread: Optional[threading.Thread] = None
@@ -678,20 +680,30 @@ class DevicePusher:
             self._record_health(obj)
 
     def _on_evt(self, evt: ReplyEvent) -> None:
-        """EVT lines arrive here. We extract permission decisions
-        (`permission id=<req_id> decision=<allow|deny|once>`) and dispatch
-        to whichever request_permission() call is waiting on that id."""
+        """EVT lines arrive here. Extract permission decisions and reply
+        choices, dispatch to the appropriate waiter queue."""
         m = _PERM_RE.search(evt.text)
-        if not m:
+        if m:
+            req_id, decision = m.group(1), m.group(2)
+            with self._lock:
+                q = self._permission_waiters.get(req_id)
+            if q is not None:
+                try:
+                    q.put_nowait(decision)
+                except queue.Full:
+                    pass
             return
-        req_id, decision = m.group(1), m.group(2)
-        with self._lock:
-            q = self._permission_waiters.get(req_id)
-        if q is not None:
-            try:
-                q.put_nowait(decision)
-            except queue.Full:
-                pass
+
+        m = _REPLY_RE.search(evt.text)
+        if m:
+            req_id, choice = m.group(1), int(m.group(2))
+            with self._lock:
+                q = self._reply_waiters.get(req_id)
+            if q is not None:
+                try:
+                    q.put_nowait(choice)
+                except queue.Full:
+                    pass
 
     def _on_err(self, evt: ReplyEvent) -> None:
         """ERR replies (gap G-H3) — log to stderr so the operator sees
@@ -775,6 +787,60 @@ class DevicePusher:
         finally:
             with self._lock:
                 self._permission_waiters.pop(req_id, None)
+
+    # ── quick reply ───────────────────────────────────────────────────
+    def push_reply_prompt(self, req_id: str, options: list[str],
+                          *, timeout: float = 120.0) -> None:
+        prompt = {
+            "id": req_id,
+            "mode": "reply",
+            "tool": options[0][:32],
+            "hint": options[1][:32] if len(options) > 1 else "",
+        }
+        q: queue.Queue[int] = queue.Queue(maxsize=1)
+        with self._lock:
+            self._reply_waiters[req_id] = q
+
+        def _wait_and_copy():
+            try:
+                res = self.push("prompt", prompt)
+                if not res.get("ok"):
+                    return
+                try:
+                    choice = q.get(timeout=timeout)
+                except queue.Empty:
+                    return
+                if choice < 0:
+                    return
+                text = options[choice] if choice < len(options) else ""
+                if text:
+                    try:
+                        subprocess.run(
+                            ["powershell", "-NoProfile", "-Command",
+                             f"Set-Clipboard -Value '{text}'"],
+                            check=True, timeout=3.0,
+                            capture_output=True,
+                        )
+                        print(f"[bridge] reply copied to clipboard: {text[:40]}",
+                              file=sys.stderr)
+                    except Exception as e:
+                        print(f"[bridge] clipboard write failed: {e}",
+                              file=sys.stderr)
+            finally:
+                with self._lock:
+                    self._reply_waiters.pop(req_id, None)
+
+        threading.Thread(target=_wait_and_copy, daemon=True,
+                         name=f"reply-{req_id}").start()
+
+    def cancel_pending_replies(self) -> None:
+        with self._lock:
+            for q in self._reply_waiters.values():
+                try:
+                    q.put_nowait(-1)
+                except queue.Full:
+                    pass
+            self._reply_waiters.clear()
 
     # ── stats ─────────────────────────────────────────────────────────
     def timing_stats(self) -> dict:
@@ -1141,6 +1207,7 @@ class Bridge:
                                  cwd=evt["cwd"] or None,
                                  msg=evt["summary"])
             self.registry.clear_awaiting(agent, sid)
+            self.pusher.cancel_pending_replies()
             self.publisher.bump()
             return {"continue": True}
 
@@ -1238,12 +1305,18 @@ class Bridge:
             if summary:
                 ctx = [summary[:48]]
             self.registry.upsert(agent, sid, status="waiting")
-            self.registry.set_awaiting(
-                agent, sid,
-                kind=kind, context=ctx,
-                summary=summary, options=options,
-            )
-            self.publisher.bump()
+
+            if len(options) == 2:
+                self.publisher.bump()
+                req_id = f"rpl_{uuid.uuid4().hex[:8]}"
+                self.pusher.push_reply_prompt(req_id, options)
+            else:
+                self.registry.set_awaiting(
+                    agent, sid,
+                    kind=kind, context=ctx,
+                    summary=summary, options=options,
+                )
+                self.publisher.bump()
             return {"continue": True}
 
         if t == "assistant_event":

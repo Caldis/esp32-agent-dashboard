@@ -28,6 +28,7 @@
 #define TIMEOUT_MS         60000u
 #define DANGER_WINDOW_MS   10000u
 #define PULSE_PERIOD_MS    1500u
+#define REPLY_TIMEOUT_MS   120000u
 
 typedef struct {
     lv_obj_t   *title;
@@ -75,13 +76,16 @@ static void prompt_decide(const char *decision)
     char id[AGENT_PROMPT_ID_MAX];
     char sid[AGENT_SESSION_ID_MAX];
     bool had = false;
+    bool is_reply = false;
     agent_state_lock();
     agent_state_t *s = agent_state_get();
     if (s->prompt_active) {
         had = true;
+        is_reply = s->prompt_mode_reply;
         memcpy(id,  s->prompt_id,         sizeof(id));
         memcpy(sid, s->prompt_session_id, sizeof(sid));
         s->prompt_active = false;
+        s->prompt_mode_reply = false;
         s->prompt_id[0] = '\0';
         s->prompt_tool[0] = '\0';
         s->prompt_hint[0] = '\0';
@@ -92,7 +96,10 @@ static void prompt_decide(const char *decision)
     agent_state_unlock();
     if (!had) return;
 
-    if (sid[0]) {
+    if (is_reply) {
+        const char *choice = (strcmp(decision, "once") == 0) ? "0" : "1";
+        console_send_evt("reply id=%s choice=%s", id, choice);
+    } else if (sid[0]) {
         console_send_evt("permission id=%s decision=%s session_id=%s",
                          id, decision, sid);
     } else {
@@ -100,7 +107,8 @@ static void prompt_decide(const char *decision)
     }
 
     char toast_buf[64];
-    snprintf(toast_buf, sizeof(toast_buf), "decision sent: %s", decision);
+    snprintf(toast_buf, sizeof(toast_buf), "%s",
+             is_reply ? "copied to clipboard" : decision);
     harness_toast(toast_buf, 1500);
 
     int home_idx = scene_fw_find_by_id("dashboard");
@@ -149,9 +157,11 @@ static void prompt_tick(lv_timer_t *t)
     char id[AGENT_PROMPT_ID_MAX];
     char kind[AGENT_KIND_MAX];
     bool active;
+    bool is_reply;
     agent_state_lock();
     agent_state_t *s = agent_state_get();
     active = s->prompt_active;
+    is_reply = s->prompt_mode_reply;
     memcpy(tool, s->prompt_tool,       sizeof(tool));
     memcpy(hint, s->prompt_hint,       sizeof(hint));
     memcpy(id,   s->prompt_id,         sizeof(id));
@@ -173,10 +183,29 @@ static void prompt_tick(lv_timer_t *t)
         st->pulse_t0_ms  = st->activated_ms;
     }
 
-    lv_label_set_text(st->tool, tool[0] ? tool : "?");
-    lv_label_set_text(st->hint, hint);
-    lv_obj_set_style_text_color(st->tool, lv_color_hex(pal->text), 0);
-    lv_obj_set_style_text_color(st->hint, lv_color_hex(pal->text_dim), 0);
+    if (is_reply) {
+        lv_label_set_text(st->title, "QUICK REPLY");
+        lv_obj_set_style_text_color(st->title, lv_color_hex(0x2BB3B1), 0);
+        lv_label_set_text(st->tool, "pick one:");
+        lv_label_set_text(st->hint, "");
+        lv_obj_set_style_text_color(st->tool, lv_color_hex(pal->text_dim), 0);
+        lv_obj_set_style_transform_scale(st->tool, 256, 0);
+        lv_obj_t *bl = lv_obj_get_child(st->boot_chip, 0);
+        lv_obj_t *ul = lv_obj_get_child(st->user_chip, 0);
+        if (bl) { char b[AGENT_HINT_MAX + 8]; snprintf(b, sizeof(b), "BOOT\n%s", tool); lv_label_set_text(bl, b); }
+        if (ul) { char u[AGENT_HINT_MAX + 8]; snprintf(u, sizeof(u), "USER\n%s", hint); lv_label_set_text(ul, u); }
+    } else {
+        lv_label_set_text(st->title, "PERMISSION");
+        lv_obj_set_style_text_color(st->title, lv_color_hex(pal->warning), 0);
+        lv_label_set_text(st->tool, tool[0] ? tool : "?");
+        lv_label_set_text(st->hint, hint);
+        lv_obj_set_style_text_color(st->tool, lv_color_hex(pal->text), 0);
+        lv_obj_set_style_text_color(st->hint, lv_color_hex(pal->text_dim), 0);
+        lv_obj_t *bl = lv_obj_get_child(st->boot_chip, 0);
+        lv_obj_t *ul = lv_obj_get_child(st->user_chip, 0);
+        if (bl) lv_label_set_text(bl, "BOOT\napprove");
+        if (ul) lv_label_set_text(ul, "USER\ndeny");
+    }
 
     /* Agent badge */
     if (kind[0]) {
@@ -197,11 +226,22 @@ static void prompt_tick(lv_timer_t *t)
 
     /* Countdown */
     uint32_t elapsed = now - st->activated_ms;
-    if (elapsed >= TIMEOUT_MS) {
-        prompt_decide("deny");
+    uint32_t timeout = is_reply ? REPLY_TIMEOUT_MS : TIMEOUT_MS;
+    if (elapsed >= timeout) {
+        if (is_reply) {
+            agent_state_lock();
+            agent_state_get()->prompt_active = false;
+            agent_state_get()->prompt_mode_reply = false;
+            agent_state_unlock();
+            int home = scene_fw_find_by_id("dashboard");
+            if (home < 0) home = scene_fw_find_by_id("idle");
+            if (home >= 0) scene_fw_show(home);
+        } else {
+            prompt_decide("deny");
+        }
         return;
     }
-    uint32_t remaining = (TIMEOUT_MS - elapsed) / 1000u;
+    uint32_t remaining = (timeout - elapsed) / 1000u;
     char buf[16];
     snprintf(buf, sizeof(buf), "%lus", (unsigned long)remaining);
     lv_label_set_text(st->timer_lbl, buf);
