@@ -174,7 +174,7 @@ static void format_tokens(char *buf, size_t cap, uint64_t tok)
 #define COL_BG         0x0B0A09
 #define COL_TEXT       0xF3EEE2
 #define COL_TEXT_DIM   0x8A807A
-#define COL_INK_MUTE   0x5A514A
+#define COL_INK_MUTE   0x8A807A   /* v2.7.0: was 0x5A514A (2.59:1) — now ink-fade (5.13:1 AA pass) */
 #define COL_TEAL       0x2BB3B1
 #define COL_MOSS_OK    0x588A5C
 #define COL_GOLD_WARN  0xB89020
@@ -293,7 +293,8 @@ static void init(scene_t *s, lv_obj_t *parent)
     lv_obj_align(d->time_lbl, LV_ALIGN_TOP_MID, 0, HEADER_Y);
 
     d->device_lbl = lv_label_create(parent);
-    lv_obj_set_style_text_color(d->device_lbl, lv_color_hex(COL_INK_MUTE), 0);
+    /* v2.7.0 Persona D fix: ink-fade for AA contrast (was ink-mute = 2.59:1 fail). */
+    lv_obj_set_style_text_color(d->device_lbl, lv_color_hex(COL_TEXT_DIM), 0);
     lv_obj_set_style_text_font(d->device_lbl, &lv_font_montserrat_14, 0);
     lv_label_set_text(d->device_lbl, "Clawd");
     lv_obj_align(d->device_lbl, LV_ALIGN_TOP_MID, 0, DEVICE_Y);

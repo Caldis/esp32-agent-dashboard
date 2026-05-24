@@ -14,6 +14,7 @@ idf_component_register(
         "scenes/scene_tokens.c"
         "scenes/scene_status.c"
         "scenes/scene_awaiting.c"
+        "push_banner.c"
         "anim/apple_ease.c"
     INCLUDE_DIRS
         "."

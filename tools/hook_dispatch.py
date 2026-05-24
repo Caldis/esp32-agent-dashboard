@@ -31,6 +31,15 @@ DEFAULT_TIMEOUT = float(os.environ.get("CLAUDE_BUDDY_TIMEOUT", "5.0"))
 # physically tap a button on the device, default permission-timeout-s).
 PROMPT_TIMEOUT = float(os.environ.get("CLAUDE_BUDDY_PROMPT_TIMEOUT", "60.0"))
 
+# v2.7.0 circuit breaker: N consecutive timeouts in W seconds → skip for M seconds.
+CB_THRESHOLD = int(os.environ.get("CLAUDE_BUDDY_CB_THRESHOLD", "3"))
+CB_WINDOW_S = float(os.environ.get("CLAUDE_BUDDY_CB_WINDOW", "30.0"))
+CB_COOLDOWN_S = float(os.environ.get("CLAUDE_BUDDY_CB_COOLDOWN", "60.0"))
+_CB_STATE_FILE = os.path.join(
+    os.environ.get("TEMP", os.environ.get("TMPDIR", "/tmp")),
+    "claude_buddy_cb.json",
+)
+
 
 def _passthrough(reason: str = "") -> int:
     """Always-safe fallback response if the bridge is unreachable."""
@@ -39,6 +48,51 @@ def _passthrough(reason: str = "") -> int:
         out["systemMessage"] = reason
     print(json.dumps(out))
     return 0
+
+
+import time as _time
+
+def _cb_load() -> dict:
+    try:
+        with open(_CB_STATE_FILE, "r") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError, ValueError):
+        return {"timestamps": [], "open_until": 0.0}
+
+
+def _cb_save(state: dict) -> None:
+    try:
+        with open(_CB_STATE_FILE, "w") as f:
+            json.dump(state, f)
+    except OSError:
+        pass
+
+
+def _cb_is_open() -> bool:
+    """Return True if circuit is open (should short-circuit)."""
+    state = _cb_load()
+    return _time.time() < state.get("open_until", 0.0)
+
+
+def _cb_record_timeout() -> None:
+    """Record a timeout and trip the breaker if threshold reached."""
+    now = _time.time()
+    state = _cb_load()
+    cutoff = now - CB_WINDOW_S
+    ts = [t for t in state.get("timestamps", []) if t > cutoff]
+    ts.append(now)
+    if len(ts) >= CB_THRESHOLD:
+        state["open_until"] = now + CB_COOLDOWN_S
+        ts = []
+    state["timestamps"] = ts
+    _cb_save(state)
+
+
+def _cb_record_success() -> None:
+    """Clear timeout history on a successful round-trip."""
+    state = _cb_load()
+    if state.get("timestamps") or state.get("open_until", 0.0) > 0:
+        _cb_save({"timestamps": [], "open_until": 0.0})
 
 
 # ── dash-state extraction (v2.4.0 contract) ──────────────────────────
@@ -167,16 +221,22 @@ def main(argv: list[str]) -> int:
 
     timeout = PROMPT_TIMEOUT if event_type == "pre_tool_use" else DEFAULT_TIMEOUT
 
+    if _cb_is_open():
+        return _passthrough("circuit breaker open — bridge skipped")
+
     try:
-        # Short connect timeout so a dead bridge doesn't stall CC.
         with socket.create_connection((DEFAULT_HOST, DEFAULT_PORT),
                                       timeout=1.0) as sock:
             sock.sendall((json.dumps(payload) + "\n").encode("utf-8"))
             sock.settimeout(timeout)
             line = sock.makefile("r", encoding="utf-8").readline()
+            _cb_record_success()
             print(line.strip() or json.dumps({"continue": True}))
             return 0
-    except (ConnectionRefusedError, socket.timeout, OSError) as e:
+    except socket.timeout:
+        _cb_record_timeout()
+        return _passthrough("claude_buddy_bridge timeout")
+    except (ConnectionRefusedError, OSError) as e:
         return _passthrough(f"claude_buddy_bridge offline: {e}")
 
 

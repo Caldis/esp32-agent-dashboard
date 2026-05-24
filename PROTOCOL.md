@@ -181,6 +181,23 @@ OK: {
 Bridge calls this every ~5 s for the connection-health indicator and
 to populate its own status display.
 
+### `dash push` (new in v2.7)
+
+Shows a transient top-slide-down banner overlay on the device:
+
+```json
+dash push {"tool":"Read","hint":"main.py"}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `tool` | string | yes | Tool name displayed in accent color |
+| `hint` | string | no | Short context (file path, summary) in dim text |
+| `duration_ms` | number | no | Display time (default 3000 ms) |
+
+The bridge sends this on every `PostToolUse` hook event. The banner
+renders on `lv_layer_top()` above any active scene and auto-dismisses.
+
 ## Reply tag convention (post G-4 fix)
 
 The `OK:` line for a payload-followed command now embeds the tag

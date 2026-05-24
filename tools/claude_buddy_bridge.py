@@ -1194,15 +1194,16 @@ class Bridge:
             return {"continue": True}
 
         if t == "post_tool_use":
-            # See pre_tool_use note: msg stays the user prompt; tool
-            # completion goes to entries[] (already handled via the
-            # `tool=` upsert kwarg when summary is present), and tokens
-            # accumulate.
+            tool_name = evt["tool_name"] or "tool"
+            summary = evt["summary"] or "ok"
             self.registry.upsert(agent, sid, status="running",
-                                 tool=evt["tool_name"] or "tool",
-                                 summary=evt["summary"] or "ok",
+                                 tool=tool_name,
+                                 summary=summary,
                                  tokens=evt["tokens"])
             self.publisher.bump()
+            # v2.7.0: top-slide-down banner on device
+            hint = summary[:40] if summary != "ok" else ""
+            self.pusher.push("push", {"tool": tool_name, "hint": hint})
             return {"continue": True}
 
         if t == "stop":

@@ -48,11 +48,16 @@ permission prompts with a physical button.
 
 | Layer | What it gives you |
 |---|---|
-| 🔥 **Firmware** (`main/`) | 5 LVGL scenes (idle / sessions / prompt / tokens / status) on the Waveshare ESP32-S3-Touch-AMOLED-2.16. Built on the [esp-harness](https://github.com/Caldis/esp-harness) console protocol + scene framework. |
-| 🐍 **Host bridge** (`tools/claude_buddy_bridge.py`) | Long-running daemon. Ingests Claude Code hooks (`hook_dispatch.py`) and Codex JSONL (`codex_wrapper.py`). Maintains a per-agent `SessionRegistry`. Pushes throttled `dash snapshot` to the device + blocks `PreToolUse` hooks on the device's permission button. |
-| 🔌 **Wire format** ([`PROTOCOL.md`](./PROTOCOL.md)) | One-line JSON over USB-Serial: `dash snapshot`, `dash prompt`, `dash event`, `dash tokens`, `dash idle`. Device replies `OK:` / `ERR:` / `EVT:`. v1 ships with multi-agent + config + health. v2 will add BLE NUS. |
+| **Firmware** (`main/`) | 7 LVGL scenes (idle / dashboard / sessions / awaiting / prompt / tokens / status) on the Waveshare ESP32-S3-Touch-AMOLED-2.16. Built on the [esp-harness](https://github.com/Caldis/esp-harness) console protocol + scene framework. PUSH banner overlay for tool events. |
+| **Host bridge** (`tools/claude_buddy_bridge.py`) | Long-running daemon. Ingests Claude Code hooks (`hook_dispatch.py`) and Codex JSONL (`codex_wrapper.py`). Maintains a per-agent `SessionRegistry`. Pushes throttled snapshots + PUSH banners. Circuit-breaker in `hook_dispatch.py` prevents stalling CC on bridge timeouts. |
+| **Wire format** ([`PROTOCOL.md`](./PROTOCOL.md)) | One-line JSON over USB-Serial: `dash snapshot`, `dash prompt`, `dash event`, `dash tokens`, `dash push`, `dash idle`. Device replies `OK:` / `ERR:` / `EVT:`. |
 
-## Quickstart (30 seconds)
+## Quickstart (~15 min, longer if you need ESP-IDF)
+
+> **Prerequisites:** ESP-IDF v6.0+ must be installed and activated
+> (`source $IDF_PATH/export.sh` / `export.bat` in every new shell).
+> First-time install takes 20-40 min — see
+> [espressif.com/en/products/sdks/esp-idf](https://www.espressif.com/en/products/sdks/esp-idf).
 
 ```bash
 # 1. Get the esp-harness toolkit (provides the build / flash / console CLI)
@@ -90,7 +95,7 @@ prompt scene takes over and waits for **BOOT** (approve) or **USER**
 > **No board?** You can still iterate the bridge against the included
 > TCP mock device:
 > ```bash
-> python docs/mock_device.py --port 9876 &
+> python tools/mock_device_v1.py --port 9876 -v &
 > python tools/claude_buddy_bridge.py replay tools/sample_session.jsonl --dry-run
 > ```
 > The mock mirrors the firmware's console-protocol tokeniser exactly,
@@ -101,20 +106,22 @@ For the integration map, see [`docs/HOST_INTEGRATION.md`](./docs/HOST_INTEGRATIO
 
 ## Scenes
 
-The dashboard cycles through five scenes, all rendered with LVGL 9.x
+The dashboard cycles through seven scenes, all rendered with LVGL 9.x
 on a 466×466 round AMOLED:
 
 <div align="center">
-<img src="docs/img/scenes-strip.png" alt="all five scenes side-by-side" width="780" onerror="this.style.display='none'">
+<img src="docs/img/scenes-strip.png" alt="scene overview" width="780" onerror="this.style.display='none'">
 </div>
 
 | Scene | When it shows | What it shows |
 |---|---|---|
 | **idle** | no active sessions (60 s+ since last event) | gentle "zZz" pulse, dim ring |
-| **sessions** | one or more agents running or waiting | per-agent rows: name, status pip, cwd, last 3-5 transcript lines, total / running / waiting counters |
-| **prompt** | a `PreToolUse` event needs explicit approval | full-screen tool name, the exact command preview, **BOOT** = approve once, **USER** = deny, 60 s timeout countdown |
+| **dashboard** | one or more agents active (ambient default) | clock, feed of recent tool actions, active/token counters |
+| **sessions** | on demand or multi-agent detail | per-agent rows: name, status pip, cwd, last 3-5 transcript lines |
+| **awaiting** | agent blocked on user input (`Stop` hook) | kind-specific headline + glyph, marquee summary, numbered options, BOOT/USER affordance on approve |
+| **prompt** | a `PreToolUse` event needs explicit approval | full-screen tool name, command preview, **BOOT** = approve, **USER** = deny, 60 s timeout |
 | **tokens** | on demand (`dash tokens`) | cumulative + today's tokens, 24 h sparkline, per-agent breakdown |
-| **status** | on demand (`dash event {scene:'status'}`) | battery %, heap free, uptime, WiFi state (v2), firmware build |
+| **status** | on demand (`dash event {scene:'status'}`) | heap free, uptime, WiFi state (v2), firmware build |
 
 Captured live:
 
@@ -148,9 +155,10 @@ not just a passive display.
 
 | Milestone | Status | What ships |
 |---|---|---|
-| **v0.1** *(this release)* | ✅ shipped | USB-Serial multi-agent: 5 scenes, hook bridge for Claude Code + Codex, permission button, mock device for CI |
-| **v1.0** | 🟡 in design | BLE NUS transport for Claude Desktop pairing (no USB tether). Same wire format over BLE characteristics. |
-| **v2.0** | 🔵 sketched | WiFi push for headless dev boxes — dashboard sits on your desk while the agent runs on a server. mDNS discovery, TLS to localhost-on-laptop, fallback to USB. |
+| **v0.1** | shipped | USB-Serial multi-agent: 5 scenes, hook bridge for CC + Codex, permission button |
+| **v2.5** | shipped | Ambient feed dashboard scene, awaiting takeover with marquee + options |
+| **v2.7** *(current)* | shipped | WCAG contrast fixes, motion=reduced config, PUSH banner overlay, circuit breaker, approve BOOT/USER affordance, persona-tested docs |
+| **v3.0** | shipped | Harness rename aurora-harness -> esp-harness-core |
 
 We track the consuming-side gaps surfaced against the framework in
 [`HARNESS_GAPS.md`](./HARNESS_GAPS.md) — each one feeds back into

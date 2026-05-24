@@ -11,6 +11,7 @@
  *                            (persisted to NVS namespace "dashcfg")
  *   dash time     <json>   — set epoch_unix + tz_offset_seconds
  *   dash health            — replies HEALTH payload block with device internals
+ *   dash push     <json>   — top-slide-down banner (v2.7.0): tool + hint, 3s
  *
  * The host bridge ships the JSON payload as ONE argv-token, leveraging
  * the console tokenizer's double-quote support (G-7 fix). Because the
@@ -25,6 +26,7 @@
 #include "../agent_state.h"
 #include "../theme.h"
 #include "../tiny_json.h"
+#include "../push_banner.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -551,6 +553,15 @@ static void persist_string(const char *key, const char *value)
     nvs_close(h);
 }
 
+static void persist_u8(const char *key, uint8_t value)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_u8(h, key, value);
+    nvs_commit(h);
+    nvs_close(h);
+}
+
 void agent_commands_load_config(void)
 {
     nvs_handle_t h;
@@ -581,6 +592,10 @@ void agent_commands_load_config(void)
     if (nvs_get_str(h, "theme", theme_buf, &cap) == ESP_OK) {
         theme_set_by_name(theme_buf);
     }
+    uint8_t mr = 0;
+    if (nvs_get_u8(h, "motion_red", &mr) == ESP_OK) {
+        s->motion_reduced = (mr != 0);
+    }
     agent_state_unlock();
     nvs_close(h);
 }
@@ -595,16 +610,19 @@ static int cmd_config(const console_args_t *a)
     char owner[AGENT_OWNER_MAX] = {0};
     char theme_buf[16] = {0};
     char default_scene[AGENT_DEFAULT_SCENE_MAX] = {0};
-    bool has_dev   = tj_object_get_string(json, end, "device_name",   device_name,   sizeof(device_name));
-    bool has_own   = tj_object_get_string(json, end, "owner",         owner,         sizeof(owner));
-    bool has_theme = tj_object_get_string(json, end, "theme",         theme_buf,     sizeof(theme_buf));
-    bool has_def   = tj_object_get_string(json, end, "default_scene", default_scene, sizeof(default_scene));
+    char motion_buf[8] = {0};
+    bool has_dev   = tj_object_get_string(json, end, "device_name",     device_name,   sizeof(device_name));
+    bool has_own   = tj_object_get_string(json, end, "owner",           owner,         sizeof(owner));
+    bool has_theme = tj_object_get_string(json, end, "theme",           theme_buf,     sizeof(theme_buf));
+    bool has_def   = tj_object_get_string(json, end, "default_scene",   default_scene, sizeof(default_scene));
+    bool has_mr    = tj_object_get_string(json, end, "motion_reduced",  motion_buf,    sizeof(motion_buf));
 
     agent_state_lock();
     agent_state_t *s = agent_state_get();
     if (has_dev) { strncpy(s->device_name,   device_name,   sizeof(s->device_name) - 1);   s->device_name[sizeof(s->device_name)-1]='\0'; }
     if (has_own) { strncpy(s->owner,         owner,         sizeof(s->owner) - 1);         s->owner[sizeof(s->owner)-1]='\0'; }
     if (has_def) { strncpy(s->default_scene, default_scene, sizeof(s->default_scene) - 1); s->default_scene[sizeof(s->default_scene)-1]='\0'; }
+    if (has_mr)  { s->motion_reduced = (strcmp(motion_buf, "true") == 0 || strcmp(motion_buf, "1") == 0); }
     bool theme_ok = true;
     if (has_theme) theme_ok = theme_set_by_name(theme_buf);
     agent_state_unlock();
@@ -613,6 +631,7 @@ static int cmd_config(const console_args_t *a)
     if (has_own)   persist_string("owner",         owner);
     if (has_theme && theme_ok) persist_string("theme", theme_buf);
     if (has_def)   persist_string("default_scene", default_scene);
+    if (has_mr)    persist_u8("motion_red", s->motion_reduced ? 1 : 0);
 
     console_reply_ok("{\"config\":\"applied\",\"theme\":\"%s\"}", theme_current_name());
     return 0;
@@ -701,13 +720,38 @@ static int cmd_health(const console_args_t *a)
     return 0;
 }
 
+/* ── dash push ──────────────────────────────────────────────────── */
+
+static int cmd_push(const console_args_t *a)
+{
+    const char *end = NULL;
+    const char *json = json_arg(a, &end);
+    if (!json) return 0;
+
+    char tool[48] = {0};
+    char hint[48] = {0};
+    double dur = 0;
+    tj_object_get_string(json, end, "tool", tool, sizeof(tool));
+    tj_object_get_string(json, end, "hint", hint, sizeof(hint));
+    bool has_dur = tj_object_get_double(json, end, "duration_ms", &dur);
+
+    if (tool[0] == '\0') {
+        console_reply_err("push requires \"tool\"");
+        return 0;
+    }
+    push_banner_show(tool, hint[0] ? hint : NULL,
+                     has_dur ? (uint32_t)dur : 0);
+    console_reply_ok("{\"push\":\"shown\"}");
+    return 0;
+}
+
 /* ── Single command + sub-dispatch ────────────────────────────────── */
 
 static int cmd_dash(const console_args_t *a)
 {
     if (a->argc < 2) {
         console_reply_err("dash needs a subcommand "
-                          "(snapshot|prompt|event|tokens|idle|config|time|health)");
+                          "(snapshot|prompt|event|tokens|idle|config|time|health|push)");
         return 0;
     }
     const char *sub = a->argv[1];
@@ -719,6 +763,7 @@ static int cmd_dash(const console_args_t *a)
     else if (strcmp(sub, "config")   == 0) return cmd_config(a);
     else if (strcmp(sub, "time")     == 0) return cmd_time(a);
     else if (strcmp(sub, "health")   == 0) return cmd_health(a);
+    else if (strcmp(sub, "push")     == 0) return cmd_push(a);
     console_reply_err("unknown dash subcommand: %s", sub);
     return 0;
 }
@@ -726,7 +771,7 @@ static int cmd_dash(const console_args_t *a)
 static const console_cmd_t s_cmd_dash = {
     "dash",
     cmd_dash,
-    "dash <snapshot|prompt|event|tokens|idle|config|time|health> [json]"
+    "dash <snapshot|prompt|event|tokens|idle|config|time|health|push> [json]"
 };
 
 void agent_commands_register(void)

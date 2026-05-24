@@ -7,6 +7,9 @@ flow. Each entry: what you see, why, what to do.
 
 | Symptom | Section |
 |---|---|
+| `idf.py: command not found` | [#idf-not-found](#idf-not-found) |
+| serial port locked / in use (Windows) | [#serial-port-locked](#serial-port-locked) |
+| Claude Code hooks stopped working after editing settings.json | [#settings-clobbered](#settings-clobbered) |
 | no COM port when I plug in | [#com-port-not-found](#com-port-not-found) |
 | `esp-harness build` fails — `cJSON: no such file` | [#build-fails-with-cjson](#build-fails-with-cjson) |
 | device stays on **idle** even with CC running | [#device-stays-on-idle](#device-stays-on-idle) |
@@ -16,6 +19,72 @@ flow. Each entry: what you see, why, what to do.
 | AMOLED black or scrambled | [#blank-amoled](#blank-amoled) |
 | bridge logs "throttled" / "snapshot dropped" | [#bridge-throttle-warnings](#bridge-throttle-warnings) |
 | Linux: `Permission denied: /dev/ttyACM0` | [#serial-permission-denied](#serial-permission-denied) |
+
+---
+
+## idf not found
+
+```
+idf.py: command not found
+```
+
+**Cause.** ESP-IDF is installed but its environment isn't activated in
+this shell. Every new terminal needs the activation step.
+
+**Fix.** Run the activation script before any build command:
+
+```bash
+# Linux / macOS
+source $HOME/esp/esp-idf/export.sh
+
+# Windows (Command Prompt)
+%USERPROFILE%\esp\esp-idf\export.bat
+
+# Windows (PowerShell)
+.$env:USERPROFILE\esp\esp-idf\export.ps1
+```
+
+If you haven't installed ESP-IDF at all, see
+[espressif.com/en/products/sdks/esp-idf](https://www.espressif.com/en/products/sdks/esp-idf).
+The install takes 20-40 minutes.
+
+## Serial port locked
+
+```
+could not open port 'COM9': PermissionError
+```
+
+**Cause.** Another process (Arduino IDE serial monitor, PuTTY, a
+previous bridge instance) is holding the port open. Windows and macOS
+do not allow shared serial access.
+
+**Fix.**
+1. Close any serial monitor or terminal connected to the same port.
+2. Check for a stale bridge: `tasklist | findstr python` (Windows) or
+   `ps aux | grep claude_buddy_bridge` (macOS/Linux). Kill it.
+3. Unplug and re-plug the USB cable, then try again.
+
+## Settings clobbered
+
+Claude Code hooks stopped working after you edited
+`~/.claude/settings.json`.
+
+**Cause.** You overwrote the file wholesale instead of merging. Your
+existing hooks, permissions, or other settings are gone.
+
+**Fix.** Open `~/.claude/settings.json` and merge the `hooks` key into
+whatever else is there — don't replace the whole file:
+
+```json
+{
+  "existing_key": "...",
+  "hooks": {
+    "PreToolUse":  "python .../hook_dispatch.py pre_tool_use",
+    "PostToolUse": "python .../hook_dispatch.py post_tool_use",
+    "Stop":        "python .../hook_dispatch.py stop"
+  }
+}
+```
 
 ---
 

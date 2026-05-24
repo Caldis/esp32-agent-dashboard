@@ -54,6 +54,7 @@ typedef struct {
     /* v2.4.0: marquee summary + numbered options list */
     lv_obj_t *summary_marquee;
     lv_obj_t *option_rows[AGENT_AWAITING_OPTIONS_MAX];
+    lv_obj_t *affordance;
     lv_obj_t *footer;
     awaiting_kind_t last_rendered_kind;
     char        last_session_id[AGENT_SESSION_ID_MAX];
@@ -98,10 +99,11 @@ static bool is_urgent(awaiting_kind_t k)
 #define FOOTER_Y         432   /* fixed: bottom */
 #define GLYPH_H           76   /* glyph container is 96x96 visually; usable centerline */
 #define HEADLINE_H        54   /* 48pt montserrat line height */
-#define AGENT_H           36
+#define AGENT_H           30   /* reduced from 36 with 28pt -> 22pt font */
 #define SUMMARY_H         34   /* marquee strip */
 #define OPTION_ROW_H      32
 #define CTX_LINE_H        32
+#define AFFORDANCE_H      24
 #define INTER_GAP          6   /* between adjacent vertical elements */
 
 /* ── Glyph rendering ────────────────────────────────────────────── */
@@ -251,9 +253,10 @@ static void tick(lv_timer_t *t)
     bool sess_changed = strncmp(anchor->session_id, s_ui.last_session_id,
                                 AGENT_SESSION_ID_MAX) != 0;
     bool kind_changed = (kind != s_ui.last_rendered_kind);
+    bool motion_ok = !st->motion_reduced;
     if (kind_changed || sess_changed) {
         render_glyph(kind, color);
-        if (kind == AWAITING_CONTINUE) {
+        if (kind == AWAITING_CONTINUE && motion_ok) {
             arm_breath();
         } else {
             s_ui.breath_anim_armed = 0;
@@ -266,17 +269,26 @@ static void tick(lv_timer_t *t)
         lv_obj_set_style_text_color(s_ui.agent_chip, lv_color_hex(color), 0);
     }
 
-    /* Agent chip — "cc · short-sid" — enough room for any kind label
-     * plus the 6-char sid window plus separator + nul. */
+    /* Agent chip — "cc abc4:6f" (kind + first 4 + ':' + last 2). v2.7.0
+     * fix per Persona C: long session_ids (full UUIDs) trimmed to last-6
+     * looked like gibberish ("ve_sx5"). first-4 + last-2 keeps the
+     * recognisable prefix AND a uniqueness tail. Short sids (< 6 chars)
+     * render whole. */
     char chip[64];
     const char *short_kind = (strcmp(anchor->kind, "claude-code") == 0) ? "cc"
                            : (strcmp(anchor->kind, "codex") == 0)       ? "cx"
                            :                                              "ag";
     const char *sid = anchor->session_id;
-    /* Trim session_id to last 6-8 chars for compactness. */
     size_t sid_len = strlen(sid);
-    const char *sid_short = sid_len > 6 ? sid + (sid_len - 6) : sid;
-    snprintf(chip, sizeof(chip), "%s  %s", short_kind, sid_short);
+    char sid_display[10];
+    if (sid_len <= 6) {
+        snprintf(sid_display, sizeof(sid_display), "%s", sid);
+    } else {
+        /* "abcd:9f" — 4 chars head, colon, 2 chars tail */
+        snprintf(sid_display, sizeof(sid_display), "%.4s:%s",
+                 sid, sid + sid_len - 2);
+    }
+    snprintf(chip, sizeof(chip), "%s  %s", short_kind, sid_display);
     lv_label_set_text(s_ui.agent_chip, chip);
 
     /* v2.4.0: decide layout mode for this frame + compute the dynamic
@@ -293,9 +305,11 @@ static void tick(lv_timer_t *t)
     int n_ctx = anchor->awaiting_context_count;
     if (n_ctx > AGENT_AWAITING_CONTEXT_LINES) n_ctx = AGENT_AWAITING_CONTEXT_LINES;
 
+    bool show_affordance = (kind == AWAITING_APPROVE);
     int content_h = GLYPH_H + INTER_GAP
                   + HEADLINE_H + INTER_GAP
                   + AGENT_H;
+    if (show_affordance)          content_h += INTER_GAP + AFFORDANCE_H;
     if (has_summary)              content_h += INTER_GAP + SUMMARY_H;
     if (has_options)              content_h += INTER_GAP + n_opts * OPTION_ROW_H;
     if (!has_options && !has_summary && n_ctx > 0) {
@@ -317,6 +331,14 @@ static void tick(lv_timer_t *t)
     lv_obj_align(s_ui.agent_chip, LV_ALIGN_TOP_MID, 0, y);
     y += AGENT_H + INTER_GAP;
 
+    if (show_affordance) {
+        lv_obj_align(s_ui.affordance, LV_ALIGN_TOP_MID, 0, y);
+        lv_obj_clear_flag(s_ui.affordance, LV_OBJ_FLAG_HIDDEN);
+        y += AFFORDANCE_H + INTER_GAP;
+    } else {
+        lv_obj_add_flag(s_ui.affordance, LV_OBJ_FLAG_HIDDEN);
+    }
+
     if (has_summary) {
         lv_obj_align(s_ui.summary_marquee, LV_ALIGN_TOP_MID, 0, y);
         y += SUMMARY_H + INTER_GAP;
@@ -335,6 +357,8 @@ static void tick(lv_timer_t *t)
     }
 
     if (has_summary) {
+        lv_label_set_long_mode(s_ui.summary_marquee,
+            motion_ok ? LV_LABEL_LONG_SCROLL_CIRCULAR : LV_LABEL_LONG_DOT);
         lv_label_set_text(s_ui.summary_marquee, anchor->awaiting_summary);
         lv_obj_clear_flag(s_ui.summary_marquee, LV_OBJ_FLAG_HIDDEN);
     } else {
@@ -414,7 +438,10 @@ static void init(scene_t *s, lv_obj_t *parent)
 
     /* Eyebrow */
     s_ui.eyebrow = lv_label_create(root);
-    lv_obj_set_style_text_color(s_ui.eyebrow, lv_color_hex(0x5A514A), 0);
+    /* v2.7.0 Persona D fix: ink-mute #5A514A has WCAG contrast 2.59:1 vs
+     * noir bg — fails AA. ink-fade #8A807A is 5.13:1, AA pass. Eyebrow
+     * is a real text label readers need to parse, not decorative. */
+    lv_obj_set_style_text_color(s_ui.eyebrow, lv_color_hex(0x8A807A), 0);
     lv_obj_set_style_text_font(s_ui.eyebrow, &lv_font_montserrat_14, 0);
     lv_label_set_text(s_ui.eyebrow, "");
     lv_obj_align(s_ui.eyebrow, LV_ALIGN_TOP_MID, 0, EYEBROW_Y);
@@ -436,11 +463,23 @@ static void init(scene_t *s, lv_obj_t *parent)
     lv_obj_align(s_ui.headline, LV_ALIGN_TOP_MID, 0, EYEBROW_Y + 100);
 
     /* Agent chip — initial position; tick() re-aligns. */
+    /* v2.7.0 hierarchy fix (Persona C P0): agent chip was 28pt — too
+     * dominant, competed with headline. Drop to 22pt so headline reads
+     * clearly as the focal element. */
     s_ui.agent_chip = lv_label_create(root);
     lv_obj_set_style_text_color(s_ui.agent_chip, lv_color_hex(0x2BB3B1), 0);
-    lv_obj_set_style_text_font(s_ui.agent_chip, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(s_ui.agent_chip, &lv_font_montserrat_22, 0);
     lv_label_set_text(s_ui.agent_chip, "");
     lv_obj_align(s_ui.agent_chip, LV_ALIGN_TOP_MID, 0, EYEBROW_Y + 154);
+
+    /* Affordance hint for approve kind — tells user which physical
+     * buttons map to approve / deny. Hidden until kind == APPROVE. */
+    s_ui.affordance = lv_label_create(root);
+    lv_obj_set_style_text_color(s_ui.affordance, lv_color_hex(0x8A807A), 0);
+    lv_obj_set_style_text_font(s_ui.affordance, &lv_font_montserrat_14, 0);
+    lv_label_set_text(s_ui.affordance, "BOOT approve  \xC2\xB7  USER deny");
+    lv_obj_add_flag(s_ui.affordance, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_align(s_ui.affordance, LV_ALIGN_TOP_MID, 0, 0);
 
     /* Context lines (used when no dash-state summary). */
     for (int i = 0; i < AGENT_AWAITING_CONTEXT_LINES; ++i) {
@@ -489,7 +528,8 @@ static void init(scene_t *s, lv_obj_t *parent)
 
     /* Footer */
     s_ui.footer = lv_label_create(root);
-    lv_obj_set_style_text_color(s_ui.footer, lv_color_hex(0x5A514A), 0);
+    /* v2.7.0 Persona D fix: ink-mute -> ink-fade for WCAG AA contrast. */
+    lv_obj_set_style_text_color(s_ui.footer, lv_color_hex(0x8A807A), 0);
     lv_obj_set_style_text_font(s_ui.footer, &lv_font_montserrat_16, 0);
     lv_label_set_text(s_ui.footer, "");
     lv_obj_align(s_ui.footer, LV_ALIGN_TOP_MID, 0, FOOTER_Y);

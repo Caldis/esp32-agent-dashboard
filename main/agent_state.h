@@ -159,6 +159,7 @@ typedef struct {
     char          device_name[AGENT_DEVICE_NAME_MAX];
     char          owner[AGENT_OWNER_MAX];
     char          default_scene[AGENT_DEFAULT_SCENE_MAX];
+    bool          motion_reduced;
 
     /* Counters for `dash health` reply. */
     uint32_t      snapshots_received;
