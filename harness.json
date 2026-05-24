@@ -1,0 +1,22 @@
+{
+  "name": "esp32-agent-dashboard",
+  "version": "2.9.0",
+  "board": "esp32_s3_touch_amoled_2_16",
+  "port": "COM9",
+  "modules": {
+    "scenes": true,
+    "console": true,
+    "toast": true,
+    "bridge": true,
+    "hooks": true,
+    "sim": false,
+    "ota": false,
+    "push-banner": true,
+    "buttons": true
+  },
+  "agent": {
+    "bootstrap": "esp-harness manifest --json",
+    "verify": "esp-harness verify",
+    "cycle": ["build", "flash", "verify"]
+  }
+}
