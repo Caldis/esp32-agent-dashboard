@@ -8,6 +8,12 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [2.8.0] — 2026-05-24
+
+**Urgency accessibility fix (WCAG 1.4.1)**
+
+Urgent awaiting kinds (approve, clarify) now prefix the headline with a `>` chevron — a luminance-independent shape cue so color-blind users (deuteranopes, protanopes, achromats) can distinguish urgent from relaxed states without relying on the teal/gold color difference (which sits at only 1.17:1 inter-luminance). Completes the deferred D-3 finding from persona testing.
+
 ## [2.7.0] — 2026-05-24
 
 **Persona-driven UX fixes + PUSH banner + circuit breaker**

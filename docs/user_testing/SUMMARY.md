@@ -33,11 +33,11 @@ Each persona exercised a different axis; P0 = must-fix before v2.7.0.
 |---|---------|-----|--------|
 | D-1 | Marquee scrolls indefinitely — WCAG 2.2.2 Level A fail | Gate behind `motion_reduced` config; DOT truncate when set | **v2.7.0 R1** |
 | D-2 | ink-mute #5A514A at 2.59:1 — WCAG 1.4.3 AA fail | Promote to ink-fade #8A807A (5.13:1 AA pass) | **v2.7.0 R1** |
-| D-3 | Urgency teal/gold at 1.17:1 inter-luminance — WCAG 1.4.1 fail | Add redundant non-color channel (shape/text affordance) | Deferred to v2.8 |
+| D-3 | Urgency teal/gold at 1.17:1 inter-luminance — WCAG 1.4.1 fail | `>` chevron prefix on urgent headlines (approve/clarify) | **v2.8.0** |
 
 ## Resolution Coverage
 
 - **v2.7.0 R1** (firmware UX): A-2, A-3, C-1, C-2, C-3, D-1, D-2
 - **v2.7.0 R2** (bridge): A-1
 - **v2.7.0 R3** (docs): B-1, B-2, B-3
-- **Deferred**: D-3 (requires design for redundant urgency channel)
+- **v2.8.0**: D-3 (chevron prefix on urgent headlines)

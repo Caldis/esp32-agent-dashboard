@@ -69,10 +69,10 @@ static const char *headline_for(awaiting_kind_t k)
 {
     switch (k) {
         case AWAITING_CONTINUE: return "your turn";
-        case AWAITING_APPROVE:  return "approve?";
+        case AWAITING_APPROVE:  return "> approve?";
         case AWAITING_PICK:     return "pick one";
         case AWAITING_TYPE:     return "type a reply";
-        case AWAITING_CLARIFY:  return "clarify";
+        case AWAITING_CLARIFY:  return "> clarify";
         default:                return "";
     }
 }
