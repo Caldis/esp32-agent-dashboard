@@ -76,6 +76,11 @@ static const char *short_kind_of(const char *kind)
 {
     if (strcmp(kind, "claude-code") == 0) return "cc";
     if (strcmp(kind, "codex")       == 0) return "cx";
+    if (strcmp(kind, "cursor")      == 0) return "cu";
+    if (strcmp(kind, "aider")       == 0) return "ai";
+    if (strcmp(kind, "windsurf")    == 0) return "ws";
+    if (strcmp(kind, "copilot")     == 0) return "cp";
+    if (strcmp(kind, "qwen-code")   == 0) return "qw";
     return "ag";
 }
 

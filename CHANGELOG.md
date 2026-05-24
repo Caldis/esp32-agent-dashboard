@@ -8,6 +8,12 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+## [2.9.0] — 2026-05-24
+
+**Agent kind expansion — Cursor, Aider, Windsurf, Copilot, Qwen-Code**
+
+Bridge now recognizes 7 agent kinds beyond the "other" fallback: claude-code, codex, cursor, aider, windsurf, copilot, qwen-code. Each gets a 2-letter chip label (cc/cx/cu/ai/ws/cp/qw) in both scene_awaiting and scene_dashboard. Theme auto-allocates deterministic hue-based accents for all non-Claude/Codex kinds via hash-based HSL. Unknown kinds still render as "ag" with the fallback accent.
+
 ## [2.8.0] — 2026-05-24
 
 **Urgency accessibility fix (WCAG 1.4.1)**

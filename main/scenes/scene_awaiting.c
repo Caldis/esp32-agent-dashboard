@@ -277,6 +277,11 @@ static void tick(lv_timer_t *t)
     char chip[64];
     const char *short_kind = (strcmp(anchor->kind, "claude-code") == 0) ? "cc"
                            : (strcmp(anchor->kind, "codex") == 0)       ? "cx"
+                           : (strcmp(anchor->kind, "cursor") == 0)      ? "cu"
+                           : (strcmp(anchor->kind, "aider") == 0)       ? "ai"
+                           : (strcmp(anchor->kind, "windsurf") == 0)    ? "ws"
+                           : (strcmp(anchor->kind, "copilot") == 0)     ? "cp"
+                           : (strcmp(anchor->kind, "qwen-code") == 0)   ? "qw"
                            :                                              "ag";
     const char *sid = anchor->session_id;
     size_t sid_len = strlen(sid);

@@ -136,7 +136,15 @@ def load_config_file(path: Path = CONFIG_PATH, *, create_if_missing: bool = True
 # Session registry (v1 multi-agent)
 # ─────────────────────────────────────────────────────────────────────────────
 
-_KIND_PREFIX = {"claude-code": "C", "codex": "X", "other": "o"}
+_KNOWN_KINDS = frozenset({
+    "claude-code", "codex", "cursor", "aider", "windsurf",
+    "copilot", "qwen-code", "other",
+})
+_KIND_PREFIX = {
+    "claude-code": "C", "codex": "X", "cursor": "U",
+    "aider": "A", "windsurf": "W", "copilot": "P",
+    "qwen-code": "Q", "other": "o",
+}
 
 
 @dataclass
@@ -1047,7 +1055,7 @@ def classify_awaiting(
 
 def normalize_event(raw: dict) -> dict:
     agent = raw.get("agent") or raw.get("agent_kind") or "claude-code"
-    if agent not in ("claude-code", "codex", "other"):
+    if agent not in _KNOWN_KINDS:
         agent = "other"
     out: dict[str, Any] = {
         "type": raw.get("type", "raw"),
@@ -1746,7 +1754,7 @@ def main(argv: list[str] | None = None) -> int:
     p_send.add_argument("--type", default=None,
                         help="override event type (pre_tool_use, ...)")
     p_send.add_argument("--agent", default=None,
-                        help="override agent (claude-code|codex)")
+                        help="override agent (claude-code|codex|cursor|aider|windsurf|copilot|qwen-code)")
     p_send.add_argument("--timeout", type=float, default=5.0)
 
     p_replay = sub.add_parser("replay", help="process a JSONL file in-process")
