@@ -216,7 +216,7 @@ static void format_duration(char *buf, size_t cap, uint32_t since_unix, uint32_t
 static void format_eyebrow(char *buf, size_t cap, const agent_state_t *st)
 {
     /* Best effort time string from host_epoch_unix; fallback to just device_name. */
-    const char *name = st->device_name[0] ? st->device_name : "Clawd";
+    const char *name = st->device_name[0] ? st->device_name : "DASHBOARD";
     if (st->host_epoch_unix > 0) {
         uint32_t now = st->host_epoch_unix
                      + (lv_tick_get() - st->host_clock_received_ms) / 1000;

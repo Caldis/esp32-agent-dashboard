@@ -46,7 +46,7 @@
 
 typedef struct {
     lv_obj_t *time_lbl;          /* "HH:MM" 48pt */
-    lv_obj_t *device_lbl;        /* "Clawd" 14pt dim */
+    lv_obj_t *device_lbl;        /* "DASHBOARD" 14pt dim */
     /* v2.5.1: ONE label per row instead of 5-column layout.
      * Multi-column absolute positioning gave us visual text bleed when
      * any column's text exceeded its width. Single-label rows are
@@ -199,7 +199,7 @@ static void tick(lv_timer_t *t)
     format_clock(clock, sizeof(clock), st);
     lv_label_set_text(d->time_lbl, clock);
     lv_label_set_text(d->device_lbl,
-                      st->device_name[0] ? st->device_name : "Clawd");
+                      st->device_name[0] ? st->device_name : "DASHBOARD");
 
     /* Feed */
     feed_entry_t feed[FEED_ROWS_MAX];
@@ -301,7 +301,7 @@ static void init(scene_t *s, lv_obj_t *parent)
     /* v2.7.0 Persona D fix: ink-fade for AA contrast (was ink-mute = 2.59:1 fail). */
     lv_obj_set_style_text_color(d->device_lbl, lv_color_hex(COL_TEXT_DIM), 0);
     lv_obj_set_style_text_font(d->device_lbl, &lv_font_montserrat_14, 0);
-    lv_label_set_text(d->device_lbl, "Clawd");
+    lv_label_set_text(d->device_lbl, "DASHBOARD");
     lv_obj_align(d->device_lbl, LV_ALIGN_TOP_MID, 0, DEVICE_Y);
 
     /* Feed rows — single label per row. Verb on the left (big), rest

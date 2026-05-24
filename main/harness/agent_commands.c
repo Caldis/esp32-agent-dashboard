@@ -569,7 +569,7 @@ void agent_commands_load_config(void)
         /* No config yet — set defaults. */
         agent_state_lock();
         agent_state_t *s = agent_state_get();
-        strcpy(s->device_name, "Clawd");
+        strcpy(s->device_name, "DASHBOARD");
         strcpy(s->default_scene, "dashboard");
         agent_state_unlock();
         return;
@@ -579,7 +579,7 @@ void agent_commands_load_config(void)
     agent_state_t *s = agent_state_get();
     cap = sizeof(s->device_name);
     if (nvs_get_str(h, "device_name", s->device_name, &cap) != ESP_OK) {
-        strcpy(s->device_name, "Clawd");
+        strcpy(s->device_name, "DASHBOARD");
     }
     cap = sizeof(s->owner);
     if (nvs_get_str(h, "owner", s->owner, &cap) != ESP_OK) s->owner[0] = '\0';
