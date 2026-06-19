@@ -261,6 +261,11 @@ const SNAP = (agents, totals = {}) => ({
     tokens_today: agents.reduce((s, a) => s + (a.tokens_today || 0), 0),
     ...totals,
   },
+  // Top-level prompt:null sets prompt_clear → clears prompt_active and leaves
+  // the prompt scene. WITHOUT this a plain snapshot can't exit the prompt
+  // takeover (only a physical button or this can), so every scene preset
+  // includes it — otherwise clicking a `dash prompt` preset traps the device.
+  prompt: null,
 });
 const AW = (kind, ctx, extra = {}) =>
   A('claude-code', 'waiting', '', 0, { awaiting_kind: kind, awaiting_context: ctx,
@@ -268,6 +273,8 @@ const AW = (kind, ctx, extra = {}) =>
 
 const SCENE_GROUPS = [
   { name: '场景', items: [
+    { label: '⟲ 复位 (清 prompt)', cmd: 'snapshot',
+      payload: SNAP([A('claude-code', 'running', '> 已复位', 0)]) },
     { label: 'idle / 空', cmd: 'idle' },
     { label: 'dashboard 单 agent', cmd: 'snapshot',
       payload: SNAP([A('claude-code', 'running', '> 修复登录 bug', 1200)]) },
