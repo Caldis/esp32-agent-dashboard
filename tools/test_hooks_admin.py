@@ -8,6 +8,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根,便于 import tools.*
 from tools.hooks_admin import base, state
+from tools import hooks_admin
+from tools.hooks_admin import state as state_mod
 
 
 class TestBase(unittest.TestCase):
@@ -39,6 +41,46 @@ class TestState(unittest.TestCase):
             p.write_text('{"a":1}', encoding="utf-8")
             state.backup(p)
             assert (Path(d) / "settings.json.esp32bak").read_text(encoding="utf-8") == '{"a":1}'
+
+
+def _fake_homes(d: Path):
+    return {"claude-code": d / "cc_home", "codex": d / "cx_home"}
+
+
+class TestClaudeCodeInstall(unittest.TestCase):
+    def test_install_then_status_enabled_preserves_user_hook(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            cc_home = d / "cc_home"
+            (cc_home / ".claude").mkdir(parents=True)
+            # 预置一个用户自己的无关 hook
+            settings = cc_home / ".claude" / "settings.json"
+            settings.write_text(json.dumps({
+                "hooks": {"PreToolUse": [
+                    {"matcher": "Read", "hooks": [{"type": "command", "command": "echo user-own"}]}
+                ]}
+            }), encoding="utf-8")
+
+            agents = hooks_admin.build_agents(_fake_homes(d))
+            st = state_mod.State(d / "state.json")
+
+            hooks_admin.install(agents, st, "claude-code", scope="user")
+
+            data = json.loads(settings.read_text(encoding="utf-8"))
+            pre = data["hooks"]["PreToolUse"]
+            # 用户自己的 hook 仍在
+            assert any("echo user-own" in h["hooks"][0]["command"] for h in pre), pre
+            # 我们的 hook 已加(三事件)
+            for ev in base.EVENTS:
+                arr = data["hooks"][ev]
+                assert any("hook_dispatch.py" in hh["command"]
+                           for it in arr for hh in it["hooks"]), (ev, arr)
+            # 备份已建
+            assert settings.with_name("settings.json.esp32bak").exists()
+
+            stt = hooks_admin.status(agents, st)["claude-code"]
+            assert stt.installed and stt.enabled, stt
+            assert set(stt.events) == set(base.EVENTS), stt.events
 
 
 if __name__ == "__main__":
