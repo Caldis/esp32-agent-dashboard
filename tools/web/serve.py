@@ -254,11 +254,19 @@ class DeviceServer(threading.Thread):
 # bridge subprocess (optional, for one-command startup)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def spawn_bridge(host: str, device_port: int, bridge_port: int) -> subprocess.Popen:
+def spawn_bridge(host: str, device_port: int, bridge_port: int,
+                 serial: str | None = None) -> subprocess.Popen:
+    if serial:
+        # Drive a REAL ESP32 over serial (e.g. COM9). The bridge owns the port
+        # via esp_harness; /dash and /inject reach the physical screen. NOTE:
+        # the bridge then talks to the device directly, not to serve.py's TCP
+        # device, so the web data mirror (SSE) is not fed in this mode.
+        transport = ["--port-kind", "serial", "--port", serial]
+    else:
+        transport = ["--port-kind", "tcp", "--port", f"{host}:{device_port}"]
     cmd = [
         sys.executable, str(BRIDGE_SCRIPT), "serve",
-        "--port-kind", "tcp", "--port", f"{host}:{device_port}",
-        "--listen", f"{host}:{bridge_port}",
+        *transport, "--listen", f"{host}:{bridge_port}",
     ]
     print(f"[serve] spawning bridge: {' '.join(cmd)}", file=sys.stderr, flush=True)
     proc = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.DEVNULL,
@@ -510,20 +518,33 @@ def main(argv: list[str] | None = None) -> int:
                          "approve/deny=auto-resolve without the browser")
     ap.add_argument("--spawn-bridge", action="store_true",
                     help="also launch claude_buddy_bridge.py wired to this device")
+    ap.add_argument("--serial", default=None, metavar="PORT",
+                    help="with --spawn-bridge: drive a REAL device on this serial "
+                         "port (e.g. COM9) instead of the mock TCP device. /dash "
+                         "and /inject reach the physical screen (web data mirror "
+                         "is off in this mode).")
     args = ap.parse_args(argv)
 
     _Handler.bridge_addr = (args.host, args.bridge_port)
     _Handler.auto = args.auto
 
-    device = DeviceServer(args.host, args.device_port, auto=args.auto)
-    device.start()
+    # In serial (real-device) mode the bridge owns the port directly, so our
+    # TCP device server is unused — skip it. Otherwise it's the mock device.
+    if not args.serial:
+        DeviceServer(args.host, args.device_port, auto=args.auto).start()
 
     bridge_proc = None
     if args.spawn_bridge:
-        bridge_proc = spawn_bridge(args.host, args.device_port, args.bridge_port)
+        bridge_proc = spawn_bridge(args.host, args.device_port, args.bridge_port,
+                                   serial=args.serial)
+    elif args.serial:
+        print("[serve] --serial given without --spawn-bridge: run the bridge "
+              "yourself with --port-kind serial --port " + args.serial,
+              file=sys.stderr, flush=True)
 
+    mode = f"serial {args.serial}" if args.serial else "mock tcp"
     print(f"[serve] HTTP on http://{args.host}:{args.http_port}/  "
-          f"(inject -> bridge {args.host}:{args.bridge_port})",
+          f"(inject/dash -> bridge {args.host}:{args.bridge_port} -> {mode})",
           file=sys.stderr, flush=True)
     srv = _ThreadingHTTP((args.host, args.http_port), _Handler)
     try:
