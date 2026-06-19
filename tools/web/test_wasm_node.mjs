@@ -9,6 +9,17 @@ const dash_feed  = M.cwrap('dash_feed_line', 'number', ['string']);
 const state_json = M.cwrap('state_json', 'string', []);
 
 dash_init();
+
+// 导出完整性:确认所有 7 个导出符号在 wasm 里均可 cwrap 并返回预期类型
+const current_scene     = M.cwrap('current_scene', 'string', []);
+const last_reply        = M.cwrap('last_reply', 'string', []);
+const last_reply_is_err = M.cwrap('last_reply_is_err', 'number', []);
+const drain_signals     = M.cwrap('drain_signals', 'string', []);
+assert.strictEqual(typeof current_scene(), 'string', 'current_scene resolvable');
+assert.strictEqual(typeof last_reply(), 'string', 'last_reply resolvable');
+assert.strictEqual(typeof last_reply_is_err(), 'number', 'last_reply_is_err resolvable');
+assert.strictEqual(typeof drain_signals(), 'string', 'drain_signals resolvable');
+
 let s = JSON.parse(state_json());
 assert.strictEqual(s.device_name, 'DASHBOARD', 'default device_name');
 assert.strictEqual(s.totals.total, 0, 'empty totals');

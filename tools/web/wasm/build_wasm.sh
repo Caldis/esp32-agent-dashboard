@@ -7,8 +7,8 @@ mkdir -p "$OUT"
 
 # 自动激活 emsdk(对已在 PATH 的环境无副作用)
 if ! command -v emcc >/dev/null 2>&1; then
-  for env in /d/Code/emsdk/emsdk_env.sh "$HOME/emsdk/emsdk_env.sh"; do
-    [ -f "$env" ] && . "$env" >/dev/null 2>&1 && break
+  for env in "${EMSDK:+$EMSDK/emsdk_env.sh}" "$HOME/emsdk/emsdk_env.sh" /opt/emsdk/emsdk_env.sh /usr/local/emsdk/emsdk_env.sh /d/Code/emsdk/emsdk_env.sh; do
+    [ -n "$env" ] && [ -f "$env" ] && . "$env" >/dev/null 2>&1 && break
   done
 fi
 
