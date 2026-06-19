@@ -7,8 +7,17 @@ from typing import Callable, Protocol
 # tools/hooks_admin/base.py → 仓库根 = parents[2]
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-EVENTS = ("PreToolUse", "PostToolUse", "Stop")
-EVENT_SNAKE = {"PreToolUse": "pre_tool_use", "PostToolUse": "post_tool_use", "Stop": "stop"}
+# UserPromptSubmit is what tells the device "the user just submitted — the agent
+# is now working", clearing the lingering "your turn" (AWAITING_CONTINUE) takeover
+# the moment a turn starts (the bridge handles it; the device auto-exits the
+# awaiting scene). Without it the screen stays on "your turn" until the next Stop.
+EVENTS = ("UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop")
+EVENT_SNAKE = {
+    "UserPromptSubmit": "user_prompt_submit",
+    "PreToolUse": "pre_tool_use",
+    "PostToolUse": "post_tool_use",
+    "Stop": "stop",
+}
 
 
 def hook_dispatch_path() -> Path:
