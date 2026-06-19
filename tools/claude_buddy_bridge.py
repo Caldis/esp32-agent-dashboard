@@ -419,6 +419,21 @@ class SessionRegistry:
             # Oldest = smallest last_active_unix.
             oldest_i, _ = min(droppable, key=lambda x: x[1].get("last_active_unix", 0))
             snap["agents"].pop(oldest_i)
+
+        # Totals were computed over the FULL session set above, but wire-trimming
+        # may have dropped agents to fit CONSOLE_MAX_LINE. Recompute from the
+        # agents the snapshot actually carries so it is self-consistent — else
+        # the device shows e.g. waiting=2 while only one waiting agent is listed
+        # (a status="waiting" agent without awaiting_kind is droppable in Step 4
+        # yet was counted in totals.waiting).
+        fa = snap["agents"]
+        snap["totals"] = {
+            "total":   len(fa),
+            "running": sum(1 for a in fa if a.get("status") == "running"),
+            "waiting": sum(1 for a in fa if a.get("status") == "waiting"),
+            "tokens":       sum(a.get("tokens", 0) for a in fa),
+            "tokens_today": sum(a.get("tokens_today", 0) for a in fa),
+        }
         return snap
 
     def sweep_stale(self, idle_after_s: int = 300) -> int:
