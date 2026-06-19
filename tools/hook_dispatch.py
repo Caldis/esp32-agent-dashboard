@@ -41,6 +41,30 @@ _CB_STATE_FILE = os.path.join(
 )
 
 
+_DBG_FLAG = os.path.join(
+    os.environ.get("TEMP", os.environ.get("TMPDIR", "/tmp")),
+    "hook_dispatch_debug.on",
+)
+_DBG_LOG = os.path.join(
+    os.environ.get("TEMP", os.environ.get("TMPDIR", "/tmp")),
+    "hook_dispatch_debug.log",
+)
+
+
+def _dlog(msg: str) -> None:
+    """Append a diagnostic line iff the sentinel file exists. Off by default
+    (no overhead beyond one stat), so safe to ship — create the .on file to
+    trace dropped hook events end-to-end, delete it to stop."""
+    try:
+        if not os.path.exists(_DBG_FLAG):
+            return
+        import time as _t
+        with open(_DBG_LOG, "a", encoding="utf-8") as f:
+            f.write(f"{_t.time():.3f} pid={os.getpid()} {msg}\n")
+    except OSError:
+        pass
+
+
 def _passthrough(reason: str = "") -> int:
     """Always-safe fallback response if the bridge is unreachable."""
     out: dict = {"continue": True}
@@ -221,7 +245,9 @@ def main(argv: list[str]) -> int:
 
     timeout = PROMPT_TIMEOUT if event_type == "pre_tool_use" else DEFAULT_TIMEOUT
 
+    sid = str(payload.get("session_id", ""))[:10]
     if _cb_is_open():
+        _dlog(f"{event_type} {sid} CB_OPEN -> drop")
         return _passthrough("circuit breaker open — bridge skipped")
 
     try:
@@ -231,12 +257,16 @@ def main(argv: list[str]) -> int:
             sock.settimeout(timeout)
             line = sock.makefile("r", encoding="utf-8").readline()
             _cb_record_success()
+            _dlog(f"{event_type} {sid} -> {DEFAULT_HOST}:{DEFAULT_PORT} "
+                  f"resp={'EMPTY' if not line.strip() else line.strip()[:40]}")
             print(line.strip() or json.dumps({"continue": True}))
             return 0
     except socket.timeout:
         _cb_record_timeout()
+        _dlog(f"{event_type} {sid} TIMEOUT({timeout}s) -> drop")
         return _passthrough("claude_buddy_bridge timeout")
     except (ConnectionRefusedError, OSError) as e:
+        _dlog(f"{event_type} {sid} CONN_ERR {e} -> drop")
         return _passthrough(f"claude_buddy_bridge offline: {e}")
 
 

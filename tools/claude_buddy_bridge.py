@@ -76,8 +76,19 @@ DEFAULT_DEVICE_NAME = "Clawd"
 DEFAULT_THEME = "noir"
 DEFAULT_OWNER = os.environ.get("USER") or os.environ.get("USERNAME") or "user"
 
+# CLAUDE_BUDDY_DEBUG=1 → log every event received + every line pushed to the
+# device, so dropped/coalesced events can be traced end-to-end.
+_DEBUG = bool(os.environ.get("CLAUDE_BUDDY_DEBUG"))
+_rx_seq = 0
+
 CONFIG_PATH = Path.home() / ".claude-buddy" / "config.toml"
-WIRE_MAX_BYTES = 900  # leave 124 bytes headroom under CONSOLE_MAX_LINE = 1024
+# Device console caps a line at 1023 bytes. The wire line is `dash snapshot "<json>"`
+# (~16 bytes of wrapper around the JSON), so keep the JSON itself under ~1000 to
+# stay safely below 1023. Raised from 900 → 1000 so fewer agents get trimmed.
+WIRE_MAX_BYTES = 1000
+# Max entries[] per agent on the wire. The device renders only ~2 per agent, so
+# 12 (the in-memory cap) just bloats the snapshot and forces agent-dropping trims.
+WIRE_ENTRIES_PER_AGENT = 6
 
 SAMPLE_CONFIG = """\
 # ~/.claude-buddy/config.toml — sample
@@ -209,7 +220,13 @@ class AgentSession:
             "status": self.status,
             "cwd": self.cwd,
             "msg": self.msg[:80],
-            "entries": [e.as_dict() for e in self.entries],
+            # Cap entries on the wire: the device shows only ~2 per agent
+            # (scene_sessions) plus a small global aggregate (scene_dashboard),
+            # but a single busy agent with 12 entries alone approaches the
+            # CONSOLE_MAX_LINE cap — pushing the snapshot over WIRE_MAX_BYTES and
+            # making wire-trim drop whole AGENTS (the "events dropped / UI out of
+            # sync" symptom). Send the most-recent few; the device never needs more.
+            "entries": [e.as_dict() for e in self.entries[:WIRE_ENTRIES_PER_AGENT]],
             "tokens": self.tokens,
             "tokens_today": self.tokens_today,
             "last_active_unix": self.last_active_unix,
@@ -631,6 +648,9 @@ class DevicePusher:
             line = f"dash {cmd}"
         else:
             line = f'dash {cmd} "{json.dumps(payload, separators=(",", ":"))}"'
+        if _DEBUG:
+            flag = " OVERSIZE!" if len(line) > 1023 else ""
+            print(f"[dbg] tx {cmd} len={len(line)}{flag}", file=sys.stderr, flush=True)
         if self.dry_run:
             print(f"[DRY] {line}", flush=True)
             return {"ok": True, "dry_run": True}
@@ -1077,6 +1097,14 @@ class Bridge:
         self.permission_timeout_s = permission_timeout_s
 
     def handle(self, raw: dict) -> dict:
+        if _DEBUG:
+            global _rx_seq
+            _rx_seq += 1
+            t = raw.get("type")
+            if t not in ("__dash__", "__pause__"):
+                print(f"[dbg] rx#{_rx_seq} {t} "
+                      f"{raw.get('agent','?')}:{str(raw.get('session_id',''))[:8]} "
+                      f"tool={raw.get('tool_name','')}", file=sys.stderr, flush=True)
         try:
             return self._handle_inner(raw)
         except Exception as e:  # NEVER crash — bridge would take CC down with it
