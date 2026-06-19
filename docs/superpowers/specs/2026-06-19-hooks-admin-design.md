@@ -153,3 +153,18 @@ class HookAgentAdapter(Protocol):
 2. `codex.py`(Codex adapter)+ 注册表遍历测试纳入 Codex。
 3. `hooks_server.py`(web 后端)+ `hooks.html`/`hooks.js`(面板)。
 4. 文档更新(README/CLAUDE.md 的 hooks 安装段改为指向 hooks_admin)。
+
+## 12. 未来分发:打包为 Claude Code plugin(本版暂不做,记录迁移路径)
+
+查证结论(CC 官方文档 2026-06-19,见 Sources):Claude Code plugin 的 `hooks/hooks.json`(格式与 settings.json 一致)在 plugin **启用时自动注册**,用 `${CLAUDE_PLUGIN_ROOT}` 引用 plugin 内脚本;plugin 还能打包 slash commands、scripts/bin、MCP server,但**不能托管任意 daemon**(bridge / web server 那种),长驻进程只能走 MCP server(stdio)或 monitor(实验性)。
+
+将来若打包成 plugin:
+- **CC 侧大幅简化**:CC 装上报 hook 变成"启用 plugin"(hooks 自动注册指向 `${CLAUDE_PLUGIN_ROOT}/scripts/hook_dispatch.py`),`enable/disable plugin` 天然就是软开关——CC adapter 几乎被 plugin 机制取代,只剩"检测 plugin 是否启用"。
+- **Codex 侧不变**:Codex 不认 CC plugin,仍由 hooks-admin 的 CodexAdapter 写 `~/.codex/hooks.json`。
+- **web 调试器 / bridge**:plugin 不托管 daemon,故仍独立启动(plugin 可提供 `/dash open` 之类命令拉起;bridge 可探索做成 MCP server)。
+
+为什么现在的设计已为此铺好路:本 spec 的 **adapter 抽象** + **统一的 `hook_dispatch.py`(CC/Codex 共用同一 stdin-JSON→stdout-JSON 协议)** 意味着迁移时只需把 CC 接入从"hooks_admin 写 settings.json"换成"plugin 的 hooks/hooks.json",Codex adapter 与核心编排、CLI、web 面板原样保留。迁移是替换一个 adapter 的承载方式,而非重写。
+
+**本版决定:不 plugin 化**,先实现 §11 的 CLI + web hooks-admin(CC 也由 hooks-admin 写 settings.json)。
+
+Sources:[Claude Code Plugins](https://code.claude.com/docs/en/plugins.md) · [Plugins Reference](https://code.claude.com/docs/en/plugins-reference.md)
