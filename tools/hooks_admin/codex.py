@@ -29,6 +29,8 @@ class CodexAdapter:
         return self.home / ".codex" / "config.toml"
 
     def config_paths(self, scope: str) -> list[Path]:
+        # [0] hooks.json — 可写路径(install/remove/restore 操作此文件)
+        # [1] config.toml — 只读 detect 用途,消费方勿当可写路径
         return [self.hooks_json_path(scope), self.config_toml_path(scope)]
 
     def _read_json(self, scope: str) -> dict:
@@ -56,7 +58,7 @@ class CodexAdapter:
             return False
         hooks = doc.get("hooks", {})
         for ev in base.EVENTS:
-            for item in hooks.get(ev, []) or []:
+            for item in hooks.get(ev, []):
                 if _is_ours(item):
                     return True
         return False
@@ -72,8 +74,8 @@ class CodexAdapter:
                     break
         # config.toml 里若也有我们的条目,纳入"已装"判断(只读检测)
         if not found and self._toml_has_ours(scope):
-            return (True, None)
-        return (bool(found), found or None)
+            return (True, {})
+        return (bool(found), found)
 
     def _entry(self, event: str, command: str) -> dict:
         node = {"hooks": [{"type": "command", "command": command}]}

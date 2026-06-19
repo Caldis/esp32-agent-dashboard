@@ -57,7 +57,7 @@ class ClaudeCodeAdapter:
                 if _is_ours(item):
                     found[ev] = item
                     break
-        return (bool(found), found or None)
+        return (bool(found), found)
 
     def _entry(self, event: str, command: str) -> dict:
         node = {"hooks": [{"type": "command", "command": command}]}

@@ -5,7 +5,7 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from . import build_agents, status, install, enable, disable, base
+from . import build_agents, status, install, enable, disable
 from . import state as state_mod
 
 
@@ -27,11 +27,15 @@ def _targets(args, agents) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
     p = argparse.ArgumentParser(prog="hooks_admin",
                                 description="管理 CC/Codex 上报 hook 的安装与启用")
     p.add_argument("action", choices=["status", "install", "enable", "disable"])
     p.add_argument("--agent", choices=["claude-code", "codex", "all"], default="all")
-    p.add_argument("--scope", choices=["user"], default="user")  # 本阶段仅 user
+    p.add_argument("--scope", default="user")  # 本阶段仅 user;不设 choices 以免后续阶段报错
     p.add_argument("--json", action="store_true")
     p.add_argument("--cc-home", default=None, help="覆盖 CC home(测试用)")
     p.add_argument("--codex-home", default=None, help="覆盖 Codex home(测试用)")

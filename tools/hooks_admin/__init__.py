@@ -56,7 +56,7 @@ def disable(agents: dict, st: state_mod.State, kind: str, scope: str = "user"):
     ad = agents[kind]
     removed = ad.remove(scope)
     rec = st.get(kind)
-    # 优先保留已有 state 里的 entries(含历史手改);否则用本次移除的
+    # 优先用本次 remove() 返回的 entries(含最新手改),state 作 fallback
     entries = removed or ((rec or {}).get("entries") or {})
     st.set(kind, enabled=False, scope=scope, entries=entries)
     st.save()
