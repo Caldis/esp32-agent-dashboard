@@ -10,10 +10,12 @@ extern const char *shim_last_reply(void);
 extern int         shim_last_reply_is_err(void);
 extern const console_cmd_t *shim_find_cmd(const char *name);
 extern const char *shim_current_scene_id(void);
+extern const char *shim_drain_signals_json(void);
 
 const char *last_reply(void)        { return shim_last_reply(); }
 int         last_reply_is_err(void) { return shim_last_reply_is_err(); }
 const char *current_scene(void)     { return shim_current_scene_id(); }
+const char *drain_signals(void)     { return shim_drain_signals_json(); }
 
 /* G-7 tokeniser —— 移植自 mock_device_v1.py._tokenise / 固件 console_protocol.c:
  *  - 以 '"' 起始的 token:去掉前导 '"',累积所有字符(含内层 '"' 和空白)

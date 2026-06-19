@@ -151,10 +151,31 @@ def test_slot_overflow():
     print("ok test_slot_overflow")
 
 
+def test_signals():
+    lib = load_lib()
+    _decl_feed(lib)
+    lib.drain_signals.restype = ctypes.c_char_p
+    lib.dash_init()
+    snap = ('{"agents":[{"kind":"codex","session_id":"cx1",'
+            '"status":"running","msg":"go"}],'
+            '"totals":{"total":1,"running":1,"waiting":0}}')
+    feed(lib, 'dash snapshot "' + snap + '"')
+    sigs = json.loads(lib.drain_signals().decode())
+    assert any("agent_added" in x and "codex" in x for x in sigs), sigs
+    # drain 清空
+    assert json.loads(lib.drain_signals().decode()) == [], "signals should clear after drain"
+    prompt = '{"id":"req1","tool":"Bash"}'
+    feed(lib, 'dash prompt "' + prompt + '"')
+    sigs = json.loads(lib.drain_signals().decode())
+    assert any("scene_changed" in x and "prompt" in x for x in sigs), sigs
+    print("ok test_signals")
+
+
 if __name__ == "__main__":
     test_empty_state()
     test_dash_idle()
     test_snapshot_two_agents()
     test_msg_truncation()
     test_slot_overflow()
+    test_signals()
     print("ALL PASS")
