@@ -122,5 +122,45 @@ class TestSoftDisableEnable(unittest.TestCase):
             assert stop_ours and stop_ours[0]["hooks"][0].get("timeout") == 99, stop_ours
 
 
+class TestCodex(unittest.TestCase):
+    def test_codex_roundtrip(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "cx_home" / ".codex").mkdir(parents=True)
+            agents = hooks_admin.build_agents(_fake_homes(d))
+            st = state_mod.State(d / "state.json")
+
+            hooks_admin.install(agents, st, "codex")
+            hj = d / "cx_home" / ".codex" / "hooks.json"
+            data = json.loads(hj.read_text(encoding="utf-8"))
+            for ev in base.EVENTS:
+                arr = data["hooks"][ev]
+                assert any("hook_dispatch.py" in hh["command"]
+                           for it in arr for hh in it["hooks"]), (ev, arr)
+            assert hooks_admin.status(agents, st)["codex"].enabled
+
+            hooks_admin.disable(agents, st, "codex")
+            assert not hooks_admin.status(agents, st)["codex"].enabled
+            hooks_admin.enable(agents, st, "codex")
+            assert hooks_admin.status(agents, st)["codex"].enabled
+
+
+class TestRegistrySweep(unittest.TestCase):
+    """每个 supported adapter 都应满足同一组 round-trip(新增 agent 自动纳入)。"""
+    def test_all_supported_roundtrip(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            for sub in ("cc_home/.claude", "cx_home/.codex"):
+                (d / sub).mkdir(parents=True, exist_ok=True)
+            agents = hooks_admin.build_agents(_fake_homes(d))
+            st = state_mod.State(d / "state.json")
+            for kind, ad in agents.items():
+                if not ad.supported:
+                    continue
+                assert hooks_admin.install(agents, st, kind).enabled, kind
+                assert not hooks_admin.disable(agents, st, kind).enabled, kind
+                assert hooks_admin.enable(agents, st, kind).enabled, kind
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

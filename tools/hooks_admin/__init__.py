@@ -4,6 +4,7 @@ from pathlib import Path
 
 from . import base, state as state_mod
 from .claude_code import ClaudeCodeAdapter
+from .codex import CodexAdapter
 
 
 def build_agents(homes: dict | None = None) -> dict:
@@ -13,6 +14,8 @@ def build_agents(homes: dict | None = None) -> dict:
     cc_home = Path(homes.get("claude-code", home))
     agents: dict = {}
     agents["claude-code"] = ClaudeCodeAdapter(cc_home)
+    cx_home = Path(homes.get("codex", home))
+    agents["codex"] = CodexAdapter(cx_home)
     return agents
 
 
