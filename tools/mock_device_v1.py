@@ -190,12 +190,18 @@ class MockDeviceV1:
             if i >= n:
                 break
             if line[i] == '"':
-                # Quote-leading token: find the closing `"` followed by ws/EOL
+                # Quote-leading token: find the closing `"` followed by ws/EOL.
+                # Backslash-aware: an escaped quote (\") is NOT a close — copy
+                # it verbatim (the JSON layer decodes it). Matches the device
+                # tokeniser (console_protocol.c) and tiny_json/skip_value.
                 i += 1  # drop leading "
                 start = i
                 close = -1
                 j = i
                 while j < n:
+                    if line[j] == '\\':
+                        j += 2
+                        continue
                     if line[j] == '"':
                         if j + 1 == n or line[j + 1].isspace():
                             close = j

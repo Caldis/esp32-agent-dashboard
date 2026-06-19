@@ -93,6 +93,21 @@ def test_legacy_auto_decision_without_callback():
     assert _wait(lambda: any("decision=once" in o for o in out))
 
 
+def test_snapshot_with_escaped_quotes_accepted():
+    """Backslash-aware tokeniser: a snapshot value containing an escaped quote
+    followed by whitespace (e.g. a tool summary `$ echo "hi" world`) must parse,
+    not be rejected as malformed JSON. Regression for the state-sync freeze."""
+    out = []
+    m = MockDeviceV1(decision_delay_ms=0, auto_deny=False, verbose=False)
+    payload = {"agents": [{"kind": "claude-code", "session_id": "s1",
+                           "status": "running", "msg": '$ echo "hi" world'}],
+               "totals": {"total": 1}}
+    m.handle_line(_wire("snapshot", payload), out.append)
+    reply = "".join(out)
+    assert reply.startswith("OK"), reply
+    assert "malformed" not in reply, reply
+
+
 def test_legacy_auto_deny():
     out = []
     m = MockDeviceV1(decision_delay_ms=0, auto_deny=True, verbose=False)

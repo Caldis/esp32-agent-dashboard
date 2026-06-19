@@ -13,6 +13,7 @@ int g7_tokenise(const char *line, char *buf, size_t bufcap,
             i++;                                  /* drop leading " */
             int close = -1;
             for (size_t j = i; j < n; ++j) {
+                if (line[j] == '\\') { j++; continue; }   /* skip escaped byte: \" is not a close */
                 if (line[j] == '"' && (j + 1 == n || line[j+1] == ' ' || line[j+1] == '\t')) {
                     close = (int)j; break;
                 }

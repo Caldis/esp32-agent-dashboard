@@ -176,6 +176,25 @@ def test_signals():
     print("ok test_signals")
 
 
+def test_escaped_quote_snapshot_roundtrip():
+    """End-to-end regression for the `\\" ` tokeniser bug: a snapshot whose
+    value contains an escaped quote followed by whitespace must parse (not be
+    rejected as malformed) and the quote must survive into state_json."""
+    lib = load_lib()
+    _decl_feed(lib)
+    lib.dash_init()
+    # msg has an escaped quote then a space — exactly what truncated the token.
+    payload = {"agents": [{"kind": "claude-code", "session_id": "q1",
+                           "status": "running", "msg": '$ echo "hi" world'}],
+               "totals": {"total": 1, "running": 1, "waiting": 0}}
+    feed(lib, 'dash snapshot "' + json.dumps(payload, separators=(",", ":")) + '"')
+    s = state(lib)
+    slots = s.get("slots", [])
+    assert len(slots) == 1, s
+    assert slots[0]["msg"] == '$ echo "hi" world', slots[0]
+    print("ok test_escaped_quote_snapshot_roundtrip")
+
+
 def test_initial_scene():
     lib = load_lib()
     _decl_feed(lib)            # 声明 current_scene 等
@@ -197,6 +216,10 @@ def test_tokenise_pathological():
 
     # 引号起始 token:闭合引号是「后跟空白/行尾」的那个,内层引号(后跟非空白)不收尾
     assert tok('dash snapshot "{"a":1}"') == (3, ["dash", "snapshot", '{"a":1}']), tok('dash snapshot "{"a":1}"')
+    # 反斜杠感知:转义引号 \" 不收尾,即便其后是空格(否则带引号文本会截断快照)。
+    # 回归 `$ echo "hi" world`-类内容导致 dash snapshot 被判 malformed JSON 的 bug。
+    assert tok('dash snapshot "{"m":"a \\" b"}"') == (3, ["dash", "snapshot", '{"m":"a \\" b"}']), \
+        tok('dash snapshot "{"m":"a \\" b"}"')
     # 普通命令
     assert tok("dash idle") == (2, ["dash", "idle"])
     # 非引号起始含引号:legacy 模式剥除所有引号
@@ -215,6 +238,7 @@ if __name__ == "__main__":
     test_msg_truncation()
     test_slot_overflow()
     test_signals()
+    test_escaped_quote_snapshot_roundtrip()
     test_initial_scene()
     test_tokenise_pathological()
     print("ALL PASS")
