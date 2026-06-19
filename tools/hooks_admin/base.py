@@ -11,12 +11,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # is now working", clearing the lingering "your turn" (AWAITING_CONTINUE) takeover
 # the moment a turn starts (the bridge handles it; the device auto-exits the
 # awaiting scene). Without it the screen stays on "your turn" until the next Stop.
-EVENTS = ("UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop")
+EVENTS = ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
+          "Stop", "SessionEnd")
 EVENT_SNAKE = {
+    "SessionStart": "session_start",
     "UserPromptSubmit": "user_prompt_submit",
     "PreToolUse": "pre_tool_use",
     "PostToolUse": "post_tool_use",
     "Stop": "stop",
+    "SessionEnd": "session_end",
 }
 
 

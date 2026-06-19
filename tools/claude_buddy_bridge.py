@@ -81,6 +81,13 @@ DEFAULT_OWNER = os.environ.get("USER") or os.environ.get("USERNAME") or "user"
 _DEBUG = bool(os.environ.get("CLAUDE_BUDDY_DEBUG"))
 _rx_seq = 0
 
+# Claude Code fires NO hook on user-interrupt (ESC) — known limitation
+# (anthropics/claude-code#9516). It also can miss Stop when it stalls mid-turn
+# (#29881). So if a session is "running" but goes silent (no tool in flight) for
+# this long, treat the turn as over → "your turn". Tools running (PreToolUse with
+# no PostToolUse yet) are exempt so a long build/test is never misread as idle.
+IDLE_TURN_S = float(os.environ.get("CLAUDE_BUDDY_IDLE_TURN_S", "60"))
+
 CONFIG_PATH = Path.home() / ".claude-buddy" / "config.toml"
 # Device console caps a line at 1023 bytes. The wire line is `dash snapshot "<json>"`
 # (~16 bytes of wrapper around the JSON), so keep the JSON itself under ~1000 to
@@ -168,6 +175,10 @@ class AgentSession:
     status: str = "running"                # running | waiting | idle
     cwd: str = ""
     msg: str = ""
+    # True between a PreToolUse and its PostToolUse — i.e. a tool is actively
+    # running (possibly for minutes). Used by the idle-turn sweep so a long tool
+    # is NOT mistaken for an interrupted/idle agent.
+    tool_in_flight: bool = False
     entries: list[AgentEntry] = field(default_factory=list)
     tokens: int = 0
     tokens_today: int = 0
@@ -352,6 +363,37 @@ class SessionRegistry:
             if sess is None:
                 return
             sess.last_assistant_text = text[:4000]
+
+    def set_tool_in_flight(self, agent_kind: str, session_id: str, val: bool) -> None:
+        with self._lock:
+            sess = self._sessions.get(self._key(agent_kind, session_id))
+            if sess is not None:
+                sess.tool_in_flight = val
+
+    def drop_session(self, agent_kind: str, session_id: str) -> bool:
+        """Remove a session (e.g. on SessionEnd). Returns True if one existed."""
+        with self._lock:
+            return self._sessions.pop(self._key(agent_kind, session_id), None) is not None
+
+    def sweep_idle_turns(self, timeout_s: float) -> int:
+        """Flip 'running' sessions that have gone silent (no tool in flight) for
+        > timeout_s into AWAITING_CONTINUE ('your turn'). Covers user-interrupt
+        (ESC) and mid-turn stalls, neither of which fires a Stop hook. Returns
+        the number flipped (so the caller can push a fresh snapshot)."""
+        now = int(time.time())
+        flipped = 0
+        with self._lock:
+            for sess in self._sessions.values():
+                if (sess.status == "running"
+                        and not sess.tool_in_flight
+                        and sess.awaiting_kind is None
+                        and (now - sess.last_active_unix) > timeout_s):
+                    sess.status = "waiting"
+                    sess.awaiting_kind = "continue"
+                    sess.awaiting_context = ["(idle — interrupted or stalled)"]
+                    sess.awaiting_since_unix = now
+                    flipped += 1
+        return flipped
 
     def known_kinds(self) -> set[str]:
         with self._lock:
@@ -990,6 +1032,9 @@ class SnapshotPublisher(threading.Thread):
         since = now - self._last_push_ts
         if self._wake.is_set() and since < self.min_interval:
             return
+        # Flip silent/interrupted turns → "your turn" (CC fires no hook on ESC).
+        # Changes the registry, so the snapshot below differs and gets pushed.
+        self.registry.sweep_idle_turns(IDLE_TURN_S)
         snap = self.registry.snapshot_v1()
         snap_json = json.dumps(snap, sort_keys=True)
         changed = snap_json != self._last_snap_json
@@ -1159,6 +1204,25 @@ class Bridge:
         agent = evt["agent"]
         sid = evt["session_id"]
 
+        if t == "session_start":
+            # Session appeared → show it on the device immediately (idle, ball
+            # in the user's court until the first prompt) instead of waiting for
+            # the first tool call.
+            self.registry.upsert(agent, sid, status="waiting",
+                                 cwd=evt["cwd"] or None)
+            self.registry.set_awaiting(agent, sid, kind="continue",
+                                       context=["session started"])
+            self.publisher.bump()
+            return {"continue": True}
+
+        if t == "session_end":
+            # Session ended → remove it now rather than letting it linger until
+            # the 300s stale-sweep.
+            self.registry.drop_session(agent, sid)
+            self.pusher.cancel_pending_replies()
+            self.publisher.bump()
+            return {"continue": True}
+
         if t == "user_prompt_submit":
             # User just submitted a new prompt → the agent moves out of
             # any "awaiting you" state. Clear awaiting_* fields so the
@@ -1167,6 +1231,7 @@ class Bridge:
                                  cwd=evt["cwd"] or None,
                                  msg=evt["summary"])
             self.registry.clear_awaiting(agent, sid)
+            self.registry.set_tool_in_flight(agent, sid, False)
             self.pusher.cancel_pending_replies()
             self.publisher.bump()
             return {"continue": True}
@@ -1183,6 +1248,9 @@ class Bridge:
             # v2.3.0: any tool firing means the model is NOT awaiting
             # user input. Clear stale awaiting state from a prior turn.
             self.registry.clear_awaiting(agent, sid)
+            # A tool is now in flight (may run for minutes) — exempt from the
+            # idle-turn sweep until PostToolUse clears it.
+            self.registry.set_tool_in_flight(agent, sid, True)
             if looks_like_permission_required(evt):
                 prompt = {
                     "id": f"req_{uuid.uuid4().hex[:8]}",
@@ -1235,6 +1303,7 @@ class Bridge:
                                  tool=tool_name,
                                  summary=summary,
                                  tokens=evt["tokens"])
+            self.registry.set_tool_in_flight(agent, sid, False)
             self.publisher.bump()
             # v2.7.0: top-slide-down banner on device
             hint = summary[:40] if summary != "ok" else ""
@@ -1265,6 +1334,7 @@ class Bridge:
             if summary:
                 ctx = [summary[:48]]
             self.registry.upsert(agent, sid, status="waiting")
+            self.registry.set_tool_in_flight(agent, sid, False)
 
             if len(options) == 2:
                 self.publisher.bump()

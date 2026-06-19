@@ -102,13 +102,57 @@ def test_device_pusher_real_transport_constructs():
     assert p._mirror_sock is None
 
 
+def test_idle_turn_sweep_flips_silent_running_to_your_turn():
+    """ESC/stall coverage: a 'running' session silent past the timeout flips to
+    awaiting continue ('your turn'); a tool-in-flight one is exempt."""
+    import time as _t
+    reg = SessionRegistry()
+    reg.upsert("claude-code", "idle1", status="running")
+    reg.upsert("claude-code", "busy1", status="running")
+    reg.set_tool_in_flight("claude-code", "busy1", True)
+    # Force both to look old.
+    for k in ("claude-code:idle1", "claude-code:busy1"):
+        reg._sessions[k].last_active_unix = int(_t.time()) - 999
+    flipped = reg.sweep_idle_turns(timeout_s=60)
+    assert flipped == 1, flipped
+    snap = {a["session_id"]: a for a in reg.snapshot_v1()["agents"]}
+    assert snap["idle1"]["status"] == "waiting"
+    assert snap["idle1"].get("awaiting_kind") == "continue"
+    assert snap["busy1"]["status"] == "running"        # tool in flight → exempt
+    assert "awaiting_kind" not in snap["busy1"]
+
+
+def test_idle_turn_sweep_leaves_fresh_running_alone():
+    reg = SessionRegistry()
+    reg.upsert("claude-code", "fresh", status="running")
+    assert reg.sweep_idle_turns(timeout_s=60) == 0
+    assert reg.snapshot_v1()["agents"][0]["status"] == "running"
+
+
+def test_session_end_drops_session():
+    from claude_buddy_bridge import _build_stack, Settings
+    settings = Settings(throttle_ms=250, keepalive_ms=10000, permission_timeout_s=60.0,
+                        device_name="x", owner="y", theme="noir", port_kind="tcp",
+                        port="127.0.0.1:9999", listen="127.0.0.1:7399", health_poll_s=5.0,
+                        dry_run=True)
+    bridge, pusher, publisher, registry, *_ = _build_stack(settings)
+    bridge.handle({"type": "user_prompt_submit", "agent": "claude-code",
+                   "session_id": "S1", "prompt": "hi"})
+    assert any(a["session_id"] == "S1" for a in registry.snapshot_v1()["agents"])
+    bridge.handle({"type": "session_end", "agent": "claude-code", "session_id": "S1"})
+    assert not any(a["session_id"] == "S1" for a in registry.snapshot_v1()["agents"])
+
+
 def main() -> int:
     if SessionRegistry is None:
         return 0  # skipped (no esp_harness) — not a failure
     tests = [test_totals_match_carried_agents_after_trim,
              test_small_fleet_untrimmed_is_exact,
              test_dash_passthrough_and_pause,
-             test_device_pusher_real_transport_constructs]
+             test_device_pusher_real_transport_constructs,
+             test_idle_turn_sweep_flips_silent_running_to_your_turn,
+             test_idle_turn_sweep_leaves_fresh_running_alone,
+             test_session_end_drops_session]
     failures = 0
     for t in tests:
         try:
