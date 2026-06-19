@@ -578,12 +578,19 @@ class DevicePusher:
         dry_run: bool,
         health: DeviceHealth,
         on_reconnect: Optional[callable] = None,
+        mirror: Optional[str] = None,
     ) -> None:
         self.port_kind = port_kind
         self.port = port
         self.dry_run = dry_run
         self.health = health
         self.on_reconnect = on_reconnect
+        # Optional one-way tap (HOST:PORT): every line written to the real
+        # device is also copied here so a passive observer (the web serve.py)
+        # can mirror exactly what the hardware screen receives. Best-effort —
+        # never blocks or fails a real push.
+        self._mirror_addr = mirror
+        self._mirror_sock: Optional[socket.socket] = None
         self._port_arg = _resolve_port_arg(port_kind, port) if not dry_run else ""
         self._session: Optional[SessionHandle] = None
         self._lock = threading.Lock()
@@ -593,6 +600,23 @@ class DevicePusher:
         self._buffered_snapshot: Optional[dict] = None
         self._stop = threading.Event()
         self._reconnect_thread: Optional[threading.Thread] = None
+
+    def _mirror_write(self, line: str) -> None:
+        """Best-effort tee of one line to the mirror tap. Never raises/blocks."""
+        if not self._mirror_addr:
+            return
+        try:
+            if self._mirror_sock is None:
+                host, port_s = self._mirror_addr.rsplit(":", 1)
+                self._mirror_sock = socket.create_connection((host, int(port_s)), timeout=0.5)
+            self._mirror_sock.sendall((line + "\n").encode("utf-8"))
+        except OSError:
+            try:
+                if self._mirror_sock:
+                    self._mirror_sock.close()
+            except OSError:
+                pass
+            self._mirror_sock = None   # reconnect on next push
 
     # ── lifecycle ─────────────────────────────────────────────────────
     def open_with_retry(self, *, retry_total_s: float = 30.0, retry_every_s: float = 2.0) -> bool:
@@ -651,6 +675,7 @@ class DevicePusher:
         if _DEBUG:
             flag = " OVERSIZE!" if len(line) > 1023 else ""
             print(f"[dbg] tx {cmd} len={len(line)}{flag}", file=sys.stderr, flush=True)
+        self._mirror_write(line)
         if self.dry_run:
             print(f"[DRY] {line}", flush=True)
             return {"ok": True, "dry_run": True}
@@ -1330,6 +1355,7 @@ class Settings:
     listen: str
     health_poll_s: float
     dry_run: bool
+    mirror: Optional[str] = None
 
     def as_redacted_dict(self) -> dict:
         return {
@@ -1389,6 +1415,7 @@ def build_settings(args) -> Settings:
             getattr(args, "health_poll_s", None),
             cfg.get("health_poll_s"), DEFAULT_HEALTH_POLL_S)),
         dry_run=bool(getattr(args, "dry_run", False)),
+        mirror=getattr(args, "mirror", None),
     )
 
 
@@ -1439,6 +1466,7 @@ def _build_stack(settings: Settings):
         dry_run=settings.dry_run,
         health=health,
         on_reconnect=_on_reconnect,
+        mirror=settings.mirror,
     )
     publisher = SnapshotPublisher(
         registry=registry,
@@ -1739,6 +1767,8 @@ def _add_v1_flags(p):
                    help=f"dash health poll period (default {DEFAULT_HEALTH_POLL_S})")
     p.add_argument("--dry-run", action="store_true",
                    help="don't push to device, print would-be commands")
+    p.add_argument("--mirror", default=None, metavar="HOST:PORT",
+                   help="also copy every pushed line to this TCP tap (web mirror)")
 
 
 def main(argv: list[str] | None = None) -> int:

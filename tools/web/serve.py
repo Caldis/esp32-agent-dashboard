@@ -185,13 +185,20 @@ class DeviceServer(threading.Thread):
     (approve/deny mode) by MockDeviceV1 itself.
     """
 
-    def __init__(self, host: str, port: int, *, auto: str) -> None:
+    def __init__(self, host: str, port: int, *, auto: str,
+                 mirror_only: bool = False) -> None:
         super().__init__(daemon=True, name="web-device")
         self.host = host
         self.port = port
         self.auto = auto
+        # mirror_only: passive tap used in --serial mode. The bridge drives the
+        # REAL device over COM and *also* writes a copy of every line here; we
+        # only broadcast to the browser (no mock replies, no decision routing —
+        # the real device owns those). Gives the web a live mirror of what the
+        # hardware screen is showing (the "真机+web 并行" fan-out).
+        self.mirror_only = mirror_only
         manual = auto == "off"
-        self.mock = MockDeviceV1(
+        self.mock = None if mirror_only else MockDeviceV1(
             decision_delay_ms=0,
             auto_deny=(auto == "deny"),
             verbose=False,
@@ -208,14 +215,17 @@ class DeviceServer(threading.Thread):
         srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         srv.bind((self.host, self.port))
         srv.listen(1)
-        print(f"[serve] TCP device on {self.host}:{self.port} (auto={self.auto})",
+        role = "mirror tap" if self.mirror_only else "device"
+        print(f"[serve] TCP {role} on {self.host}:{self.port} (auto={self.auto})",
               file=sys.stderr, flush=True)
         while True:
             conn, _ = srv.accept()
-            print("[serve] bridge connected", file=sys.stderr, flush=True)
+            print(f"[serve] bridge {role} connected", file=sys.stderr, flush=True)
             self._serve_conn(conn)
 
     def _serve_conn(self, conn: socket.socket) -> None:
+        if self.mirror_only:
+            return self._serve_mirror(conn)
         send_lock = threading.Lock()
 
         def send(s: str) -> None:
@@ -249,6 +259,29 @@ class DeviceServer(threading.Thread):
                 pass
             print("[serve] bridge disconnected", file=sys.stderr, flush=True)
 
+    def _serve_mirror(self, conn: socket.socket) -> None:
+        """Passive tap: only broadcast lines to the browser (no replies)."""
+        buf = b""
+        try:
+            while True:
+                chunk = conn.recv(4096)
+                if not chunk:
+                    break
+                buf += chunk
+                while b"\n" in buf:
+                    one, buf = buf.split(b"\n", 1)
+                    line = one.decode("utf-8", errors="replace")
+                    if line.strip():
+                        _broadcast(line)
+        except OSError:
+            pass
+        finally:
+            try:
+                conn.close()
+            except OSError:
+                pass
+            print("[serve] bridge mirror disconnected", file=sys.stderr, flush=True)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # bridge subprocess (optional, for one-command startup)
@@ -256,17 +289,19 @@ class DeviceServer(threading.Thread):
 
 def spawn_bridge(host: str, device_port: int, bridge_port: int,
                  serial: str | None = None) -> subprocess.Popen:
+    extra = []
     if serial:
         # Drive a REAL ESP32 over serial (e.g. COM9). The bridge owns the port
-        # via esp_harness; /dash and /inject reach the physical screen. NOTE:
-        # the bridge then talks to the device directly, not to serve.py's TCP
-        # device, so the web data mirror (SSE) is not fed in this mode.
+        # via esp_harness; /dash and /inject reach the physical screen. It also
+        # mirrors every pushed line to serve.py's tap (--mirror) so the browser
+        # gets a live view of exactly what the hardware screen shows.
         transport = ["--port-kind", "serial", "--port", serial]
+        extra = ["--mirror", f"{host}:{device_port}"]
     else:
         transport = ["--port-kind", "tcp", "--port", f"{host}:{device_port}"]
     cmd = [
         sys.executable, str(BRIDGE_SCRIPT), "serve",
-        *transport, "--listen", f"{host}:{bridge_port}",
+        *transport, *extra, "--listen", f"{host}:{bridge_port}",
     ]
     print(f"[serve] spawning bridge: {' '.join(cmd)}", file=sys.stderr, flush=True)
     proc = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.DEVNULL,
@@ -528,10 +563,11 @@ def main(argv: list[str] | None = None) -> int:
     _Handler.bridge_addr = (args.host, args.bridge_port)
     _Handler.auto = args.auto
 
-    # In serial (real-device) mode the bridge owns the port directly, so our
-    # TCP device server is unused — skip it. Otherwise it's the mock device.
-    if not args.serial:
-        DeviceServer(args.host, args.device_port, auto=args.auto).start()
+    # Mock mode: our TCP device IS the device the bridge talks to.
+    # Serial mode: the bridge drives the real device but mirrors every line to
+    # us, so run a passive tap on the same port to feed the web data mirror.
+    DeviceServer(args.host, args.device_port, auto=args.auto,
+                 mirror_only=bool(args.serial)).start()
 
     bridge_proc = None
     if args.spawn_bridge:

@@ -90,12 +90,25 @@ def test_dash_passthrough_and_pause():
     assert publisher.paused is False
 
 
+def test_device_pusher_real_transport_constructs():
+    """Guard the _port_arg regression: a non-dry DevicePusher (real transport
+    path, as used on serial/COM) must construct with _port_arg + mirror set.
+    The dry_run tests never touch _open_session so they missed this."""
+    from claude_buddy_bridge import DevicePusher, DeviceHealth
+    p = DevicePusher(port_kind="tcp", port="127.0.0.1:9999", dry_run=False,
+                     health=DeviceHealth(), mirror="127.0.0.1:9876")
+    assert p._port_arg == "127.0.0.1:9999"
+    assert p._mirror_addr == "127.0.0.1:9876"
+    assert p._mirror_sock is None
+
+
 def main() -> int:
     if SessionRegistry is None:
         return 0  # skipped (no esp_harness) — not a failure
     tests = [test_totals_match_carried_agents_after_trim,
              test_small_fleet_untrimmed_is_exact,
-             test_dash_passthrough_and_pause]
+             test_dash_passthrough_and_pause,
+             test_device_pusher_real_transport_constructs]
     failures = 0
     for t in tests:
         try:
