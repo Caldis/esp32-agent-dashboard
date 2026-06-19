@@ -334,6 +334,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             return self._post_decision()
         if path == "/reply":
             return self._post_reply()
+        if path == "/dash":
+            return self._post_dash()
+        if path == "/hold":
+            return self._post_hold()
         self.send_response(404)
         self.end_headers()
 
@@ -387,6 +391,25 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         ok = _link.send_evt(f"EVT: reply id={pid} choice={choice}", prompt_id=pid)
         self._json({"ok": ok, "sent": {"id": pid, "choice": choice},
                     "device_connected": ok})
+
+    def _post_dash(self) -> None:
+        """Screen test driver: push one raw `dash <cmd> [json]` line straight
+        to the connected device (real ESP32 or mock) to exercise UI combos.
+        Body: {cmd: "snapshot"|"prompt"|..., payload: {...}|null}."""
+        body = self._read_body()
+        cmd = body.get("cmd")
+        if not cmd or not isinstance(cmd, str):
+            self._json({"error": "need {cmd, payload?}"}, code=400)
+            return
+        self._json(self._forward_to_bridge(
+            {"type": "__dash__", "cmd": cmd, "payload": body.get("payload")}))
+
+    def _post_hold(self) -> None:
+        """Freeze/unfreeze the bridge's auto snapshot publisher so a hand-pushed
+        UI combo stays on the device screen. Body: {on: true|false}."""
+        body = self._read_body()
+        self._json(self._forward_to_bridge(
+            {"type": "__pause__", "on": bool(body.get("on"))}))
 
     # ── GET ───────────────────────────────────────────────────────────
     def do_GET(self):  # noqa: N802

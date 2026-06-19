@@ -120,6 +120,30 @@
   </section>
 
   <section>
+    <h2>屏幕测试驱动 <span class="tag">直推 dash 信号到设备屏幕(真机/mock),测界面组合</span></h2>
+    <div class="body">
+      <label class="row" style="margin-bottom:8px;cursor:pointer">
+        <input type="checkbox" id="hold-toggle"> 冻结自动快照
+        <span class="muted" style="font-size:11px">(测试时让组合停留在屏幕,不被实时快照覆盖)</span>
+      </label>
+      <div id="scene-presets"></div>
+      <div class="row" style="margin-top:10px">
+        <span class="muted">自定义</span>
+        <select id="dash-verb">
+          <option>snapshot</option><option>prompt</option><option>event</option>
+          <option>tokens</option><option>push</option><option>config</option>
+          <option>idle</option><option>health</option><option>time</option>
+        </select>
+      </div>
+      <textarea id="dash-payload" placeholder='payload JSON,例如 {"agents":[...],"totals":{...}}(idle/health 可留空)'></textarea>
+      <div class="row" style="margin-top:6px">
+        <button id="dash-send">发送 dash</button>
+        <span class="muted" id="dash-result"></span>
+      </div>
+    </div>
+  </section>
+
+  <section>
     <h2>Hooks 管理 <span class="tag">真实 ~/.claude · ~/.codex,自动备份</span></h2>
     <div class="body" id="hooks">加载中…</div>
   </section>

@@ -257,6 +257,46 @@ def test_inject_rejects_non_event(server):
     assert status == 400 and "error" in resp
 
 
+def test_dash_and_hold_forward_to_bridge(server):
+    """Screen test driver: /dash and /hold forward control messages to the
+    bridge (type __dash__ / __pause__)."""
+    received = []
+
+    def fake_bridge():
+        srv = socket.socket()
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind((server["host"], server["bridge_port"]))
+        srv.listen(2)
+        for _ in range(2):
+            conn, _a = srv.accept()
+            line = conn.makefile("r").readline()
+            received.append(json.loads(line))
+            conn.sendall(b'{"ok": true}\n')
+            conn.close()
+        srv.close()
+
+    threading.Thread(target=fake_bridge, daemon=True).start()
+    time.sleep(0.1)
+
+    s1, r1 = _http_post(server, "/dash", {"cmd": "snapshot", "payload": {"agents": []}})
+    assert s1 == 200 and r1.get("ok") is True
+    s2, r2 = _http_post(server, "/hold", {"on": True})
+    assert s2 == 200 and r2.get("ok") is True
+
+    assert _wait(lambda: len(received) >= 2)
+    kinds = {m["type"] for m in received}
+    assert "__dash__" in kinds and "__pause__" in kinds, received
+    dash_msg = next(m for m in received if m["type"] == "__dash__")
+    assert dash_msg["cmd"] == "snapshot"
+    pause_msg = next(m for m in received if m["type"] == "__pause__")
+    assert pause_msg["on"] is True
+
+
+def test_dash_rejects_missing_cmd(server):
+    status, resp = _http_post(server, "/dash", {"payload": {}})
+    assert status == 400 and "error" in resp
+
+
 def _safe_recv(sock) -> bytes:
     try:
         return sock.recv(4096)

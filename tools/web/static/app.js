@@ -243,6 +243,118 @@ $('inj-send').onclick = () => {
   inject({ ...injCtx(), ...ev });
 };
 
+// ── screen test driver ───────────────────────────────────────────────────────
+// Push raw `dash` signals straight to the connected device (real ESP32 or mock)
+// to exercise UI combinations. "冻结自动快照" pauses the bridge publisher so a
+// hand-pushed combo stays on screen. Uses the device-visible field names
+// (agents[].awaiting_kind/awaiting_summary/awaiting_options, prompt.mode, ...).
+const A = (kind, status, msg, tokens = 0, extra = {}) =>
+  ({ kind, session_id: kind.slice(0, 2) + Math.floor(tokens % 9000 + 1000),
+     status, msg, cwd: 'D:\\Code\\demo', tokens, tokens_today: tokens, ...extra });
+const SNAP = (agents, totals = {}) => ({
+  agents,
+  totals: {
+    total: agents.length,
+    running: agents.filter(a => a.status === 'running').length,
+    waiting: agents.filter(a => a.status === 'waiting').length,
+    tokens: agents.reduce((s, a) => s + (a.tokens || 0), 0),
+    tokens_today: agents.reduce((s, a) => s + (a.tokens_today || 0), 0),
+    ...totals,
+  },
+});
+const AW = (kind, ctx, extra = {}) =>
+  A('claude-code', 'waiting', '', 0, { awaiting_kind: kind, awaiting_context: ctx,
+     awaiting_since: 1700000000, ...extra });
+
+const SCENE_GROUPS = [
+  { name: '场景', items: [
+    { label: 'idle / 空', cmd: 'idle' },
+    { label: 'dashboard 单 agent', cmd: 'snapshot',
+      payload: SNAP([A('claude-code', 'running', '> 修复登录 bug', 1200)]) },
+    { label: 'sessions 多 agent', cmd: 'snapshot', payload: SNAP([
+      A('claude-code', 'running', '> 重构 bridge', 3400),
+      A('codex', 'waiting', '> 写测试', 800),
+      A('claude-code', 'idle', '> 已完成', 5000),
+    ]) },
+    { label: '满槽溢出 (5→丢弃)', cmd: 'snapshot', payload: SNAP(
+      [0, 1, 2, 3, 4].map(i => A(i % 2 ? 'codex' : 'claude-code', 'running', `> 任务 ${i}`, i * 700))) },
+  ] },
+  { name: 'prompt / 决策', items: [
+    { label: '权限 (approve/deny)', cmd: 'prompt',
+      payload: { id: 'req_demo', tool: 'Bash', hint: '$ rm -rf "/tmp/x"', agent_kind: 'claude-code' } },
+    { label: 'quick-reply 2 选项', cmd: 'prompt',
+      payload: { id: 'rpl_demo', mode: 'reply', tool: '方案 A', hint: '方案 B' } },
+  ] },
+  { name: 'awaiting 变体', items: [
+    { label: 'continue', cmd: 'snapshot', payload: SNAP([AW('continue', ['轮到你了'])]) },
+    { label: 'approve', cmd: 'snapshot', payload: SNAP([AW('approve', ['Bash', '$ rm -rf /tmp/x'])]) },
+    { label: 'pick (选项)', cmd: 'snapshot', payload: SNAP([AW('pick', ['选一个方向'],
+      { awaiting_summary: '下一步怎么走?', awaiting_options: ['继续实现', '先写测试', '回滚', '问我'] })]) },
+    { label: 'type (开放问题)', cmd: 'snapshot', payload: SNAP([AW('type', ['需要你输入参数'],
+      { awaiting_summary: '部署到哪个环境?' })]) },
+    { label: 'clarify (澄清)', cmd: 'snapshot', payload: SNAP([AW('clarify', ['需求有歧义'],
+      { awaiting_summary: '“它”指哪个文件?' })]) },
+  ] },
+  { name: '其它 / 边界', items: [
+    { label: 'tokens 高', cmd: 'snapshot',
+      payload: SNAP([A('claude-code', 'running', '> 大任务', 1234567)]) },
+    { label: 'push banner', cmd: 'push', payload: { tool: 'Edit', hint: 'main/foo.c' } },
+    { label: '主题 lab', cmd: 'config', payload: { theme: 'lab' } },
+    { label: '主题 mono', cmd: 'config', payload: { theme: 'mono' } },
+    { label: '主题 noir', cmd: 'config', payload: { theme: 'noir' } },
+    { label: '长名/unicode', cmd: 'config',
+      payload: { device_name: '超长设备名称-test-АБ-😀-overflow-check', owner: '测试者' } },
+    { label: '超长 msg', cmd: 'snapshot',
+      payload: SNAP([A('claude-code', 'running', '> ' + '很长的消息文本'.repeat(20), 42)]) },
+    { label: 'health', cmd: 'health' },
+  ] },
+];
+
+function buildSceneDriver() {
+  const host = $('scene-presets');
+  for (const g of SCENE_GROUPS) {
+    const lbl = document.createElement('div');
+    lbl.className = 'muted';
+    lbl.style.cssText = 'margin:8px 0 3px;font-size:11px';
+    lbl.textContent = g.name;
+    host.appendChild(lbl);
+    const row = document.createElement('div');
+    row.className = 'row';
+    for (const it of g.items) {
+      const b = document.createElement('button');
+      b.textContent = it.label;
+      b.onclick = () => sendDash(it.cmd, it.payload ?? null);
+      row.appendChild(b);
+    }
+    host.appendChild(row);
+  }
+}
+
+async function sendDash(cmd, payload) {
+  const r = $('dash-result');
+  r.textContent = `→ dash ${cmd}…`;
+  const res = await postJSON('/dash', { cmd, payload });
+  r.textContent = `← ${JSON.stringify(res).slice(0, 140)}`;
+}
+
+$('hold-toggle').onchange = async (e) => {
+  const res = await postJSON('/hold', { on: e.target.checked });
+  $('dash-result').textContent = e.target.checked
+    ? `已冻结自动快照 ${JSON.stringify(res).slice(0, 80)}`
+    : `已恢复自动快照 ${JSON.stringify(res).slice(0, 80)}`;
+};
+
+$('dash-send').onclick = () => {
+  const cmd = $('dash-verb').value;
+  const raw = $('dash-payload').value.trim();
+  let payload = null;
+  if (raw) {
+    try { payload = JSON.parse(raw); }
+    catch (e) { $('dash-result').textContent = 'JSON 解析失败: ' + e; return; }
+  }
+  sendDash(cmd, payload);
+};
+
 // ── hooks panel ──────────────────────────────────────────────────────────────
 async function loadHooks() {
   try { renderHooks(await (await fetch('/hooks')).json()); }
@@ -274,6 +386,7 @@ function renderHooks(data) {
 
 // ── boot ─────────────────────────────────────────────────────────────────────
 buildPresets();
+buildSceneDriver();
 setConn();
 render();
 loadHooks();

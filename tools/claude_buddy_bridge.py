@@ -890,10 +890,26 @@ class SnapshotPublisher(threading.Thread):
         self._last_push_ts = 0.0
         self._last_snap_json = ""
         self._push_count = 0
+        # When paused, no auto snapshots are pushed (health keepalive keeps
+        # flowing). Used by the web "screen test driver" so a hand-pushed
+        # `dash snapshot` UI combo stays on the device screen instead of being
+        # overwritten by the live registry on the next keepalive/bump.
+        self._paused = False
 
     @property
     def push_count(self) -> int:
         return self._push_count
+
+    @property
+    def paused(self) -> bool:
+        return self._paused
+
+    def pause(self) -> None:
+        self._paused = True
+
+    def resume(self) -> None:
+        self._paused = False
+        self._wake.set()
 
     def bump(self) -> None:
         self._wake.set()
@@ -911,6 +927,13 @@ class SnapshotPublisher(threading.Thread):
                 time.sleep(0.5)
 
     def _tick(self) -> None:
+        if self._paused:
+            # Idle while paused: push nothing, but keep the thread alive and
+            # responsive to resume()/stop(). The registry still updates from
+            # live hooks, so the latest state is pushed once we resume.
+            self._wake.wait(timeout=0.2)
+            self._wake.clear()
+            return
         now = time.monotonic()
         throttle_wait = max(0.0, self.min_interval - (now - self._last_push_ts))
         keepalive_wait = max(0.0, self.keepalive - (now - self._last_push_ts))
@@ -1061,6 +1084,23 @@ class Bridge:
             return {"continue": True, "error": str(e)}
 
     def _handle_inner(self, raw: dict) -> dict:
+        # Control messages from the web "screen test driver" (not hook events).
+        # __dash__: push one raw `dash <cmd> [json]` line straight to the
+        # connected device (real ESP32 on COM9 or the mock) so the UI can be
+        # exercised with arbitrary state combinations. __pause__: freeze/unfreeze
+        # the auto snapshot publisher so a hand-pushed combo stays on screen.
+        ctl = raw.get("type")
+        if ctl == "__dash__":
+            res = self.pusher.push(raw.get("cmd", ""), raw.get("payload"))
+            return {"ok": bool(res.get("ok") or res.get("dry_run")),
+                    "sent": raw.get("cmd", ""), "push": res}
+        if ctl == "__pause__":
+            if raw.get("on"):
+                self.publisher.pause()
+            else:
+                self.publisher.resume()
+            return {"ok": True, "paused": self.publisher.paused}
+
         evt = normalize_event(raw)
         t = evt["type"]
         agent = evt["agent"]

@@ -71,11 +71,31 @@ def test_small_fleet_untrimmed_is_exact():
     assert len(snap["agents"]) == 2
 
 
+def test_dash_passthrough_and_pause():
+    """Screen-test-driver control messages: __dash__ pushes a raw dash line to
+    the device; __pause__ freezes/unfreezes the snapshot publisher."""
+    from claude_buddy_bridge import _build_stack, Settings
+    settings = Settings(
+        throttle_ms=250, keepalive_ms=10000, permission_timeout_s=60.0,
+        device_name="x", owner="y", theme="noir", port_kind="tcp",
+        port="127.0.0.1:9999", listen="127.0.0.1:7399", health_poll_s=5.0,
+        dry_run=True)
+    bridge, pusher, publisher, *_ = _build_stack(settings)
+    res = bridge.handle({"type": "__dash__", "cmd": "snapshot",
+                         "payload": {"agents": [], "totals": {"total": 0}}})
+    assert res["ok"] is True and res["sent"] == "snapshot", res
+    assert bridge.handle({"type": "__pause__", "on": True})["paused"] is True
+    assert publisher.paused is True
+    assert bridge.handle({"type": "__pause__", "on": False})["paused"] is False
+    assert publisher.paused is False
+
+
 def main() -> int:
     if SessionRegistry is None:
         return 0  # skipped (no esp_harness) — not a failure
     tests = [test_totals_match_carried_agents_after_trim,
-             test_small_fleet_untrimmed_is_exact]
+             test_small_fleet_untrimmed_is_exact,
+             test_dash_passthrough_and_pause]
     failures = 0
     for t in tests:
         try:
