@@ -35,6 +35,7 @@ esac
   "$ROOT/main/tiny_json.c" \
   "$ROOT/main/harness/agent_snapshot_apply.c" \
   "$ROOT/main/harness/agent_commands.c" \
+  "$HERE/g7_tokenise.c" \
   "$HERE/wasm_shim.c" \
   "$HERE/wasm_api.c" \
   -o "$LIB"

@@ -176,6 +176,30 @@ def test_signals():
     print("ok test_signals")
 
 
+def test_tokenise_pathological():
+    lib = load_lib()
+    lib.g7_tokenise_join.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_size_t]
+    lib.g7_tokenise_join.restype = ctypes.c_int
+
+    def tok(line: str):
+        out = ctypes.create_string_buffer(1024)
+        argc = lib.g7_tokenise_join(line.encode("utf-8"), out, 1024)
+        parts = out.value.decode("utf-8").split("\x1f") if argc > 0 else []
+        return argc, parts
+
+    # 引号起始 token:闭合引号是「后跟空白/行尾」的那个,内层引号(后跟非空白)不收尾
+    assert tok('dash snapshot "{"a":1}"') == (3, ["dash", "snapshot", '{"a":1}']), tok('dash snapshot "{"a":1}"')
+    # 普通命令
+    assert tok("dash idle") == (2, ["dash", "idle"])
+    # 非引号起始含引号:legacy 模式剥除所有引号
+    assert tok('foo"bar"baz') == (1, ["foobarbaz"]), tok('foo"bar"baz')
+    # 引号起始未闭合:取到行尾
+    assert tok('"abc') == (1, ["abc"]), tok('"abc')
+    # 引号内含空格保留
+    assert tok('"a b c"') == (1, ["a b c"]), tok('"a b c"')
+    print("ok test_tokenise_pathological")
+
+
 if __name__ == "__main__":
     test_empty_state()
     test_dash_idle()
@@ -183,4 +207,5 @@ if __name__ == "__main__":
     test_msg_truncation()
     test_slot_overflow()
     test_signals()
+    test_tokenise_pathological()
     print("ALL PASS")

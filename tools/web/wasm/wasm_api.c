@@ -5,6 +5,7 @@
 #include "agent_state.h"
 #include "agent_commands.h"
 #include "harness/console_protocol.h"
+#include "g7_tokenise.h"
 
 extern const char *shim_last_reply(void);
 extern int         shim_last_reply_is_err(void);
@@ -17,51 +18,11 @@ int         last_reply_is_err(void) { return shim_last_reply_is_err(); }
 const char *current_scene(void)     { return shim_current_scene_id(); }
 const char *drain_signals(void)     { return shim_drain_signals_json(); }
 
-/* G-7 tokeniser —— 移植自 mock_device_v1.py._tokenise / 固件 console_protocol.c:
- *  - 以 '"' 起始的 token:去掉前导 '"',累积所有字符(含内层 '"' 和空白)
- *    直到「后面紧跟空白或行尾」的那个 '"' 收尾;
- *  - 非 '"' 起始的 token:遇到任意 '"' 切换 in_quote,所有 '"' 被剥除。
- * 把切分结果写进 argv_buf(NUL 分隔)与 argv[](≤CONSOLE_MAX_ARGS)。 */
-static int tokenise(const char *line, char *buf, size_t bufcap,
-                    const char *argv[], int max_args) {
-    int argc = 0; size_t w = 0; size_t n = strlen(line); size_t i = 0;
-    while (i < n && argc < max_args) {
-        while (i < n && (line[i] == ' ' || line[i] == '\t')) i++;
-        if (i >= n) break;
-        if (w >= bufcap) break;
-        argv[argc] = &buf[w];
-        if (line[i] == '"') {
-            i++;                                  /* drop leading " */
-            int close = -1;
-            for (size_t j = i; j < n; ++j) {
-                if (line[j] == '"' && (j + 1 == n || line[j+1] == ' ' || line[j+1] == '\t')) {
-                    close = (int)j; break;
-                }
-            }
-            size_t endp = (close == -1) ? n : (size_t)close;
-            for (size_t j = i; j < endp && w + 1 < bufcap; ++j) buf[w++] = line[j];
-            i = (close == -1) ? n : (size_t)close + 1;
-        } else {
-            int in_q = 0;
-            while (i < n) {
-                char ch = line[i];
-                if (!in_q && (ch == ' ' || ch == '\t')) break;
-                if (ch == '"') { in_q = !in_q; i++; continue; }
-                if (w + 1 < bufcap) buf[w++] = ch;
-                i++;
-            }
-        }
-        if (w < bufcap) buf[w++] = 0;             /* NUL-terminate token */
-        argc++;
-    }
-    return argc;
-}
-
 int dash_feed_line(const char *line) {
     char buf[CONSOLE_MAX_LINE];
     const char *argv[CONSOLE_MAX_ARGS];
     console_args_t args;
-    args.argc = tokenise(line, buf, sizeof(buf), argv, CONSOLE_MAX_ARGS);
+    args.argc = g7_tokenise(line, buf, sizeof(buf), argv, CONSOLE_MAX_ARGS);
     for (int i = 0; i < args.argc; ++i) args.argv[i] = argv[i];
     for (int i = args.argc; i < CONSOLE_MAX_ARGS; ++i) args.argv[i] = NULL;
     if (args.argc < 1) return -1;
