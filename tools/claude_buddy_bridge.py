@@ -40,29 +40,25 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Optional
 
+from awaiting_classifier import classify_awaiting
+from bridge_runtime import import_esp_harness_client
+
 try:
     import tomllib  # py311+
 except ImportError:  # pragma: no cover
     tomllib = None  # type: ignore
 
 
-# v0.2.0 of the esp-harness framework ships the public persistent-
-# session API (gaps G-1, G-3) and the PayloadFollowsReader helper
-# (gap G-H1) that this bridge previously rolled by hand. The lazy
-# path injection keeps working out-of-the-box when the user installs
-# esp-harness from source into a sibling venv. If the import fails
-# we fall back to a clear error — the legacy bespoke transport is
-# GONE in this revision.
-_ESP_HARNESS_SRC = r"D:\Code\esp-harness\tools\esp-harness\src"
-if _ESP_HARNESS_SRC not in sys.path:
-    sys.path.insert(0, _ESP_HARNESS_SRC)
-
-from esp_harness.client import (  # noqa: E402
-    ReplyEvent,
-    SessionHandle,
-    TransportError,
-    open_persistent_session,
-)
+# v0.2.0 of the esp-harness framework ships the public persistent-session
+# API (gaps G-1, G-3) and the PayloadFollowsReader helper (gap G-H1) that
+# this bridge previously rolled by hand. Runtime discovery lives in
+# bridge_runtime.py so local development paths do not leak into this script's
+# Interface.
+_esp_harness_client = import_esp_harness_client()
+ReplyEvent = _esp_harness_client.ReplyEvent
+SessionHandle = _esp_harness_client.SessionHandle
+TransportError = _esp_harness_client.TransportError
+open_persistent_session = _esp_harness_client.open_persistent_session
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -82,9 +78,6 @@ DEFAULT_OWNER = os.environ.get("USER") or os.environ.get("USERNAME") or "user"
 
 CONFIG_PATH = Path.home() / ".claude-buddy" / "config.toml"
 WIRE_MAX_BYTES = 900  # leave 124 bytes headroom under CONSOLE_MAX_LINE = 1024
-
-ESP_HARNESS_PY = r"D:\Code\esp-harness\tools\esp-harness\.venv\Scripts\python.exe"
-
 
 SAMPLE_CONFIG = """\
 # ~/.claude-buddy/config.toml — sample
@@ -978,147 +971,6 @@ def looks_like_permission_required(event: dict) -> bool:
             return True
     return False
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Awaiting classifier (v2.3.0)
-# ─────────────────────────────────────────────────────────────────────────────
-#
-# Maps the agent's last assistant message + event type onto one of five
-# AWAITING kinds. The device renders a different headline + glyph per kind
-# so the user knows at a glance what kind of input is needed *before* they
-# context-switch into the terminal.
-#
-# The CC native hook surface only signals two kinds directly:
-#   - PreToolUse(permission_required) -> approve
-#   - Stop                            -> generic end-of-turn
-#
-# For Stop we look at the assistant's LAST text and apply heuristics to
-# infer pick / type / clarify. Misclassifications degrade to "continue"
-# which is always a safe fallback. The classifier is small + cheap to
-# extend: add a new pattern in the right block and the next snapshot
-# carries the new kind.
-
-import re as _re
-
-_NUMBERED_LINE_RE = _re.compile(
-    r"^\s*(?:[\d]+\s*[\.\)]\s+|[\-\*•]\s+|[a-eA-E]\s*[\.\)]\s+)",
-    _re.MULTILINE,
-)
-_CLARIFY_KEYWORDS = (
-    "did you mean", "do you mean", "could you clarify", "could you confirm",
-    "to clarify", "ambiguous", "unclear", "not sure which", "which one",
-    "which of these", "should i assume", "want me to", "shall i",
-)
-
-
-def _has_numbered_options(text: str, min_options: int = 2) -> bool:
-    """True iff text contains at least min_options numbered/bulleted lines."""
-    if not text:
-        return False
-    matches = _NUMBERED_LINE_RE.findall(text)
-    return len(matches) >= min_options
-
-
-def _extract_options(text: str, max_n: int = 4) -> list[str]:
-    """Pull the option labels (without numbering) from a numbered list."""
-    out = []
-    for line in text.splitlines():
-        m = _re.match(
-            r"^\s*(?:\d+\s*[\.\)]|\-|\*|•|[a-eA-E]\s*[\.\)])\s+(.+?)\s*$",
-            line,
-        )
-        if m:
-            out.append(m.group(1)[:32])
-            if len(out) >= max_n:
-                break
-    return out
-
-
-def _short_sentences(text: str, max_chars: int = 80) -> list[str]:
-    """Split into two short lines for the AWAITING ctx slot."""
-    text = " ".join(text.split())          # collapse whitespace
-    text = text.rstrip(".?!:;,")
-    if len(text) <= max_chars:
-        return [text]
-    # Try to split at a natural break point near the middle
-    half = max_chars // 2 + 8
-    cut = text.rfind(" ", 0, max_chars)
-    if cut < 12:
-        cut = max_chars
-    return [text[:cut], text[cut:].lstrip()[:max_chars - 4] + "…"]
-
-
-def _ends_with_question(text: str) -> bool:
-    s = text.rstrip()
-    return s.endswith("?") or s.endswith("？")
-
-
-def classify_awaiting(
-    event_type: str,
-    last_assistant_text: str,
-    tool_name: str = "",
-    tool_input_summary: str = "",
-) -> tuple[str, list[str]]:
-    """Classify the AWAITING kind + build the device-facing context lines.
-
-    Returns ``(kind, context_lines)`` where ``kind`` is one of
-    ``continue / approve / pick / type / clarify`` and ``context_lines``
-    is a list of ≤ 3 short strings (each ≤ ~40 chars) the device renders
-    under the headline.
-
-    Designed to never raise — bad input just falls through to "continue".
-    """
-    # ── 1. Permission gate (CC native signal) ──
-    if event_type == "pre_tool_use_permission":
-        ctx = [f"{tool_name}:" if tool_name else "tool:"]
-        if tool_input_summary:
-            ctx.append(tool_input_summary[:60])
-        return "approve", ctx
-
-    text = (last_assistant_text or "").strip()
-    if not text:
-        return "continue", ["finished its turn"]
-
-    # ── 2. Numbered options → pick ──
-    if _has_numbered_options(text, min_options=2):
-        opts = _extract_options(text, max_n=4)
-        if opts:
-            # Headline above intro line (if any) plus option preview
-            # e.g. ["migrate strategy:", "inline · defer · abort"]
-            joined = "  ".join(opts[:3])
-            # Try to find an intro / lead-in sentence (text before first numbered line)
-            lead = text.split("\n", 1)[0]
-            first_num = _NUMBERED_LINE_RE.search(text)
-            if first_num and first_num.start() > 0:
-                lead = text[:first_num.start()].strip().splitlines()
-                lead = lead[-1] if lead else ""
-                lead = lead.rstrip(":.").strip()
-            if lead and len(lead) < 60:
-                # Strip any trailing punctuation before appending ':' so
-                # we don't render "strategy?:" when the lead is already a
-                # question.
-                lead_clean = lead.rstrip("?!.:;").strip()
-                return "pick", [lead_clean[:48] + ":", joined[:60]]
-            return "pick", [f"{len(opts)} options:", joined[:60]]
-
-    # ── 3. Clarify keywords ──
-    lowered = text.lower()
-    if any(kw in lowered for kw in _CLARIFY_KEYWORDS):
-        return "clarify", _short_sentences(text)
-
-    # ── 4. Open-ended question ending with ? ──
-    # Look at the last sentence specifically — full message may end in
-    # something else like "Done." even though there's a question above.
-    sentences = _re.split(r"(?<=[\.\!\?])\s+", text)
-    last_sent = sentences[-1] if sentences else ""
-    if _ends_with_question(last_sent) and 4 < len(last_sent) < 200:
-        return "type", _short_sentences(last_sent)
-
-    # ── 5. Default: continue ──
-    # Build a calm "what did you just do" summary from the text.
-    return "continue", _short_sentences(text)
-
-
 def normalize_event(raw: dict) -> dict:
     agent = raw.get("agent") or raw.get("agent_kind") or "claude-code"
     if agent not in _KNOWN_KINDS:
@@ -1395,7 +1247,6 @@ class Settings:
     listen: str
     health_poll_s: float
     dry_run: bool
-    esp_harness_py: str
 
     def as_redacted_dict(self) -> dict:
         return {
@@ -1455,7 +1306,6 @@ def build_settings(args) -> Settings:
             getattr(args, "health_poll_s", None),
             cfg.get("health_poll_s"), DEFAULT_HEALTH_POLL_S)),
         dry_run=bool(getattr(args, "dry_run", False)),
-        esp_harness_py=getattr(args, "esp_harness_py", ESP_HARNESS_PY),
     )
 
 
@@ -1806,8 +1656,6 @@ def _add_v1_flags(p):
                    help=f"dash health poll period (default {DEFAULT_HEALTH_POLL_S})")
     p.add_argument("--dry-run", action="store_true",
                    help="don't push to device, print would-be commands")
-    p.add_argument("--esp-harness-py", default=ESP_HARNESS_PY,
-                   help="(serial only) esp-harness venv python")
 
 
 def main(argv: list[str] | None = None) -> int:

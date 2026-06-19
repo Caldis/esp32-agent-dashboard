@@ -7,18 +7,9 @@ Run::
 
 from __future__ import annotations
 
-import importlib.machinery
-import importlib.util
 import sys
-from pathlib import Path
 
-# Load the bridge module by file path (it's a script, not a package).
-_path = Path(__file__).parent / "claude_buddy_bridge.py"
-_loader = importlib.machinery.SourceFileLoader("_bridge_mod", str(_path))
-_spec = importlib.util.spec_from_loader(_loader.name, _loader)
-_bridge = importlib.util.module_from_spec(_spec)
-sys.modules[_loader.name] = _bridge      # register so dataclass annotations resolve
-_loader.exec_module(_bridge)
+from awaiting_classifier import classify_awaiting
 
 
 CASES = [
@@ -81,7 +72,7 @@ CASES = [
 def main() -> int:
     fails = 0
     for label, args, want in CASES:
-        kind, ctx = _bridge.classify_awaiting(*args)
+        kind, ctx = classify_awaiting(*args)
         ok = (kind == want)
         if not ok:
             fails += 1
