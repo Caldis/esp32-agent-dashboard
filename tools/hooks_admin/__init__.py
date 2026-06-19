@@ -47,3 +47,26 @@ def install(agents: dict, st: state_mod.State, kind: str, scope: str = "user"):
     st.set(kind, enabled=True, scope=scope, entries=written)
     st.save()
     return status(agents, st, scope)[kind]
+
+
+def disable(agents: dict, st: state_mod.State, kind: str, scope: str = "user"):
+    ad = agents[kind]
+    removed = ad.remove(scope)
+    rec = st.get(kind)
+    # 优先保留已有 state 里的 entries(含历史手改);否则用本次移除的
+    entries = removed or ((rec or {}).get("entries") or {})
+    st.set(kind, enabled=False, scope=scope, entries=entries)
+    st.save()
+    return status(agents, st, scope)[kind]
+
+
+def enable(agents: dict, st: state_mod.State, kind: str, scope: str = "user"):
+    ad = agents[kind]
+    rec = st.get(kind)
+    entries = (rec or {}).get("entries") or {}
+    if entries:
+        ad.restore(scope, entries)
+        st.set(kind, enabled=True, scope=scope, entries=entries)
+        st.save()
+        return status(agents, st, scope)[kind]
+    return install(agents, st, kind, scope)  # 无 state 记录 → 全新安装

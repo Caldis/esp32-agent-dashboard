@@ -83,5 +83,44 @@ class TestClaudeCodeInstall(unittest.TestCase):
             assert set(stt.events) == set(base.EVENTS), stt.events
 
 
+class TestSoftDisableEnable(unittest.TestCase):
+    def test_cc_roundtrip(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            cc_home = d / "cc_home"
+            (cc_home / ".claude").mkdir(parents=True)
+            settings = cc_home / ".claude" / "settings.json"
+            settings.write_text(json.dumps({"hooks": {"PreToolUse": [
+                {"matcher": "Read", "hooks": [{"type": "command", "command": "echo user-own"}]}
+            ]}}), encoding="utf-8")
+            agents = hooks_admin.build_agents(_fake_homes(d))
+            st = state_mod.State(d / "state.json")
+
+            hooks_admin.install(agents, st, "claude-code")
+            # 手改我们的 Stop 条目(模拟用户调了 timeout),验证软禁用保留
+            data = json.loads(settings.read_text(encoding="utf-8"))
+            for it in data["hooks"]["Stop"]:
+                if any("hook_dispatch.py" in h["command"] for h in it["hooks"]):
+                    it["hooks"][0]["timeout"] = 99
+            settings.write_text(json.dumps(data), encoding="utf-8")
+
+            s = hooks_admin.disable(agents, st, "claude-code")
+            assert s.installed and not s.enabled, s
+            data = json.loads(settings.read_text(encoding="utf-8"))
+            # 我们的条目已从配置移除,用户的仍在
+            assert all("hook_dispatch.py" not in (h.get("command") or "")
+                       for arr in data.get("hooks", {}).values() for it in arr for h in it["hooks"]), data
+            assert any("echo user-own" in h["command"]
+                       for it in data["hooks"]["PreToolUse"] for h in it["hooks"]), data
+
+            s = hooks_admin.enable(agents, st, "claude-code")
+            assert s.installed and s.enabled, s
+            data = json.loads(settings.read_text(encoding="utf-8"))
+            # 手改的 timeout=99 被原样恢复(软禁用保留手改)
+            stop_ours = [it for it in data["hooks"]["Stop"]
+                         if any("hook_dispatch.py" in h["command"] for h in it["hooks"])]
+            assert stop_ours and stop_ours[0]["hooks"][0].get("timeout") == 99, stop_ours
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
