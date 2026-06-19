@@ -88,7 +88,35 @@ def test_dash_idle():
     print("ok test_dash_idle")
 
 
+def test_snapshot_two_agents():
+    lib = load_lib()
+    _decl_feed(lib)
+    lib.dash_init()
+    snap = (
+        '{"agents":['
+        '{"kind":"claude-code","session_id":"cc_abc","status":"running",'
+        '"cwd":"D:\\\\Code\\\\x","msg":"editing main.c","tokens":84502,"tokens_today":21200},'
+        '{"kind":"codex","session_id":"cx_xyz","status":"idle",'
+        '"cwd":"D:\\\\Code\\\\y","msg":"(stop)","tokens":12300,"tokens_today":12300}'
+        '],"totals":{"total":2,"running":1,"waiting":0,"tokens":96802,"tokens_today":33500}}'
+    )
+    rc = feed(lib, 'dash snapshot "' + snap + '"')
+    assert rc == 0, rc
+    s = state(lib)
+    assert s["totals"]["total"] == 2, s
+    assert len(s["slots"]) == 2, s
+    kinds = {sl["kind"] for sl in s["slots"]}
+    assert kinds == {"claude-code", "codex"}, kinds
+    cc = next(sl for sl in s["slots"] if sl["kind"] == "claude-code")
+    assert cc["session_id"] == "cc_abc", cc
+    assert cc["status"] == "running", cc
+    assert cc["msg"] == "editing main.c", cc
+    assert cc["tokens"] == 84502, cc
+    print("ok test_snapshot_two_agents")
+
+
 if __name__ == "__main__":
     test_empty_state()
     test_dash_idle()
+    test_snapshot_two_agents()
     print("ALL PASS")
