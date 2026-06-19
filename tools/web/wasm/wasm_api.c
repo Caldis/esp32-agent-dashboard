@@ -5,6 +5,7 @@
 #include "agent_state.h"
 #include "agent_commands.h"
 #include "harness/console_protocol.h"
+#include "harness/scene_framework.h"
 #include "g7_tokenise.h"
 
 extern const char *shim_last_reply(void);
@@ -36,6 +37,11 @@ void dash_init(void) {
     agent_state_init();
     agent_commands_register();     /* 经 shim 捕获命令表 */
     agent_commands_load_config();  /* 设默认 device_name="DASHBOARD" 等 */
+    /* 模拟固件 main 启动:落到 default_scene(与设备初始场景一致,见
+     * esp32_agent_dashboard_main.c)。load_config 已把 default_scene 设为
+     * "dashboard"(无 NVS 时的默认)。 */
+    int _idx = scene_fw_find_by_id(agent_state_get()->default_scene);
+    if (_idx >= 0) scene_fw_show(_idx);
 }
 
 static char s_state[4096];

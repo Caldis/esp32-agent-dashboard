@@ -176,6 +176,14 @@ def test_signals():
     print("ok test_signals")
 
 
+def test_initial_scene():
+    lib = load_lib()
+    _decl_feed(lib)            # 声明 current_scene 等
+    lib.dash_init()
+    assert lib.current_scene().decode() == "dashboard", lib.current_scene()
+    print("ok test_initial_scene")
+
+
 def test_tokenise_pathological():
     lib = load_lib()
     lib.g7_tokenise_join.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_size_t]
@@ -207,5 +215,6 @@ if __name__ == "__main__":
     test_msg_truncation()
     test_slot_overflow()
     test_signals()
+    test_initial_scene()
     test_tokenise_pathological()
     print("ALL PASS")
