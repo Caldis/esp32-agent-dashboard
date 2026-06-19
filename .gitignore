@@ -33,3 +33,5 @@ tools/web/wasm/build/
 tools/web/static/dash_datalayer.mjs
 tools/web/static/dash_datalayer.wasm
 .superpowers/
+.playwright-mcp/
+step2-browser-smoke.png
