@@ -7,6 +7,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+AGENT_MSG_MAX = 128          # verbatim from main/agent_state.h
+AGENT_SLOT_MAX = 4           # verbatim from main/agent_state.h
+
 if platform.system() == "Windows":
     import ctypes.wintypes  # noqa: F401 — loads the submodule so ctypes.wintypes is usable
 
@@ -115,8 +118,43 @@ def test_snapshot_two_agents():
     print("ok test_snapshot_two_agents")
 
 
+def test_msg_truncation():
+    lib = load_lib()
+    _decl_feed(lib)
+    lib.dash_init()
+    long_msg = "x" * 300
+    snap = ('{"agents":[{"kind":"claude-code","session_id":"cc1",'
+            '"status":"running","msg":"' + long_msg + '"}],'
+            '"totals":{"total":1,"running":1,"waiting":0}}')
+    feed(lib, 'dash snapshot "' + snap + '"')
+    s = state(lib)
+    msg = s["slots"][0]["msg"]
+    assert len(msg) == AGENT_MSG_MAX - 1, (len(msg), AGENT_MSG_MAX)
+    assert set(msg) == {"x"}, "truncated content should be all x"
+    print("ok test_msg_truncation")
+
+
+def test_slot_overflow():
+    lib = load_lib()
+    _decl_feed(lib)
+    lib.dash_init()
+    agents = ",".join(
+        '{"kind":"other","session_id":"s%d","status":"running","msg":"m%d"}' % (i, i)
+        for i in range(5)
+    )
+    snap = '{"agents":[' + agents + '],"totals":{"total":5,"running":5,"waiting":0}}'
+    rc = feed(lib, 'dash snapshot "' + snap + '"')
+    assert rc == 0, rc
+    s = state(lib)
+    assert len(s["slots"]) == AGENT_SLOT_MAX, len(s["slots"])
+    assert b'"dropped":1' in lib.last_reply(), lib.last_reply()
+    print("ok test_slot_overflow")
+
+
 if __name__ == "__main__":
     test_empty_state()
     test_dash_idle()
     test_snapshot_two_agents()
+    test_msg_truncation()
+    test_slot_overflow()
     print("ALL PASS")
