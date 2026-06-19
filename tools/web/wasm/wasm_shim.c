@@ -15,8 +15,8 @@
 #include "esp_timer.h"
 #include "nvs.h"
 #include "bsp/esp-bsp.h"
-#include "theme.h"            /* 经 -I main;拉替身 lvgl.h */
-#include "push_banner.h"      /* 经 -I main;零 LVGL */
+#include "theme.h"            /* 经 -I main 及 -I main/harness;拉替身 lvgl.h */
+#include "push_banner.h"      /* 经 -I main 及 -I main/harness;零 LVGL */
 #include "harness/console_protocol.h"
 #include "harness/scene_framework.h"
 
@@ -59,26 +59,26 @@ static nvs_ent_t *nvs_slot(const char *key, int create) {
         }
     return NULL;
 }
-esp_err_t nvs_set_str(uint32_t h, const char *key, const char *val) {
+esp_err_t nvs_set_str(nvs_handle_t h, const char *key, const char *val) {
     (void)h; nvs_ent_t *e = nvs_slot(key, 1); if (!e) return ESP_FAIL;
     strncpy(e->sval, val, sizeof(e->sval) - 1); e->sval[sizeof(e->sval)-1] = 0;
     e->is_u8 = 0; s_nvs_dirty = 1; return ESP_OK;
 }
-esp_err_t nvs_get_str(uint32_t h, const char *key, char *out, size_t *len) {
+esp_err_t nvs_get_str(nvs_handle_t h, const char *key, char *out, size_t *len) {
     (void)h; nvs_ent_t *e = nvs_slot(key, 0); if (!e || e->is_u8) return ESP_FAIL;
     size_t n = strlen(e->sval); if (len && *len <= n) return ESP_FAIL;
     strcpy(out, e->sval); if (len) *len = n + 1; return ESP_OK;
 }
-esp_err_t nvs_set_u8(uint32_t h, const char *key, uint8_t v) {
+esp_err_t nvs_set_u8(nvs_handle_t h, const char *key, uint8_t v) {
     (void)h; nvs_ent_t *e = nvs_slot(key, 1); if (!e) return ESP_FAIL;
     e->u8 = v; e->is_u8 = 1; s_nvs_dirty = 1; return ESP_OK;
 }
-esp_err_t nvs_get_u8(uint32_t h, const char *key, uint8_t *out) {
+esp_err_t nvs_get_u8(nvs_handle_t h, const char *key, uint8_t *out) {
     (void)h; nvs_ent_t *e = nvs_slot(key, 0); if (!e || !e->is_u8) return ESP_FAIL;
     *out = e->u8; return ESP_OK;
 }
-esp_err_t nvs_commit(uint32_t h) { (void)h; return ESP_OK; }
-void      nvs_close(uint32_t h) { (void)h; }
+esp_err_t nvs_commit(nvs_handle_t h) { (void)h; return ESP_OK; }
+void      nvs_close(nvs_handle_t h) { (void)h; }
 
 /* ── theme 桩 ───────────────────────────────────────────── */
 static char s_theme[16] = "noir";
@@ -134,8 +134,8 @@ static char s_signals[SIG_CAP];
 static size_t s_sig_len = 0;
 static void signals_push(const char *line) {
     /* 以 JSON 字符串元素累积:"...","..." */
-    size_t need = strlen(line) + 4;
-    if (s_sig_len + need >= SIG_CAP) return;          /* 满了静默丢弃(测试不应触达) */
+    size_t worst = strlen(line) * 2 + 4;   /* 每字符最多转义 2 字节 + 引号/逗号 */
+    if (s_sig_len + worst >= SIG_CAP) return;          /* 满了静默丢弃(测试不应触达) */
     if (s_sig_len) s_signals[s_sig_len++] = ',';
     s_signals[s_sig_len++] = '"';
     for (const char *p = line; *p; ++p) {             /* 最小转义 */
