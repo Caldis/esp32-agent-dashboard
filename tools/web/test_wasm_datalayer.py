@@ -19,8 +19,8 @@ def _lib_path() -> Path:
 
 def load_lib() -> ctypes.CDLL:
     lib_path = _lib_path()
-    if not lib_path.exists():
-        subprocess.run(["bash", str(WASM / "build_native.sh")], check=True)
+    # 无条件重建,确保 C 源改动后测试不会跑陈旧的 .dll/so(避免假绿/假红)
+    subprocess.run(["bash", str(WASM / "build_native.sh")], check=True)
     lib = ctypes.CDLL(str(lib_path))
     lib.dash_init.restype = None
     lib.state_json.restype = ctypes.c_char_p

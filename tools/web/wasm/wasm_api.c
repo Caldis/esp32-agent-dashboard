@@ -32,64 +32,96 @@ static const char *awaiting_str(awaiting_kind_t k) {
         default:                return "none";
     }
 }
-/* 把 src 作为 JSON 字符串值(含转义)写入 dst,返回写入字节数。 */
-static int json_str(char *dst, size_t cap, const char *src) {
+
+/* json_str: 把 src 作为 JSON 字符串值(含转义)写入 dst[0..cap-1]。
+ * 返回"实际写入字节数"(已写入 dst 的真实字节数,不含 NUL)。
+ * 注意:与 snprintf 语义不同 — snprintf 返回"应写入字节数"(可超出 cap);
+ * json_str 保证返回值 ≤ cap,且 dst[return_value] == '\0'。
+ * cap < 3 时只能写空字符串 "" 或更少,始终保证 NUL 终止。 */
+static size_t json_str(char *dst, size_t cap, const char *src) {
     size_t n = 0;
-    if (n < cap) dst[n++] = '"';
-    for (const char *p = src; *p && n + 2 < cap; ++p) {
+    /* 开头引号:需要位置留给:开头 " + 闭合 " + NUL,共 3 字节 */
+    if (cap < 2) {
+        if (cap >= 1) dst[0] = '\0';
+        return 0;
+    }
+    dst[n++] = '"';
+    /* 每个字符最多写 2 字节(转义字符),退出时要留 闭合"(1) + NUL(1) = 2 字节 */
+    for (const char *p = src; *p; ++p) {
+        int need = (*p == '"' || *p == '\\') ? 2 : 1;
+        if (n + need + 2 > cap) break; /* 确保退出后还有闭合"和NUL的位置 */
         if (*p == '"' || *p == '\\') dst[n++] = '\\';
         dst[n++] = *p;
     }
-    if (n < cap) dst[n++] = '"';
-    if (n < cap) dst[n] = 0;
-    return (int)n;
+    dst[n++] = '"';  /* 闭合引号,此时 n <= cap-1 */
+    dst[n]   = '\0'; /* NUL 终止,此时 n <= cap-1,所以 dst[n] 合法 */
+    return n;
 }
+
+/* SAPP: 钳位追加宏,替代 n += snprintf(...)。
+ * snprintf 返回"应写入字节数"(截断时可超出剩余空间),直接累加 n 会导致
+ * cap-n 下溢为巨大 size_t 并使后续 snprintf 越界写。
+ * 本宏将实际追加量钳位到剩余空间,确保 n 始终 ≤ cap-1。 */
+#define SAPP(...)  do {                                         \
+    if (n + 1 < cap) {                                          \
+        int _r = snprintf(o + n, cap - n, __VA_ARGS__);        \
+        if (_r > 0) {                                           \
+            size_t _w = (size_t)_r;                             \
+            n += (_w < cap - n) ? _w : (cap - n - 1);          \
+        }                                                       \
+    }                                                           \
+} while (0)
 
 const char *state_json(void) {
     agent_state_lock();
     agent_state_t *s = agent_state_get();
-    char *o = s_state; size_t cap = sizeof(s_state); int n = 0;
+    char *o = s_state; size_t cap = sizeof(s_state); size_t n = 0;
 
-    n += snprintf(o + n, cap - n, "{\"scene\":");
-    n += json_str(o + n, cap - n, shim_current_scene_id());
-    n += snprintf(o + n, cap - n, ",\"device_name\":");
+    /* SAPP 使用 snprintf 语义:返回"应写入字节数",由宏钳位后安全追加。
+     * json_str 使用实际写入语义:返回值 ≤ cap-n,直接追加 n 安全。 */
+    SAPP("{\"scene\":");
+    n += json_str(o + n, cap - n, shim_current_scene_id()); /* json_str: 实际写入 */
+    SAPP(",\"device_name\":");
     n += json_str(o + n, cap - n, s->device_name);
-    n += snprintf(o + n, cap - n, ",\"owner\":");
+    SAPP(",\"owner\":");
     n += json_str(o + n, cap - n, s->owner);
-    n += snprintf(o + n, cap - n,
-        ",\"totals\":{\"total\":%d,\"running\":%d,\"waiting\":%d,"
-        "\"tokens\":%llu,\"tokens_today\":%llu}",
-        s->total, s->running, s->waiting,
-        (unsigned long long)s->tokens_cumulative,
-        (unsigned long long)s->tokens_today);
-    n += snprintf(o + n, cap - n, ",\"prompt\":{\"active\":%s,\"id\":",
-                  s->prompt_active ? "true" : "false");
+    SAPP(",\"totals\":{\"total\":%d,\"running\":%d,\"waiting\":%d,"
+         "\"tokens\":%llu,\"tokens_today\":%llu}",
+         s->total, s->running, s->waiting,
+         (unsigned long long)s->tokens_cumulative,
+         (unsigned long long)s->tokens_today);
+    SAPP(",\"prompt\":{\"active\":%s,\"id\":",
+         s->prompt_active ? "true" : "false");
     n += json_str(o + n, cap - n, s->prompt_id);
-    n += snprintf(o + n, cap - n, "}");
+    SAPP("}");
 
-    n += snprintf(o + n, cap - n, ",\"slots\":[");
+    SAPP(",\"slots\":[");
     int first = 1;
     for (int i = 0; i < AGENT_SLOT_MAX; ++i) {
         agent_slot_t *sl = &s->slots[i];
         if (!sl->in_use) continue;
-        if (!first) n += snprintf(o + n, cap - n, ",");
+        if (!first) SAPP(",");
         first = 0;
-        n += snprintf(o + n, cap - n, "{\"kind\":");
+        SAPP("{\"kind\":");
         n += json_str(o + n, cap - n, sl->kind);
-        n += snprintf(o + n, cap - n, ",\"session_id\":");
+        SAPP(",\"session_id\":");
         n += json_str(o + n, cap - n, sl->session_id);
-        n += snprintf(o + n, cap - n, ",\"status\":\"%s\"", status_str(sl->status));
-        n += snprintf(o + n, cap - n, ",\"msg\":");
+        SAPP(",\"status\":\"%s\"", status_str(sl->status));
+        SAPP(",\"msg\":");
         n += json_str(o + n, cap - n, sl->msg);
-        n += snprintf(o + n, cap - n, ",\"cwd\":");
+        SAPP(",\"cwd\":");
         n += json_str(o + n, cap - n, sl->cwd);
-        n += snprintf(o + n, cap - n,
-            ",\"tokens\":%llu,\"tokens_today\":%llu,\"awaiting\":\"%s\"}",
-            (unsigned long long)sl->tokens_cumulative,
-            (unsigned long long)sl->tokens_today,
-            awaiting_str(sl->awaiting_kind));
+        SAPP(",\"tokens\":%llu,\"tokens_today\":%llu,\"awaiting\":\"%s\"}",
+             (unsigned long long)sl->tokens_cumulative,
+             (unsigned long long)sl->tokens_today,
+             awaiting_str(sl->awaiting_kind));
     }
-    n += snprintf(o + n, cap - n, "]}");
+    SAPP("]}");
+
+    /* 确保末尾 NUL(SAPP 已维护 n <= cap-1,此处为防御性保障) */
+    o[n < cap ? n : cap - 1] = '\0';
+
+    #undef SAPP
     agent_state_unlock();
     return s_state;
 }
