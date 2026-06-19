@@ -28,3 +28,5 @@ docs/sessions.png
 # OS
 .DS_Store
 Thumbs.db
+
+tools/web/wasm/build/
