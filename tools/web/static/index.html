@@ -1,14 +1,140 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh">
 <head>
 <meta charset="utf-8">
-<title>esp32-agent-dashboard — data layer (browser)</title>
-<style>body{font-family:ui-monospace,monospace;background:#0b0a09;color:#f3eee2;padding:24px}
-h1{color:#2BB3B1;font-size:1rem}pre{white-space:pre-wrap}</style>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ESP32 Agent Dashboard — web dev tools</title>
+<style>
+  :root{
+    --bg:#0b0a09; --panel:#141312; --panel2:#1c1a18; --line:#2a2724;
+    --fg:#f3eee2; --dim:#9b938636; --muted:#9b9386; --teal:#2BB3B1;
+    --green:#4caf50; --amber:#ff9800; --red:#ef5350; --blue:#5aa9e6;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  header{position:sticky;top:0;z-index:5;background:var(--panel);
+         border-bottom:1px solid var(--line);padding:8px 14px;
+         display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+  header .dot{width:9px;height:9px;border-radius:50%;display:inline-block;
+              margin-right:5px;vertical-align:middle;background:var(--muted)}
+  header .live{background:var(--green);box-shadow:0 0 6px var(--green)}
+  header .off{background:var(--red)}
+  header b{color:var(--teal)}
+  header .kv{color:var(--muted)} header .kv b2{color:var(--fg);font-weight:600}
+  main{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px;
+       align-items:start}
+  @media(max-width:900px){main{grid-template-columns:1fr}}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+          overflow:hidden}
+  section>h2{margin:0;padding:8px 12px;font-size:12px;letter-spacing:.04em;
+             color:var(--teal);background:var(--panel2);
+             border-bottom:1px solid var(--line);text-transform:uppercase;
+             display:flex;justify-content:space-between;align-items:center}
+  section>.body{padding:10px 12px}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:3px 6px;border-bottom:1px solid #211f1d;
+        vertical-align:top;word-break:break-word}
+  th{color:var(--muted);font-weight:600}
+  .pill{padding:1px 7px;border-radius:10px;font-size:11px;font-weight:600}
+  .s-running{color:var(--green)} .s-waiting{color:var(--amber)}
+  .s-idle{color:var(--muted)}
+  button{background:var(--panel2);color:var(--fg);border:1px solid var(--line);
+         border-radius:5px;padding:4px 10px;cursor:pointer;font:inherit}
+  button:hover{border-color:var(--teal)}
+  button:disabled{opacity:.4;cursor:default}
+  button.approve{border-color:var(--green);color:var(--green)}
+  button.deny{border-color:var(--red);color:var(--red)}
+  button.opt{border-color:var(--blue);color:var(--blue)}
+  .row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .muted{color:var(--muted)} .mono{font-family:inherit}
+  pre{white-space:pre-wrap;margin:0;max-height:340px;overflow:auto;
+      font-size:12px;color:#d6cfc0}
+  .log{max-height:300px;overflow:auto;font-size:12px}
+  .log .ln{padding:1px 0;border-bottom:1px solid #1b1917;white-space:pre-wrap}
+  .log .t{color:#6f675b} .log .v{color:var(--blue)}
+  .log .sig{color:var(--amber)}
+  input,select,textarea{background:var(--bg);color:var(--fg);
+        border:1px solid var(--line);border-radius:5px;padding:4px 6px;font:inherit}
+  textarea{width:100%;min-height:64px;resize:vertical}
+  .awaiting{border:1px solid var(--amber);border-radius:6px;padding:8px 10px;
+            background:#1d1a14}
+  .grid2{display:grid;grid-template-columns:auto 1fr;gap:2px 10px}
+  .grid2 .k{color:var(--muted)}
+  .tag{font-size:10px;color:var(--muted);font-weight:400;text-transform:none}
+</style>
 </head>
 <body>
-<h1>WASM data layer — browser smoke</h1>
-<pre id="out">loading…</pre>
+<header>
+  <span><span id="conn-dot" class="dot"></span><b id="conn-text">连接中…</b></span>
+  <span class="kv">device <b2 id="h-device">—</b2></span>
+  <span class="kv">scene <b2 id="h-scene">—</b2></span>
+  <span class="kv">bridge <b2 id="h-bridge">—</b2></span>
+  <span class="kv">device-link <b2 id="h-link">—</b2></span>
+  <span class="kv">clients <b2 id="h-clients">—</b2></span>
+  <span class="kv">auto <b2 id="h-auto">—</b2></span>
+</header>
+
+<main>
+  <!-- LEFT: state mirror -->
+  <section>
+    <h2>状态总览 <span class="tag">wasm 同源数据层算出</span></h2>
+    <div class="body" id="totals">—</div>
+  </section>
+
+  <section>
+    <h2>等待交互 <span class="tag">approve / deny / 选项 → 经真实 bridge 回送</span></h2>
+    <div class="body" id="awaiting"><span class="muted">无待处理 prompt</span></div>
+  </section>
+
+  <section>
+    <h2>Agents 明细 <span class="tag">每个 slot 的数据</span></h2>
+    <div class="body" id="agents">—</div>
+  </section>
+
+  <section>
+    <h2>state_json <span class="tag">设备完整状态(信息对称)</span></h2>
+    <div class="body"><pre id="statejson">—</pre></div>
+  </section>
+
+  <!-- RIGHT: drive + debug -->
+  <section>
+    <h2>注入事件 <span class="tag">无需真 agent,驱动整条链</span></h2>
+    <div class="body">
+      <div class="row" style="margin-bottom:8px">
+        <span class="muted">agent</span>
+        <select id="inj-agent">
+          <option value="claude-code">claude-code</option>
+          <option value="codex">codex</option>
+        </select>
+        <span class="muted">session</span>
+        <input id="inj-session" value="web_dev" size="10">
+      </div>
+      <div class="row" id="inj-presets" style="margin-bottom:8px"></div>
+      <textarea id="inj-free" placeholder='自由 JSON 事件,例如 {"type":"tokens","tokens":500}'></textarea>
+      <div class="row" style="margin-top:6px">
+        <button id="inj-send">注入自由 JSON</button>
+        <span class="muted" id="inj-result"></span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Hooks 管理 <span class="tag">真实 ~/.claude · ~/.codex,自动备份</span></h2>
+    <div class="body" id="hooks">加载中…</div>
+  </section>
+
+  <section>
+    <h2>原始 dash 帧 <span class="tag" id="frames-count"></span></h2>
+    <div class="body"><div class="log" id="frames"><span class="muted">等待 hook/注入事件…</span></div></div>
+  </section>
+
+  <section>
+    <h2>设备信号 <span class="tag">scene 切换 / EVT / push(wasm drain_signals)</span></h2>
+    <div class="body"><div class="log" id="signals"><span class="muted">无</span></div></div>
+  </section>
+</main>
+
 <script type="module" src="./app.js"></script>
 </body>
 </html>

@@ -40,15 +40,30 @@ class DeviceState:
     connection_age_started: float = field(default_factory=time.time)
 
 
-VERBS = {"snapshot", "prompt", "event", "tokens", "idle", "config", "time", "health"}
+# NOTE: "push" is the top-banner verb the bridge emits on every post_tool_use
+# (see claude_buddy_bridge.Bridge: pusher.push("push", {...})). It was missing
+# here, so the bridge logged `device ERR: dash: unknown verb 'push'` on every
+# tool call. It's fire-and-forget (no state, no EVT) — just ACK it.
+VERBS = {"snapshot", "prompt", "event", "tokens", "idle", "config", "time",
+         "health", "push"}
 
 
 class MockDeviceV1:
-    def __init__(self, *, decision_delay_ms: int, auto_deny: bool, verbose: bool):
+    def __init__(self, *, decision_delay_ms: int, auto_deny: bool, verbose: bool,
+                 on_prompt=None):
+        """on_prompt: optional callback ``(prompt: dict, send) -> None``. When
+        set, an incoming ``prompt`` (or a snapshot-embedded pending prompt) is
+        handed to the callback INSTEAD of being auto-decided here. The callback
+        owns the decision round-trip (e.g. route it to a browser button and
+        later write ``EVT: permission ...`` / ``EVT: reply ...`` back through
+        ``send``). When None, the legacy auto-decision behaviour applies
+        (``once``/``deny`` after ``decision_delay_ms``) — used by the standalone
+        mock and the bench/replay harnesses."""
         self.state = DeviceState()
         self.decision_delay_ms = decision_delay_ms
         self.auto_deny = auto_deny
         self.verbose = verbose
+        self.on_prompt = on_prompt
         self._lock = threading.Lock()
 
     def _log(self, *a):
@@ -99,7 +114,7 @@ class MockDeviceV1:
             if pending:
                 s.current_scene = "prompt"
                 s.pending_prompt = pending
-                self._schedule_decision(send, pending["id"])
+                self._offer_prompt(pending, send)
             elif s.agent_count > 0:
                 s.current_scene = "sessions"
             else:
@@ -110,8 +125,12 @@ class MockDeviceV1:
             s.current_scene = "prompt"
             s.pending_prompt = payload
             s.prompts_received += 1
-            self._schedule_decision(send, payload["id"])
+            self._offer_prompt(payload, send)
             send(f'OK: {{"scene":"prompt","id":"{payload["id"]}"}}\n')
+            return
+        if verb == "push":
+            # Top-slide banner; fire-and-forget. No scene change, no EVT.
+            send('OK: {"banner":true}\n')
             return
         if verb == "event":
             s.events_received += 1
@@ -205,6 +224,17 @@ class MockDeviceV1:
                     i += 1
                 argv.append("".join(cur))
         return argv
+
+    def _offer_prompt(self, prompt: dict, send) -> None:
+        """A prompt arrived. Either hand it to the on_prompt callback (manual
+        / browser-driven decision) or fall back to the auto-decision timer."""
+        if self.on_prompt is not None:
+            try:
+                self.on_prompt(prompt, send)
+            except Exception as e:  # never let a UI callback kill the device loop
+                self._log("on_prompt raised", str(e))
+            return
+        self._schedule_decision(send, prompt.get("id", ""))
 
     def _schedule_decision(self, send, prompt_id: str) -> None:
         decision = "deny" if self.auto_deny else "once"
