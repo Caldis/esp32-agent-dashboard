@@ -4,14 +4,76 @@
 #include <string.h>
 #include "agent_state.h"
 #include "agent_commands.h"
+#include "harness/console_protocol.h"
+
+extern const char *shim_last_reply(void);
+extern int         shim_last_reply_is_err(void);
+extern const console_cmd_t *shim_find_cmd(const char *name);
+extern const char *shim_current_scene_id(void);
+
+const char *last_reply(void)        { return shim_last_reply(); }
+int         last_reply_is_err(void) { return shim_last_reply_is_err(); }
+const char *current_scene(void)     { return shim_current_scene_id(); }
+
+/* G-7 tokeniser —— 移植自 mock_device_v1.py._tokenise / 固件 console_protocol.c:
+ *  - 以 '"' 起始的 token:去掉前导 '"',累积所有字符(含内层 '"' 和空白)
+ *    直到「后面紧跟空白或行尾」的那个 '"' 收尾;
+ *  - 非 '"' 起始的 token:遇到任意 '"' 切换 in_quote,所有 '"' 被剥除。
+ * 把切分结果写进 argv_buf(NUL 分隔)与 argv[](≤CONSOLE_MAX_ARGS)。 */
+static int tokenise(const char *line, char *buf, size_t bufcap,
+                    const char *argv[], int max_args) {
+    int argc = 0; size_t w = 0; size_t n = strlen(line); size_t i = 0;
+    while (i < n && argc < max_args) {
+        while (i < n && (line[i] == ' ' || line[i] == '\t')) i++;
+        if (i >= n) break;
+        if (w >= bufcap) break;
+        argv[argc] = &buf[w];
+        if (line[i] == '"') {
+            i++;                                  /* drop leading " */
+            int close = -1;
+            for (size_t j = i; j < n; ++j) {
+                if (line[j] == '"' && (j + 1 == n || line[j+1] == ' ' || line[j+1] == '\t')) {
+                    close = (int)j; break;
+                }
+            }
+            size_t endp = (close == -1) ? n : (size_t)close;
+            for (size_t j = i; j < endp && w + 1 < bufcap; ++j) buf[w++] = line[j];
+            i = (close == -1) ? n : (size_t)close + 1;
+        } else {
+            int in_q = 0;
+            while (i < n) {
+                char ch = line[i];
+                if (!in_q && (ch == ' ' || ch == '\t')) break;
+                if (ch == '"') { in_q = !in_q; i++; continue; }
+                if (w + 1 < bufcap) buf[w++] = ch;
+                i++;
+            }
+        }
+        if (w < bufcap) buf[w++] = 0;             /* NUL-terminate token */
+        argc++;
+    }
+    return argc;
+}
+
+int dash_feed_line(const char *line) {
+    char buf[CONSOLE_MAX_LINE];
+    const char *argv[CONSOLE_MAX_ARGS];
+    console_args_t args;
+    args.argc = tokenise(line, buf, sizeof(buf), argv, CONSOLE_MAX_ARGS);
+    for (int i = 0; i < args.argc; ++i) args.argv[i] = argv[i];
+    for (int i = args.argc; i < CONSOLE_MAX_ARGS; ++i) args.argv[i] = NULL;
+    if (args.argc < 1) return -1;
+    const console_cmd_t *cmd = shim_find_cmd(args.argv[0]);
+    if (!cmd) return -1;
+    cmd->fn(&args);
+    return 0;
+}
 
 void dash_init(void) {
     agent_state_init();
     agent_commands_register();     /* 经 shim 捕获命令表 */
     agent_commands_load_config();  /* 设默认 device_name="DASHBOARD" 等 */
 }
-
-extern const char *shim_current_scene_id(void);
 
 static char s_state[4096];
 

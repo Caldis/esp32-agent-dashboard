@@ -17,11 +17,22 @@ def _lib_path() -> Path:
     return BUILD / f"libdash_datalayer.{ext}"
 
 
+_loaded_handle = None  # Windows: track handle so we can FreeLibrary before rebuild
+
 def load_lib() -> ctypes.CDLL:
+    global _loaded_handle
     lib_path = _lib_path()
+    # Windows: 必须在重建前释放已加载的 DLL,否则 linker 无法覆写锁定文件
+    if platform.system() == "Windows" and _loaded_handle is not None:
+        _free = ctypes.windll.kernel32.FreeLibrary
+        _free.argtypes = [ctypes.c_void_p]
+        _free(_loaded_handle)
+        _loaded_handle = None
     # 无条件重建,确保 C 源改动后测试不会跑陈旧的 .dll/so(避免假绿/假红)
     subprocess.run(["bash", str(WASM / "build_native.sh")], check=True)
     lib = ctypes.CDLL(str(lib_path))
+    if platform.system() == "Windows":
+        _loaded_handle = lib._handle
     lib.dash_init.restype = None
     lib.state_json.restype = ctypes.c_char_p
     return lib
@@ -42,6 +53,27 @@ def test_empty_state():
     print("ok test_empty_state")
 
 
+def _decl_feed(lib):
+    lib.dash_feed_line.argtypes = [ctypes.c_char_p]
+    lib.dash_feed_line.restype = ctypes.c_int
+    lib.last_reply.restype = ctypes.c_char_p
+    lib.current_scene.restype = ctypes.c_char_p
+
+def feed(lib, line: str) -> int:
+    return lib.dash_feed_line(line.encode("utf-8"))
+
+def test_dash_idle():
+    lib = load_lib()
+    _decl_feed(lib)
+    lib.dash_init()
+    rc = feed(lib, 'dash idle')
+    assert rc == 0, rc
+    assert lib.current_scene().decode() == "idle", lib.current_scene()
+    assert b'"scene":"idle"' in lib.last_reply(), lib.last_reply()
+    print("ok test_dash_idle")
+
+
 if __name__ == "__main__":
     test_empty_state()
+    test_dash_idle()
     print("ALL PASS")
