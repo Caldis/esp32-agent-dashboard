@@ -1,5 +1,7 @@
 """hooks_admin 测试 —— 全程用临时目录,绝不碰真实用户文件。
 运行:python tools/test_hooks_admin.py"""
+import io
+import contextlib
 import json
 import sys
 import tempfile
@@ -10,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 仓库根,便于
 from tools.hooks_admin import base, state
 from tools import hooks_admin
 from tools.hooks_admin import state as state_mod
+from tools.hooks_admin import cli
 
 
 class TestBase(unittest.TestCase):
@@ -160,6 +163,26 @@ class TestRegistrySweep(unittest.TestCase):
                 assert hooks_admin.install(agents, st, kind).enabled, kind
                 assert not hooks_admin.disable(agents, st, kind).enabled, kind
                 assert hooks_admin.enable(agents, st, kind).enabled, kind
+
+
+class TestCli(unittest.TestCase):
+    def test_status_json_smoke(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "cc_home" / ".claude").mkdir(parents=True)
+            (d / "cx_home" / ".codex").mkdir(parents=True)
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = cli.main([
+                    "status", "--json",
+                    "--cc-home", str(d / "cc_home"),
+                    "--codex-home", str(d / "cx_home"),
+                    "--state", str(d / "state.json"),
+                ])
+            assert rc == 0, rc
+            out = json.loads(buf.getvalue())
+            assert "claude-code" in out and "codex" in out, out
+            assert out["claude-code"]["installed"] is False, out
 
 
 if __name__ == "__main__":
