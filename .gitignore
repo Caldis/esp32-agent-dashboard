@@ -30,3 +30,5 @@ docs/sessions.png
 Thumbs.db
 
 tools/web/wasm/build/
+tools/web/static/dash_datalayer.mjs
+tools/web/static/dash_datalayer.wasm
