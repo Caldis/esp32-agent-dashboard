@@ -3,6 +3,12 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* 与固件 CONSOLE_MAX_LINE / CONSOLE_MAX_ARGS 等值;此处独立定义
+ * 以保持本头自包含(不依赖 harness/console_protocol.h)。 */
+#define G7_MAX_LINE 1024
+#define G7_MAX_ARGS 8
+
 /* G-7 tokeniser:把一行切成 argv(各 token 以 NUL 分隔写入 buf)。
  * 返回 argc(≤ max_args)。与固件 console_protocol.c /
  * mock_device_v1.py._tokenise 语义等价:
