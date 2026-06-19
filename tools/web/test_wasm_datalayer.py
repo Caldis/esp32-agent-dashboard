@@ -38,11 +38,13 @@ def load_lib() -> ctypes.CDLL:
         _free = ctypes.windll.kernel32.FreeLibrary
         _free.argtypes = [ctypes.wintypes.HANDLE]
         _free.restype  = ctypes.wintypes.BOOL
-        # Drop the Python reference first so the object can be GC'd after release
-        _loaded_lib = None
-        if not _free(_loaded_handle):
+        handle = _loaded_handle
+        # Release the DLL first; clear references only after successful release
+        # to avoid a double-FreeLibrary if the call raises.
+        if not _free(handle):
             raise OSError("FreeLibrary failed; .dll still locked")
         _loaded_handle = None
+        _loaded_lib = None
     # Unconditional rebuild — ensures stale .dll/.so never produces false green/red
     subprocess.run(["bash", str(WASM / "build_native.sh")], check=True)
     lib = ctypes.CDLL(str(lib_path))
@@ -75,6 +77,7 @@ def _decl_feed(lib):
     lib.last_reply.restype = ctypes.c_char_p
     lib.last_reply_is_err.restype = ctypes.c_int
     lib.current_scene.restype = ctypes.c_char_p
+    lib.drain_signals.restype = ctypes.c_char_p
 
 def feed(lib, line: str) -> int:
     return lib.dash_feed_line(line.encode("utf-8"))
@@ -126,7 +129,8 @@ def test_msg_truncation():
     snap = ('{"agents":[{"kind":"claude-code","session_id":"cc1",'
             '"status":"running","msg":"' + long_msg + '"}],'
             '"totals":{"total":1,"running":1,"waiting":0}}')
-    feed(lib, 'dash snapshot "' + snap + '"')
+    rc = feed(lib, 'dash snapshot "' + snap + '"')
+    assert rc == 0, rc
     s = state(lib)
     msg = s["slots"][0]["msg"]
     assert len(msg) == AGENT_MSG_MAX - 1, (len(msg), AGENT_MSG_MAX)
@@ -154,13 +158,14 @@ def test_slot_overflow():
 def test_signals():
     lib = load_lib()
     _decl_feed(lib)
-    lib.drain_signals.restype = ctypes.c_char_p
     lib.dash_init()
     snap = ('{"agents":[{"kind":"codex","session_id":"cx1",'
             '"status":"running","msg":"go"}],'
             '"totals":{"total":1,"running":1,"waiting":0}}')
     feed(lib, 'dash snapshot "' + snap + '"')
     sigs = json.loads(lib.drain_signals().decode())
+    # shim 的 drain_signals 返回 JSON 字符串数组,故用子串检查("agent_added" in x);
+    # 若将来 shim 改为对象数组,需将此处断言改为访问对象字段。
     assert any("agent_added" in x and "codex" in x for x in sigs), sigs
     # drain 清空
     assert json.loads(lib.drain_signals().decode()) == [], "signals should clear after drain"

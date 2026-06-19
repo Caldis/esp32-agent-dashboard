@@ -104,11 +104,10 @@ static const char *awaiting_str(awaiting_kind_t k) {
  * cap < 3 时只能写空字符串 "" 或更少,始终保证 NUL 终止。 */
 static size_t json_str(char *dst, size_t cap, const char *src) {
     size_t n = 0;
-    /* 开头引号:需要位置留给:开头 " + 闭合 " + NUL,共 3 字节 */
-    if (cap < 2) {
-        if (cap >= 1) dst[0] = '\0';
-        return 0;
-    }
+    /* 开头引号:需要位置留给:开头 " + 闭合 " + NUL,共 3 字节;
+     * cap==2 时写 dst[0]='"' 后 n==1,闭合引号写 dst[1],NUL 写 dst[2]
+     * 即已越界,故 cap<3 时走空字符串路径。 */
+    if (cap < 3) { if (cap) dst[0] = '\0'; return 0; }
     dst[n++] = '"';
     /* 每个字符最多写 2 字节(转义字符),退出时要留 闭合"(1) + NUL(1) = 2 字节 */
     for (const char *p = src; *p; ++p) {
