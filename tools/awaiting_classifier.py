@@ -58,6 +58,39 @@ def _short_sentences(text: str, max_chars: int = 80) -> list[str]:
     return [text[:cut], text[cut:].lstrip()[: max_chars - 4] + "…"]
 
 
+_CODE_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
+
+
+def _clean_prose(text: str, max_chars: int = 46) -> str:
+    """One short, human-readable line for the device's awaiting takeover.
+
+    The assistant's last message often starts with code / JSON / a <dash-state>
+    block, which used to be dumped raw into the 'your turn' context (ugly, wraps,
+    overlaps). Strip code fences, skip code/JSON/markup-looking lines, and return
+    the first prose sentence capped to one line. Returns '' if nothing readable.
+    """
+    if not text:
+        return ""
+    body = _CODE_FENCE_RE.sub(" ", text)
+    pick = ""
+    for raw in body.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line[0] in "{}[]\"'`|#>*-/=":          # code / JSON / markup / list marker
+            continue
+        letters = sum(c.isalpha() or c > "䷿" for c in line)  # incl. CJK
+        if letters < max(3, len(line) * 0.4):       # too few letters → likely code
+            continue
+        pick = line
+        break
+    pick = " ".join(pick.split()).rstrip(".?!:;,，。!?")
+    if len(pick) > max_chars:
+        cut = pick.rfind(" ", 0, max_chars)
+        pick = (pick[:cut] if cut > 12 else pick[:max_chars]).rstrip() + "…"
+    return pick
+
+
 def _ends_with_question(text: str) -> bool:
     stripped = text.rstrip()
     return stripped.endswith("?") or stripped.endswith("？")
@@ -97,11 +130,14 @@ def classify_awaiting(
 
     lowered = text.lower()
     if any(keyword in lowered for keyword in CLARIFY_KEYWORDS):
-        return "clarify", _short_sentences(text)
+        clean = _clean_prose(text)
+        return "clarify", [clean] if clean else ["needs clarification"]
 
     sentences = re.split(r"(?<=[\.\!\?])\s+", text)
     last_sentence = sentences[-1] if sentences else ""
     if _ends_with_question(last_sentence) and 4 < len(last_sentence) < 200:
-        return "type", _short_sentences(last_sentence)
+        clean = _clean_prose(last_sentence)
+        return "type", [clean] if clean else ["asked you a question"]
 
-    return "continue", _short_sentences(text)
+    clean = _clean_prose(text)
+    return "continue", [clean] if clean else ["finished its turn"]
