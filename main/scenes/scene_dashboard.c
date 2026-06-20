@@ -62,19 +62,22 @@ typedef struct {
      * the small round screen doesn't need the full tool/thought firehose at
      * rest. Tapping the screen reveals DETAILED (the feed rows above); after
      * DETAIL_TIMEOUT_MS with no tap it relaxes back to AMBIENT. */
-    lv_obj_t *touch_layer;       /* full-screen transparent tap catcher (top z) */
-    lv_obj_t *ambient_grp;       /* container: ring + dot + label + hint */
+    lv_obj_t *ambient_grp;       /* container: ring + dot + label */
     lv_obj_t *ambient_ring;
     lv_obj_t *ambient_dot;       /* breathing inner dot (animated) */
-    lv_obj_t *ambient_lbl;       /* "thinking…" / "N agents working" */
-    lv_obj_t *ambient_hint;      /* "tap for detail" */
-    bool      detailed;          /* current mode */
+    lv_obj_t *ambient_lbl;       /* "thinking" / "N agents working" */
+    bool      detailed;          /* current mode (auto-driven, no touch) */
     bool      breath_armed;
-    uint32_t  last_tap_ms;
+    uint32_t  reveal_since_ms;   /* when detail was auto-revealed */
+    uint32_t  last_activity_mono;/* newest feed entry seen → reveal on change */
     lv_timer_t *timer;
 } dash_t;
 
-#define DETAIL_TIMEOUT_MS  10000   /* auto-relax to ambient after this idle */
+/* v2.8.1: PURE DISPLAY — no touch. Default is the calm ambient pulse; when new
+ * tool activity arrives the detail feed auto-reveals for REVEAL_MS, then relaxes
+ * back. (The earlier tap-to-detail interaction was dropped — the device is a
+ * one-way status mirror, it must never wait on or block the agent.) */
+#define REVEAL_MS  6000
 
 /* Flat entry for aggregation. */
 typedef struct {
@@ -223,13 +226,11 @@ static void arm_breath(dash_t *d)
     lv_anim_start(&a);
 }
 
-/* Show ambient (detailed=false) or detailed feed (detailed=true). The feed
- * rows themselves are populated/hidden by tick(); here we just toggle the
- * ambient group and remember the mode + tap time. */
+/* Toggle the ambient group vs the detail feed. The feed rows are populated by
+ * tick(); here we just show/hide the ambient group. Auto-driven only. */
 static void set_mode(dash_t *d, bool detailed)
 {
     d->detailed = detailed;
-    d->last_tap_ms = lv_tick_get();
     if (detailed) {
         lv_obj_add_flag(d->ambient_grp, LV_OBJ_FLAG_HIDDEN);
     } else {
@@ -240,14 +241,6 @@ static void set_mode(dash_t *d, bool detailed)
             lv_obj_add_flag(d->row_label[i], LV_OBJ_FLAG_HIDDEN);
         }
     }
-}
-
-static void on_tap(lv_event_t *e)
-{
-    dash_t *d = (dash_t *)lv_event_get_user_data(e);
-    if (!d) return;
-    /* Any tap reveals detail and (re)starts the 10s relax timer. */
-    set_mode(d, true);
 }
 
 /* ── Tick ────────────────────────────────────────────────────────── */
@@ -269,9 +262,19 @@ static void tick(lv_timer_t *t)
 
     int active_now = st->running + st->waiting;
 
-    /* Auto-relax: detail mode times out back to ambient after no taps. */
-    if (d->detailed &&
-        (lv_tick_get() - d->last_tap_ms) > DETAIL_TIMEOUT_MS) {
+    /* Collect feed every tick (both modes) so we can detect new activity. */
+    feed_entry_t feed[FEED_ROWS_MAX];
+    int n = collect_feed(feed, FEED_ROWS_MAX);
+    uint32_t newest = (n > 0) ? feed[0].monotonic_ms : 0;
+
+    /* New tool activity auto-reveals the detail feed for REVEAL_MS; once it
+     * goes quiet we relax back to the ambient pulse. No touch involved. */
+    if (newest != 0 && newest != d->last_activity_mono) {
+        d->last_activity_mono = newest;
+        d->reveal_since_ms = lv_tick_get();
+        if (!d->detailed) set_mode(d, true);
+    }
+    if (d->detailed && (lv_tick_get() - d->reveal_since_ms) > REVEAL_MS) {
         set_mode(d, false);
     }
 
@@ -293,10 +296,7 @@ static void tick(lv_timer_t *t)
         return;
     }
 
-    /* Feed (detailed mode only) */
-    feed_entry_t feed[FEED_ROWS_MAX];
-    int n = collect_feed(feed, FEED_ROWS_MAX);
-
+    /* Feed render (detailed mode) — uses the feed/n collected above. */
     for (int i = 0; i < FEED_ROWS_MAX; ++i) {
         if (i < n) {
             feed_entry_t *fe = &feed[i];
@@ -469,25 +469,8 @@ static void init(scene_t *s, lv_obj_t *parent)
     lv_label_set_text(d->ambient_lbl, "thinking");
     lv_obj_align(d->ambient_lbl, LV_ALIGN_TOP_MID, 0, 122);
 
-    d->ambient_hint = lv_label_create(d->ambient_grp);
-    lv_obj_set_style_text_color(d->ambient_hint, lv_color_hex(COL_INK_MUTE), 0);
-    lv_obj_set_style_text_font(d->ambient_hint, &lv_font_montserrat_12, 0);
-    lv_label_set_text(d->ambient_hint, "tap for detail");
-    lv_obj_align(d->ambient_hint, LV_ALIGN_TOP_MID, 0, 168);
-
-    /* Full-screen transparent tap catcher, kept on top so a tap anywhere
-     * toggles into detail. Dashboard has no other interactive elements. */
-    d->touch_layer = lv_obj_create(parent);
-    lv_obj_remove_style_all(d->touch_layer);
-    lv_obj_set_size(d->touch_layer, SCREEN_W, SCREEN_H);
-    lv_obj_set_pos(d->touch_layer, 0, 0);
-    lv_obj_add_flag(d->touch_layer, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(d->touch_layer, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_event_cb(d->touch_layer, on_tap, LV_EVENT_CLICKED, d);
-    lv_obj_move_foreground(d->touch_layer);
-
     arm_breath(d);
-    d->detailed = false;   /* start in ambient */
+    d->detailed = false;   /* start in ambient; tick() auto-reveals on activity */
 
     d->timer = lv_timer_create(tick, 500, d);
     lv_timer_pause(d->timer);
@@ -498,7 +481,6 @@ static void on_show(scene_t *s)
     dash_t *d = (dash_t *)s->user_data;
     if (!d) return;
     set_mode(d, false);              /* always (re)enter at the calm view */
-    if (d->touch_layer) lv_obj_move_foreground(d->touch_layer);
     if (d->timer) {
         lv_timer_resume(d->timer);
         tick(d->timer);
