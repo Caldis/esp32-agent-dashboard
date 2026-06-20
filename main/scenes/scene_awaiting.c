@@ -35,6 +35,7 @@
 #include "agent_state.h"
 #include "theme.h"
 #include "cjk_font.h"
+#include "status_bar.h"
 #include "anim/apple_ease.h"
 #include "harness/scene_framework.h"
 
@@ -46,7 +47,7 @@
 
 /* Cached UI objects (created in on_show, freed in on_hide). */
 typedef struct {
-    lv_obj_t *eyebrow;
+    status_bar_t sb;            /* shared top time + bottom active/tokens */
     lv_obj_t *glyph;            /* parent for the kind-specific drawing */
     lv_obj_t *glyph_inner_dot;  /* used by continue kind for breathing */
     lv_obj_t *headline;
@@ -56,7 +57,6 @@ typedef struct {
     lv_obj_t *summary_marquee;
     lv_obj_t *option_rows[AGENT_AWAITING_OPTIONS_MAX];
     lv_obj_t *affordance;
-    lv_obj_t *footer;
     awaiting_kind_t last_rendered_kind;
     char        last_session_id[AGENT_SESSION_ID_MAX];
     uint32_t    breath_anim_armed;
@@ -202,33 +202,6 @@ static void arm_breath(void)
 
 /* ── Per-tick update ─────────────────────────────────────────────── */
 
-static void format_duration(char *buf, size_t cap, uint32_t since_unix, uint32_t now_unix)
-{
-    if (since_unix == 0 || now_unix == 0 || since_unix > now_unix) {
-        if (cap > 0) buf[0] = '\0';
-        return;
-    }
-    uint32_t d = now_unix - since_unix;
-    if (d < 60) snprintf(buf, cap, "waiting %us", (unsigned)d);
-    else if (d < 3600) snprintf(buf, cap, "waiting %um %us", (unsigned)(d / 60), (unsigned)(d % 60));
-    else snprintf(buf, cap, "waiting %uh %um", (unsigned)(d / 3600), (unsigned)((d % 3600) / 60));
-}
-
-static void format_eyebrow(char *buf, size_t cap, const agent_state_t *st)
-{
-    /* Time only — device name removed (meaningless on this screen). */
-    if (st->host_epoch_unix > 0) {
-        uint32_t now = st->host_epoch_unix
-                     + (lv_tick_get() - st->host_clock_received_ms) / 1000;
-        int32_t tz_now = (int32_t)now + st->host_tz_offset_seconds;
-        struct tm tmv;
-        time_t tt = (time_t)tz_now;
-        gmtime_r(&tt, &tmv);
-        snprintf(buf, cap, "%02d:%02d", tmv.tm_hour, tmv.tm_min);
-    } else {
-        buf[0] = '\0';
-    }
-}
 
 static void tick(lv_timer_t *t)
 {
@@ -242,7 +215,6 @@ static void tick(lv_timer_t *t)
         agent_state_unlock();
         return;
     }
-    int more = agent_state_other_awaiting_count(anchor);
     awaiting_kind_t kind = anchor->awaiting_kind;
     /* Urgency-coded accent: gold for blocks that need attention,
      * teal-bright for "your turn but no rush" continuations. Both pull
@@ -333,8 +305,8 @@ static void tick(lv_timer_t *t)
         content_h += INTER_GAP + n_ctx * CTX_LINE_H;
     }
 
-    int avail_top    = EYEBROW_Y + 16;        /* below eyebrow */
-    int avail_bottom = FOOTER_Y - 14;         /* above footer */
+    int avail_top    = 130;   /* below the 48pt status_bar time */
+    int avail_bottom = 408;   /* above the status_bar active/tokens footer */
     int avail_h      = avail_bottom - avail_top;
     int top_pad      = (avail_h - content_h) / 2;
     if (top_pad < 0) top_pad = 0;
@@ -414,26 +386,9 @@ static void tick(lv_timer_t *t)
         }
     }
 
-    /* Footer "waiting Xs · +N more" */
-    uint32_t now_unix = st->host_epoch_unix
-                      ? (st->host_epoch_unix +
-                         (lv_tick_get() - st->host_clock_received_ms) / 1000)
-                      : 0;
-    char dur[40];
-    format_duration(dur, sizeof(dur), anchor->awaiting_since_unix, now_unix);
-    char footer[128];
-    if (more > 0) {
-        snprintf(footer, sizeof(footer), "%s    +%d more", dur, more);
-    } else {
-        snprintf(footer, sizeof(footer), "%s", dur);
-    }
-    lv_label_set_text(s_ui.footer, footer);
-
-    /* Eyebrow: "HH:MM · device_name" — needs room for up to 32-char
-     * device_name + 10 fixed chars + nul, so 64 is safe. */
-    char eb[64];
-    format_eyebrow(eb, sizeof(eb), st);
-    lv_label_set_text(s_ui.eyebrow, eb);
+    /* Shared status bar (top time + bottom active/tokens) replaces the old
+     * eyebrow + "waiting Xs" footer — same header/footer as every other scene. */
+    status_bar_update(&s_ui.sb, st);
 
     agent_state_unlock();
 }
@@ -453,15 +408,8 @@ static void init(scene_t *s, lv_obj_t *parent)
     lv_obj_set_style_bg_color(root, lv_color_hex(pal ? pal->bg : 0x0B0A09), 0);
     lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
 
-    /* Eyebrow */
-    s_ui.eyebrow = lv_label_create(root);
-    /* v2.7.0 Persona D fix: ink-mute #5A514A has WCAG contrast 2.59:1 vs
-     * noir bg — fails AA. ink-fade #8A807A is 5.13:1, AA pass. Eyebrow
-     * is a real text label readers need to parse, not decorative. */
-    lv_obj_set_style_text_color(s_ui.eyebrow, lv_color_hex(0x8A807A), 0);
-    lv_obj_set_style_text_font(s_ui.eyebrow, &lv_font_montserrat_14, 0);
-    lv_label_set_text(s_ui.eyebrow, "");
-    lv_obj_align(s_ui.eyebrow, LV_ALIGN_TOP_MID, 0, EYEBROW_Y);
+    /* Shared status bar — top time + bottom active/tokens (same as every scene) */
+    status_bar_create(root, &s_ui.sb);
 
     /* Glyph container — initial position; tick() re-aligns per-frame. */
     s_ui.glyph = lv_obj_create(root);
@@ -545,14 +493,6 @@ static void init(scene_t *s, lv_obj_t *parent)
         lv_label_set_text(s_ui.option_rows[i], "");
         lv_obj_add_flag(s_ui.option_rows[i], LV_OBJ_FLAG_HIDDEN);
     }
-
-    /* Footer */
-    s_ui.footer = lv_label_create(root);
-    /* v2.7.0 Persona D fix: ink-mute -> ink-fade for WCAG AA contrast. */
-    lv_obj_set_style_text_color(s_ui.footer, lv_color_hex(0x8A807A), 0);
-    lv_obj_set_style_text_font(s_ui.footer, &lv_font_montserrat_16, 0);
-    lv_label_set_text(s_ui.footer, "");
-    lv_obj_align(s_ui.footer, LV_ALIGN_TOP_MID, 0, FOOTER_Y);
 
     /* Don't run tick yet — wait for on_show. */
 }
