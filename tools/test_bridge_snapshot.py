@@ -200,6 +200,35 @@ def test_gate_mode_gates_permissions():
     assert res.get("hookSpecificOutput", {}).get("permissionDecision") == "deny", res
 
 
+def test_idle_sweep_skips_active_transcript():
+    """A long-thinking agent (no tool calls for >timeout) must NOT flip to your
+    turn while its transcript is still being written; it flips only once the
+    transcript goes static (real idle/ESC). Regression for "your turn shown
+    mid-think"."""
+    import tempfile, os as _os, time as _t
+    reg = SessionRegistry()
+    reg.upsert("claude-code", "thinker", status="running")
+    reg._sessions["claude-code:thinker"].last_active_unix = int(_t.time()) - 999
+    f = tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl")
+    f.write(b"x"); f.close()
+    try:
+        reg.set_transcript_path("claude-code", "thinker", f.name)
+        assert reg.sweep_idle_turns(timeout_s=60) == 0      # fresh transcript → thinking
+        old = int(_t.time()) - 999
+        _os.utime(f.name, (old, old))
+        assert reg.sweep_idle_turns(timeout_s=60) == 1      # static transcript → flip
+    finally:
+        _os.unlink(f.name)
+
+
+def test_idle_sweep_disabled_when_timeout_zero():
+    import time as _t
+    reg = SessionRegistry()
+    reg.upsert("claude-code", "x", status="running")
+    reg._sessions["claude-code:x"].last_active_unix = int(_t.time()) - 999
+    assert reg.sweep_idle_turns(timeout_s=0) == 0           # disabled
+
+
 def test_session_end_drops_session():
     from claude_buddy_bridge import _build_stack, Settings
     settings = Settings(throttle_ms=250, keepalive_ms=10000, permission_timeout_s=60.0,
@@ -223,6 +252,8 @@ def main() -> int:
              test_device_pusher_real_transport_constructs,
              test_idle_turn_sweep_flips_silent_running_to_your_turn,
              test_idle_turn_sweep_leaves_fresh_running_alone,
+             test_idle_sweep_skips_active_transcript,
+             test_idle_sweep_disabled_when_timeout_zero,
              test_session_end_drops_session,
              test_multiple_waiting_agents_still_fit_wire_cap,
              test_sweep_stale_drops_dead_keeps_fresh_and_recent_awaiting,

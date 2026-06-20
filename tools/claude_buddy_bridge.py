@@ -179,6 +179,12 @@ class AgentSession:
     # running (possibly for minutes). Used by the idle-turn sweep so a long tool
     # is NOT mistaken for an interrupted/idle agent.
     tool_in_flight: bool = False
+    # Path to the CC transcript. CC keeps writing it WHILE the model thinks (even
+    # with no tool calls), so its mtime lets the idle-turn sweep tell "long
+    # thinking" (file still growing → keep running) from "ESC/idle" (file
+    # static → flip to your turn). Without this, a long think with no tool calls
+    # tripped the sweep and the device wrongly showed "your turn" mid-think.
+    transcript_path: str = ""
     entries: list[AgentEntry] = field(default_factory=list)
     tokens: int = 0
     tokens_today: int = 0
@@ -370,6 +376,12 @@ class SessionRegistry:
             if sess is not None:
                 sess.tool_in_flight = val
 
+    def set_transcript_path(self, agent_kind: str, session_id: str, path: str) -> None:
+        with self._lock:
+            sess = self._sessions.get(self._key(agent_kind, session_id))
+            if sess is not None and path:
+                sess.transcript_path = path
+
     def drop_session(self, agent_kind: str, session_id: str) -> bool:
         """Remove a session (e.g. on SessionEnd). Returns True if one existed."""
         with self._lock:
@@ -380,6 +392,8 @@ class SessionRegistry:
         > timeout_s into AWAITING_CONTINUE ('your turn'). Covers user-interrupt
         (ESC) and mid-turn stalls, neither of which fires a Stop hook. Returns
         the number flipped (so the caller can push a fresh snapshot)."""
+        if timeout_s <= 0:
+            return 0          # sweep disabled
         now = int(time.time())
         flipped = 0
         with self._lock:
@@ -388,6 +402,16 @@ class SessionRegistry:
                         and not sess.tool_in_flight
                         and sess.awaiting_kind is None
                         and (now - sess.last_active_unix) > timeout_s):
+                    # Still thinking? CC keeps writing the transcript while the
+                    # model reasons (even with no tool calls). If it was touched
+                    # within the window, the agent is working — do NOT flip.
+                    tp = sess.transcript_path
+                    if tp:
+                        try:
+                            if (now - os.path.getmtime(tp)) <= timeout_s:
+                                continue
+                        except OSError:
+                            pass
                     sess.status = "waiting"
                     sess.awaiting_kind = "continue"
                     sess.awaiting_context = ["(idle — interrupted or stalled)"]
@@ -1162,6 +1186,7 @@ def normalize_event(raw: dict) -> dict:
         # v2.4.0: dash-state block extracted by hook_dispatch.py.
         # Shape: {"summary": "...", "options": ["...", ...]} or None.
         "dash_state": raw.get("dash_state") or None,
+        "transcript_path": raw.get("transcript_path", ""),
     }
     if not out["summary"]:
         if out["type"] == "pre_tool_use":
@@ -1252,6 +1277,12 @@ class Bridge:
             # would be a phantom that never clears and freezes the device on
             # "your turn". Real per-session events always carry a session_id.
             return {"continue": True}
+
+        # Remember the transcript path so the idle-turn sweep can tell active
+        # thinking (transcript still being written) from real idle/ESC. No-op
+        # until the session exists (created by the first event below).
+        if evt.get("transcript_path"):
+            self.registry.set_transcript_path(agent, sid, evt["transcript_path"])
 
         if t == "session_start":
             # Session appeared → show it on the device immediately (idle, ball
