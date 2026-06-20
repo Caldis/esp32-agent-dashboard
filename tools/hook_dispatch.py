@@ -182,12 +182,23 @@ def _read_last_assistant_text(transcript_path: str) -> str:
     if not transcript_path or not os.path.exists(transcript_path):
         return ""
     try:
-        # Read backwards is cleaner but expensive on huge files; small
-        # CC transcripts fit in memory.
-        with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()
+        # Tail-read only. CC transcripts grow to many MB and Stop is a BLOCKING
+        # hook — reading the whole file added hundreds of ms to EVERY end-of-turn
+        # (and got worse as the file grew, e.g. ~430ms at 14MB), which the user
+        # felt as a stall when a turn finished. Pull just the last ~128KB and
+        # scan backwards; the most recent assistant message is virtually always
+        # in there. O(1) in transcript size.
+        with open(transcript_path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            start = max(0, size - 131072)
+            f.seek(start)
+            data = f.read()
     except OSError:
         return ""
+    lines = data.decode("utf-8", errors="replace").splitlines()
+    if start > 0 and lines:
+        lines = lines[1:]            # drop the partial first line from a mid-file cut
     for ln in reversed(lines):
         ln = ln.strip()
         if not ln:
@@ -196,19 +207,24 @@ def _read_last_assistant_text(transcript_path: str) -> str:
             rec = json.loads(ln)
         except json.JSONDecodeError:
             continue
-        role = rec.get("role") or rec.get("type")
-        if role != "assistant":
+        if (rec.get("type") or rec.get("role")) != "assistant":
             continue
-        content = rec.get("content") or rec.get("text") or ""
+        # CC nests the real text under rec["message"]["content"] (a list of
+        # blocks); simpler shapes put it at the top level. Support both, and
+        # keep only "text" blocks (skip tool_use blocks — no prose). The old
+        # code only checked the top level, so it never extracted anything from a
+        # real CC transcript and the awaiting classifier always fell back.
+        msg = rec.get("message") if isinstance(rec.get("message"), dict) else rec
+        content = msg.get("content") or msg.get("text") or ""
         if isinstance(content, list):
             parts = []
             for block in content:
-                if isinstance(block, dict):
-                    t = block.get("text") or block.get("content") or ""
-                    if isinstance(t, str):
-                        parts.append(t)
+                if isinstance(block, dict) and block.get("type", "text") == "text":
+                    txt = block.get("text") or ""
+                    if isinstance(txt, str) and txt:
+                        parts.append(txt)
             content = "\n".join(parts)
-        if isinstance(content, str) and content:
+        if isinstance(content, str) and content.strip():
             return content
     return ""
 
