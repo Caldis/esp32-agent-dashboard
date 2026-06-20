@@ -19,8 +19,6 @@ CONFIG_SPIRAM_SPEED_80M=y
 # console_protocol prefers USB-Serial-JTAG (no extra wires on most dev kits).
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 
-CONFIG_NVS_ENABLED=y
-
 # v1 multi-agent scenes copy bounded agent_slot_t arrays on the stack
 # during per-tick render and during init. With AGENT_SLOT_MAX=4 each
 # tick needs ~5 KB of stack; the default 3584-byte main task is too
@@ -66,3 +64,11 @@ CONFIG_LV_FONT_MONTSERRAT_22=y
 CONFIG_LV_FONT_MONTSERRAT_28=y
 CONFIG_LV_FONT_MONTSERRAT_36=y
 CONFIG_LV_FONT_MONTSERRAT_48=y
+
+# On-device CJK via lv_tiny_ttf (embedded SimHei subset)
+CONFIG_LV_USE_TINY_TTF=y
+# 6MB app partition (was default 1MB single-app) — needed for the embedded
+# ~2MB CJK font subset. Uses the project's partitions.csv.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_LV_TINY_TTF_CACHE_GLYPH_CNT=256

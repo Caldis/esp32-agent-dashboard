@@ -458,7 +458,10 @@ class SessionRegistry:
         # Step 4: drop oldest non-waiting agents entirely. Never drop the
         #         most-recent waiting agent — that's the takeover anchor.
         def wire_size() -> int:
-            return len(json.dumps(snap, separators=(",", ":")))
+            # Byte length of the UTF-8 wire form (ensure_ascii=False, matching the
+            # actual push) — CJK is multi-byte, so count encoded bytes vs the cap.
+            return len(json.dumps(snap, separators=(",", ":"),
+                                  ensure_ascii=False).encode("utf-8"))
 
         def most_recent_waiting_idx() -> int | None:
             waiting = [(i, a) for i, a in enumerate(snap["agents"])
@@ -766,7 +769,10 @@ class DevicePusher:
         if payload is None:
             line = f"dash {cmd}"
         else:
-            line = f'dash {cmd} "{json.dumps(payload, separators=(",", ":"))}"'
+            # ensure_ascii=False: send CJK as raw UTF-8, not \uXXXX escapes — the
+            # device's tiny_json doesn't decode \u, and UTF-8 (3B/char) is shorter
+            # on the wire than the escape (6B/char), easing the 1023B line cap.
+            line = f'dash {cmd} "{json.dumps(payload, separators=(",", ":"), ensure_ascii=False)}"'
         if _DEBUG:
             flag = " OVERSIZE!" if len(line) > 1023 else ""
             print(f"[dbg] tx {cmd} len={len(line)}{flag}", file=sys.stderr, flush=True)

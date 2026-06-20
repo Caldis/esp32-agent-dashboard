@@ -7,6 +7,7 @@ idf_component_register(
         "tiny_json.c"
         "tool_icons.c"
         "harness/agent_commands.c"
+        "harness/agent_snapshot_apply.c"
         "scenes/scene_dashboard.c"
         "scenes/scene_idle.c"
         "scenes/scene_sessions.c"
@@ -16,6 +17,12 @@ idf_component_register(
         "scenes/scene_awaiting.c"
         "push_banner.c"
         "anim/apple_ease.c"
+        "cjk_font.c"
+    EMBED_FILES
+        # Subset SimHei (GB2312 + ASCII, ~2MB) rendered on-device via lv_tiny_ttf.
+        # Gitignored (derived from a system font); regenerate fonts/zh.ttf then
+        # copy to main/zh.ttf.
+        "zh.ttf"
     INCLUDE_DIRS
         "."
         "scenes"

@@ -34,6 +34,7 @@
 #include "scenes.h"
 #include "agent_state.h"
 #include "theme.h"
+#include "cjk_font.h"
 #include "anim/apple_ease.h"
 #include "harness/scene_framework.h"
 
@@ -504,7 +505,8 @@ static void init(scene_t *s, lv_obj_t *parent)
         lv_obj_set_style_text_align(s_ui.ctx_lines[i], LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_long_mode(s_ui.ctx_lines[i], LV_LABEL_LONG_DOT);
         lv_obj_set_style_text_color(s_ui.ctx_lines[i], lv_color_hex(0x8A807A), 0);
-        lv_obj_set_style_text_font(s_ui.ctx_lines[i], &lv_font_montserrat_22, 0);
+        { const lv_font_t *zf = cjk_font(22);   /* CJK-capable; falls back to Latin */
+          lv_obj_set_style_text_font(s_ui.ctx_lines[i], zf ? zf : &lv_font_montserrat_22, 0); }
         lv_label_set_text(s_ui.ctx_lines[i], "");
         lv_obj_add_flag(s_ui.ctx_lines[i], LV_OBJ_FLAG_HIDDEN);
         /* Initial position; tick() re-aligns. */
@@ -520,7 +522,8 @@ static void init(scene_t *s, lv_obj_t *parent)
     lv_obj_set_width(s_ui.summary_marquee, 380);
     lv_label_set_long_mode(s_ui.summary_marquee, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_set_style_text_color(s_ui.summary_marquee, lv_color_hex(0xF3EEE2), 0);
-    lv_obj_set_style_text_font(s_ui.summary_marquee, &lv_font_montserrat_20, 0);
+    { const lv_font_t *zf = cjk_font(20);
+      lv_obj_set_style_text_font(s_ui.summary_marquee, zf ? zf : &lv_font_montserrat_20, 0); }
     lv_obj_set_style_text_align(s_ui.summary_marquee, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(s_ui.summary_marquee, "");
     lv_obj_add_flag(s_ui.summary_marquee, LV_OBJ_FLAG_HIDDEN);
@@ -536,7 +539,8 @@ static void init(scene_t *s, lv_obj_t *parent)
         lv_obj_set_width(s_ui.option_rows[i], 380);
         lv_label_set_long_mode(s_ui.option_rows[i], LV_LABEL_LONG_DOT);
         lv_obj_set_style_text_color(s_ui.option_rows[i], lv_color_hex(0xF3EEE2), 0);
-        lv_obj_set_style_text_font(s_ui.option_rows[i], &lv_font_montserrat_22, 0);
+        { const lv_font_t *zf = cjk_font(22);
+          lv_obj_set_style_text_font(s_ui.option_rows[i], zf ? zf : &lv_font_montserrat_22, 0); }
         lv_obj_set_style_text_align(s_ui.option_rows[i], LV_TEXT_ALIGN_LEFT, 0);
         lv_label_set_text(s_ui.option_rows[i], "");
         lv_obj_add_flag(s_ui.option_rows[i], LV_OBJ_FLAG_HIDDEN);
