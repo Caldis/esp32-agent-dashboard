@@ -215,8 +215,7 @@ static void format_duration(char *buf, size_t cap, uint32_t since_unix, uint32_t
 
 static void format_eyebrow(char *buf, size_t cap, const agent_state_t *st)
 {
-    /* Best effort time string from host_epoch_unix; fallback to just device_name. */
-    const char *name = st->device_name[0] ? st->device_name : "DASHBOARD";
+    /* Time only — device name removed (meaningless on this screen). */
     if (st->host_epoch_unix > 0) {
         uint32_t now = st->host_epoch_unix
                      + (lv_tick_get() - st->host_clock_received_ms) / 1000;
@@ -224,9 +223,9 @@ static void format_eyebrow(char *buf, size_t cap, const agent_state_t *st)
         struct tm tmv;
         time_t tt = (time_t)tz_now;
         gmtime_r(&tt, &tmv);
-        snprintf(buf, cap, "%02d:%02d  %s", tmv.tm_hour, tmv.tm_min, name);
+        snprintf(buf, cap, "%02d:%02d", tmv.tm_hour, tmv.tm_min);
     } else {
-        snprintf(buf, cap, "%s", name);
+        buf[0] = '\0';
     }
 }
 
