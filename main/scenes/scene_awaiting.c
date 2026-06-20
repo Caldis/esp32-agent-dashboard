@@ -295,9 +295,12 @@ static void tick(lv_timer_t *t)
     if (n_ctx > AGENT_AWAITING_CONTEXT_LINES) n_ctx = AGENT_AWAITING_CONTEXT_LINES;
 
     bool show_affordance = (kind == AWAITING_APPROVE);
-    int content_h = GLYPH_H + INTER_GAP
-                  + HEADLINE_H + INTER_GAP
-                  + AGENT_H;
+    /* Drop the decorative glyph when there's real content (summary/options) —
+     * frees ~90px so text isn't cramped against the status bar. The minimal
+     * continue ("your turn") kind keeps its breathing glyph as the focal point. */
+    bool show_glyph = !(has_summary || has_options);
+    int content_h = HEADLINE_H + INTER_GAP + AGENT_H;
+    if (show_glyph)               content_h += GLYPH_H + INTER_GAP;
     if (show_affordance)          content_h += INTER_GAP + AFFORDANCE_H;
     if (has_summary)              content_h += INTER_GAP + SUMMARY_H;
     if (has_options)              content_h += INTER_GAP + n_opts * OPTION_ROW_H;
@@ -313,8 +316,13 @@ static void tick(lv_timer_t *t)
     int y = avail_top + top_pad;
 
     /* Re-align the core group at the new y. */
-    lv_obj_align(s_ui.glyph,      LV_ALIGN_TOP_MID, 0, y);
-    y += GLYPH_H + INTER_GAP;
+    if (show_glyph) {
+        lv_obj_align(s_ui.glyph, LV_ALIGN_TOP_MID, 0, y);
+        lv_obj_clear_flag(s_ui.glyph, LV_OBJ_FLAG_HIDDEN);
+        y += GLYPH_H + INTER_GAP;
+    } else {
+        lv_obj_add_flag(s_ui.glyph, LV_OBJ_FLAG_HIDDEN);
+    }
     lv_obj_align(s_ui.headline,   LV_ALIGN_TOP_MID, 0, y);
     y += HEADLINE_H + INTER_GAP;
     lv_obj_align(s_ui.agent_chip, LV_ALIGN_TOP_MID, 0, y);
