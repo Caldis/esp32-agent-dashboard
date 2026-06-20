@@ -129,6 +129,23 @@ def test_idle_turn_sweep_leaves_fresh_running_alone():
     assert reg.snapshot_v1()["agents"][0]["status"] == "running"
 
 
+def test_multiple_waiting_agents_still_fit_wire_cap():
+    """Two waiting agents (each with awaiting content) must still fit under the
+    wire cap — else the device rejects the oversized line and freezes. Regresses
+    the overnight 'line too long' freeze (phantom + real waiting agent)."""
+    reg = SessionRegistry()
+    for sid in ("aaaa1111", "bbbb2222", "cccc3333"):
+        reg.upsert("claude-code", sid, status="waiting",
+                   cwd="D:\\Code\\esp32-agent-dashboard", msg="> a fairly long user prompt here")
+        reg.set_awaiting("claude-code", sid, kind="continue",
+                         context=["finished its turn"],
+                         summary="x" * 200, options=["opt one", "opt two", "opt three", "opt four"])
+    snap = reg.snapshot_v1()
+    size = len(json.dumps(snap, separators=(",", ":")))
+    assert size <= WIRE_MAX_BYTES, f"snapshot {size} > cap {WIRE_MAX_BYTES}"
+    assert len(snap["agents"]) >= 1
+
+
 def test_session_end_drops_session():
     from claude_buddy_bridge import _build_stack, Settings
     settings = Settings(throttle_ms=250, keepalive_ms=10000, permission_timeout_s=60.0,
@@ -152,7 +169,8 @@ def main() -> int:
              test_device_pusher_real_transport_constructs,
              test_idle_turn_sweep_flips_silent_running_to_your_turn,
              test_idle_turn_sweep_leaves_fresh_running_alone,
-             test_session_end_drops_session]
+             test_session_end_drops_session,
+             test_multiple_waiting_agents_still_fit_wire_cap]
     failures = 0
     for t in tests:
         try:

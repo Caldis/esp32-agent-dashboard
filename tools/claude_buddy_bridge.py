@@ -479,6 +479,29 @@ class SessionRegistry:
             oldest_i, _ = min(droppable, key=lambda x: x[1].get("last_active_unix", 0))
             snap["agents"].pop(oldest_i)
 
+        # Step 5 (hard guarantee): Step 4 never drops a waiting agent, so >1
+        # waiting agent could still leave the snapshot over the cap → the line
+        # exceeds CONSOLE_MAX_LINE and the DEVICE rejects it ("line too long")
+        # and freezes. As a last resort drop oldest agents regardless of status,
+        # always keeping the most-recent waiting one (the takeover anchor) and
+        # never going below a single agent, so the line always fits.
+        while wire_size() > WIRE_MAX_BYTES and len(snap["agents"]) > 1:
+            keep_idx = most_recent_waiting_idx()
+            droppable = [(i, a) for i, a in enumerate(snap["agents"]) if i != keep_idx]
+            if not droppable:
+                break
+            oldest_i, _ = min(droppable, key=lambda x: x[1].get("last_active_unix", 0))
+            snap["agents"].pop(oldest_i)
+        # Final safety: a lone agent still over cap (huge awaiting_summary etc.)
+        # — shrink its variable-length text fields so the line can never exceed.
+        if wire_size() > WIRE_MAX_BYTES and snap["agents"]:
+            a = snap["agents"][0]
+            for fld in ("awaiting_summary", "msg", "cwd"):
+                while wire_size() > WIRE_MAX_BYTES and a.get(fld):
+                    a[fld] = a[fld][:-16] if len(a[fld]) > 16 else ""
+            a.pop("awaiting_options", None) if wire_size() > WIRE_MAX_BYTES else None
+            a.pop("entries", None) if wire_size() > WIRE_MAX_BYTES else None
+
         # Totals were computed over the FULL session set above, but wire-trimming
         # may have dropped agents to fit CONSOLE_MAX_LINE. Recompute from the
         # agents the snapshot actually carries so it is self-consistent — else
@@ -1106,11 +1129,13 @@ def normalize_event(raw: dict) -> dict:
     out: dict[str, Any] = {
         "type": raw.get("type", "raw"),
         "agent": agent,
-        "session_id": (
-            raw.get("session_id")
-            or raw.get("transcript_path", "")
-            or str(raw.get("pid") or os.getpid())
-        ),
+        # No pid fallback: a hook runs as a fresh process per event, so
+        # falling back to its pid invented a NEW phantom session every time an
+        # event arrived without a session_id (e.g. an occasional session-less
+        # Stop) — and that phantom, stuck in awaiting='continue', kept the
+        # device frozen on "your turn" forever. Unattributable events (empty
+        # below) are dropped in Bridge._handle_inner instead.
+        "session_id": (raw.get("session_id") or raw.get("transcript_path", "") or ""),
         "tool_name": raw.get("tool_name", ""),
         "tool_input": raw.get("tool_input") or {},
         "summary": raw.get("summary") or "",
@@ -1203,6 +1228,13 @@ class Bridge:
         t = evt["type"]
         agent = evt["agent"]
         sid = evt["session_id"]
+
+        if not sid:
+            # Unattributable event (no session_id / transcript_path) — e.g. an
+            # occasional session-less Stop. Ignore it: creating a session for it
+            # would be a phantom that never clears and freezes the device on
+            # "your turn". Real per-session events always carry a session_id.
+            return {"continue": True}
 
         if t == "session_start":
             # Session appeared → show it on the device immediately (idle, ball
