@@ -283,17 +283,29 @@ static void tick(lv_timer_t *t)
                            : (strcmp(anchor->kind, "copilot") == 0)     ? "cp"
                            : (strcmp(anchor->kind, "qwen-code") == 0)   ? "qw"
                            :                                              "ag";
-    const char *sid = anchor->session_id;
-    size_t sid_len = strlen(sid);
-    char sid_display[10];
-    if (sid_len <= 6) {
-        snprintf(sid_display, sizeof(sid_display), "%s", sid);
-    } else {
-        /* "abcd:9f" — 4 chars head, colon, 2 chars tail */
-        snprintf(sid_display, sizeof(sid_display), "%.4s:%s",
-                 sid, sid + sid_len - 2);
+    /* Prefer a human-readable name: the project = last path segment of cwd
+     * (e.g. "esp32-agent-dashboard"). The raw session id ("cc 135228" /
+     * UUID) is meaningless to a person, so it's only the fallback when cwd
+     * is unknown. */
+    const char *base = anchor->cwd;
+    for (const char *p = anchor->cwd; *p; ++p) {
+        if (*p == '/' || *p == '\\') base = p + 1;
     }
-    snprintf(chip, sizeof(chip), "%s  %s", short_kind, sid_display);
+    if (base && base[0]) {
+        snprintf(chip, sizeof(chip), "%s  %.26s", short_kind, base);
+    } else {
+        const char *sid = anchor->session_id;
+        size_t sid_len = strlen(sid);
+        char sid_display[10];
+        if (sid_len <= 6) {
+            snprintf(sid_display, sizeof(sid_display), "%s", sid);
+        } else {
+            /* "abcd:9f" — 4 chars head, colon, 2 chars tail */
+            snprintf(sid_display, sizeof(sid_display), "%.4s:%s",
+                     sid, sid + sid_len - 2);
+        }
+        snprintf(chip, sizeof(chip), "%s  %s", short_kind, sid_display);
+    }
     lv_label_set_text(s_ui.agent_chip, chip);
 
     /* v2.4.0: decide layout mode for this frame + compute the dynamic
