@@ -1421,7 +1421,9 @@ class Bridge:
             # mirror; the user acts in their own terminal, not on the device.
             if len(options) >= 2:
                 kind = "pick"
-            self.registry.upsert(agent, sid, status="waiting")
+            # tokens for this turn come from the transcript usage (hook_dispatch
+            # fills evt["tokens"] on Stop) → accumulates into tokens_today.
+            self.registry.upsert(agent, sid, status="waiting", tokens=evt["tokens"])
             self.registry.set_tool_in_flight(agent, sid, False)
             self.registry.set_awaiting(
                 agent, sid,

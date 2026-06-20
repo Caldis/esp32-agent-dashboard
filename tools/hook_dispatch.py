@@ -264,6 +264,39 @@ def _read_last_assistant_text(transcript_path: str) -> str:
     return ""
 
 
+def _read_turn_output_tokens(transcript_path: str) -> int:
+    """Sum output_tokens of the assistant messages in the latest turn (back to
+    the previous user message). CC hooks carry NO token data, so the device's
+    'tokens today' was stuck at 0 — we read it from the transcript's
+    message.usage instead. Approximate (tail-limited), but reflects real output.
+    """
+    if not transcript_path or not os.path.exists(transcript_path):
+        return 0
+    try:
+        with open(transcript_path, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 131072))
+            data = f.read()
+    except OSError:
+        return 0
+    total = 0
+    for ln in reversed(data.decode("utf-8", errors="replace").splitlines()):
+        ln = ln.strip()
+        if not ln:
+            continue
+        try:
+            rec = json.loads(ln)
+        except json.JSONDecodeError:
+            continue
+        role = rec.get("type") or rec.get("role")
+        if role == "user":
+            break                      # turn boundary
+        if role == "assistant":
+            usage = (rec.get("message") or {}).get("usage") or {}
+            total += int(usage.get("output_tokens") or 0)
+    return total
+
+
 def main(argv: list[str]) -> int:
     event_type = argv[1] if len(argv) > 1 else "raw"
     agent = argv[2] if len(argv) > 2 else "claude-code"
@@ -293,6 +326,9 @@ def main(argv: list[str]) -> int:
         ds = _extract_dash_state(last_text)
         if ds:
             payload["dash_state"] = ds
+        # CC hooks carry no token counts; pull this turn's output tokens from the
+        # transcript so the device's "tokens today" isn't stuck at 0.
+        payload.setdefault("tokens", _read_turn_output_tokens(transcript_path))
 
     timeout = PROMPT_TIMEOUT if event_type == "pre_tool_use" else DEFAULT_TIMEOUT
 
