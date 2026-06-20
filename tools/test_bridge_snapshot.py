@@ -146,6 +146,26 @@ def test_multiple_waiting_agents_still_fit_wire_cap():
     assert len(snap["agents"]) >= 1
 
 
+def test_sweep_stale_drops_dead_keeps_fresh_and_recent_awaiting():
+    """Dead sessions get reaped; an awaiting 'your turn' is kept longer but
+    eventually dropped (CC that ended without SessionEnd would else linger)."""
+    import time as _t
+    reg = SessionRegistry()
+    reg.upsert("claude-code", "fresh", status="running")
+    reg.upsert("claude-code", "deadrun", status="running")
+    reg.upsert("claude-code", "yourturn", status="waiting")
+    reg.set_awaiting("claude-code", "yourturn", kind="continue")
+    now = int(_t.time())
+    reg._sessions["claude-code:deadrun"].last_active_unix = now - 400    # >300, no awaiting
+    reg._sessions["claude-code:yourturn"].last_active_unix = now - 400   # >300 but awaiting → keep
+    assert reg.sweep_stale() == 1
+    ids = {a["session_id"] for a in reg.snapshot_v1()["agents"]}
+    assert ids == {"fresh", "yourturn"}, ids
+    reg._sessions["claude-code:yourturn"].last_active_unix = now - 1000  # >900 → drop
+    assert reg.sweep_stale() == 1
+    assert {a["session_id"] for a in reg.snapshot_v1()["agents"]} == {"fresh"}
+
+
 def test_session_end_drops_session():
     from claude_buddy_bridge import _build_stack, Settings
     settings = Settings(throttle_ms=250, keepalive_ms=10000, permission_timeout_s=60.0,
@@ -170,7 +190,8 @@ def main() -> int:
              test_idle_turn_sweep_flips_silent_running_to_your_turn,
              test_idle_turn_sweep_leaves_fresh_running_alone,
              test_session_end_drops_session,
-             test_multiple_waiting_agents_still_fit_wire_cap]
+             test_multiple_waiting_agents_still_fit_wire_cap,
+             test_sweep_stale_drops_dead_keeps_fresh_and_recent_awaiting]
     failures = 0
     for t in tests:
         try:

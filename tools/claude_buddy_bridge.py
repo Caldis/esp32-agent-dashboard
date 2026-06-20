@@ -518,17 +518,23 @@ class SessionRegistry:
         }
         return snap
 
-    def sweep_stale(self, idle_after_s: int = 300) -> int:
-        """Drop sessions idle past `idle_after_s` with no awaiting state.
-        Returns the number dropped. Called periodically by the publisher."""
+    def sweep_stale(self, idle_after_s: int = 300,
+                    awaiting_idle_after_s: int = 900) -> int:
+        """Drop dead sessions. A session with NO activity for `idle_after_s`
+        (running/idle) — likely crashed/killed — is removed. An awaiting
+        ('your turn') session is kept longer (`awaiting_idle_after_s`) so the
+        user has time to attend to it, but is still dropped once clearly
+        abandoned — otherwise a CC session that ended WITHOUT a SessionEnd hook
+        (kill/crash) would, after the idle-turn flip, sit on the device as
+        "your turn" forever and such corpses would accumulate. Reappears on the
+        next prompt. Returns the number dropped."""
         now = int(time.time())
         dropped = 0
         with self._lock:
             stale = [
                 k for k, s in self._sessions.items()
-                if not s.awaiting_kind
-                and s.status != "waiting"
-                and (now - s.last_active_unix) > idle_after_s
+                if (now - s.last_active_unix) >
+                   (awaiting_idle_after_s if s.awaiting_kind else idle_after_s)
             ]
             for k in stale:
                 self._sessions.pop(k, None)
@@ -1055,9 +1061,11 @@ class SnapshotPublisher(threading.Thread):
         since = now - self._last_push_ts
         if self._wake.is_set() and since < self.min_interval:
             return
-        # Flip silent/interrupted turns → "your turn" (CC fires no hook on ESC).
-        # Changes the registry, so the snapshot below differs and gets pushed.
+        # Flip silent/interrupted turns → "your turn" (CC fires no hook on ESC),
+        # and drop dead/abandoned sessions so corpses don't pile up. Both mutate
+        # the registry, so the snapshot below reflects them and gets pushed.
         self.registry.sweep_idle_turns(IDLE_TURN_S)
+        self.registry.sweep_stale()
         snap = self.registry.snapshot_v1()
         snap_json = json.dumps(snap, sort_keys=True)
         changed = snap_json != self._last_snap_json
