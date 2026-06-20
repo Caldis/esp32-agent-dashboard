@@ -176,6 +176,56 @@ def _dry_settings(**over):
     return Settings(**base)
 
 
+def test_full_lifecycle_state_transitions():
+    """End-to-end state machine: every transition the device shows must be
+    correct. This is the regression net so we stop relying on the user to spot
+    'wrong state' — if any of these breaks, CI catches it."""
+    from claude_buddy_bridge import _build_stack
+    bridge, _p, _pub, reg, *_ = _build_stack(_dry_settings())
+
+    def state(sid):
+        for a in reg.snapshot_v1()["agents"]:
+            if a["session_id"] == sid:
+                return (a["status"], a.get("awaiting_kind"))
+        return None
+
+    A = "life"
+    def h(**k):
+        bridge.handle({**k, "agent": "claude-code", "session_id": A})
+
+    h(type="session_start", source="startup")
+    assert state(A) == ("waiting", "continue"), state(A)          # appears, ball in user's court
+    h(type="user_prompt_submit", prompt="x")
+    assert state(A) == ("running", None), state(A)                # thinking
+    h(type="pre_tool_use", tool_name="Bash", tool_input={"command": "ls"})
+    assert state(A) == ("running", None), state(A)
+    h(type="post_tool_use", tool_name="Bash", summary="ok")
+    assert state(A) == ("running", None), state(A)
+    h(type="stop", last_assistant_text="done, your move.")
+    assert state(A) == ("waiting", "continue"), state(A)          # your turn
+    h(type="user_prompt_submit", prompt="again")
+    assert state(A) == ("running", None), state(A)                # ★ ups clears your turn → thinking
+    h(type="stop", last_assistant_text="pick one:\n1. a\n2. b\n3. c")
+    assert state(A) == ("waiting", "pick"), state(A)
+    h(type="stop", last_assistant_text="which environment?")
+    assert state(A) == ("waiting", "type"), state(A)
+    h(type="stop", last_assistant_text="Could you clarify which file?")
+    assert state(A) == ("waiting", "clarify"), state(A)
+    h(type="session_end")
+    assert state(A) is None, state(A)                             # gone → idle
+
+
+def test_sessionless_stop_creates_no_phantom():
+    """A Stop with no session_id must NOT create a pid-phantom that sticks on
+    'your turn' (regression for the recurring stuck-zzz/your-turn)."""
+    from claude_buddy_bridge import _build_stack
+    bridge, _p, _pub, reg, *_ = _build_stack(_dry_settings())
+    bridge.handle({"type": "stop", "agent": "claude-code", "last_assistant_text": "x"})
+    agents = reg.snapshot_v1()["agents"]
+    assert agents == [], agents
+    assert all(not a["session_id"].isdigit() for a in agents)
+
+
 def test_observe_mode_does_not_gate_permissions():
     """Default (observe): a dangerous command is NOT gated by the dashboard —
     returns plain continue (Claude Code's own prompt handles approval), so the
@@ -258,7 +308,9 @@ def main() -> int:
              test_multiple_waiting_agents_still_fit_wire_cap,
              test_sweep_stale_drops_dead_keeps_fresh_and_recent_awaiting,
              test_observe_mode_does_not_gate_permissions,
-             test_gate_mode_gates_permissions]
+             test_gate_mode_gates_permissions,
+             test_full_lifecycle_state_transitions,
+             test_sessionless_stop_creates_no_phantom]
     failures = 0
     for t in tests:
         try:
