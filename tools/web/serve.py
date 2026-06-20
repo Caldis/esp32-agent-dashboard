@@ -335,6 +335,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     bridge_addr: tuple[str, int] = ("127.0.0.1", 7321)
     inject_timeout: float = 70.0
     auto: str = "off"
+    serial: str | None = None       # real device port (None = mock TCP)
+    gate: bool = False              # permission gating on?
 
     # ── helpers ───────────────────────────────────────────────────────
     def _json(self, obj, code: int = 200) -> None:
@@ -477,6 +479,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             "bridge_addr": f"{host}:{port}",
             "bridge_reachable": self._bridge_reachable(),
             "auto": self.auto,
+            "serial": self.serial,
+            "gate": self.gate,
         }
 
     def _bridge_reachable(self) -> bool:
@@ -566,8 +570,13 @@ def main(argv: list[str] | None = None) -> int:
                          "(default: observe — don't stall the agent)")
     args = ap.parse_args(argv)
 
+    # Gate by default in mock mode (web approve/deny demo); observe on a real
+    # serial device (don't stall the live agent). --gate-permissions forces it.
+    gate = args.gate_permissions or not args.serial
     _Handler.bridge_addr = (args.host, args.bridge_port)
     _Handler.auto = args.auto
+    _Handler.serial = args.serial
+    _Handler.gate = gate
 
     # Mock mode: our TCP device IS the device the bridge talks to.
     # Serial mode: the bridge drives the real device but mirrors every line to
@@ -577,11 +586,6 @@ def main(argv: list[str] | None = None) -> int:
 
     bridge_proc = None
     if args.spawn_bridge:
-        # Gate by default in mock mode (so the web approve/deny demo works out of
-        # the box); observe by default on a REAL serial device (don't stall the
-        # live agent ~60s on every dangerous command). --gate-permissions forces
-        # gating in either mode.
-        gate = args.gate_permissions or not args.serial
         bridge_proc = spawn_bridge(args.host, args.device_port, args.bridge_port,
                                    serial=args.serial, gate_permissions=gate)
     elif args.serial:

@@ -24,8 +24,9 @@ dash_init();
 const $ = (id) => document.getElementById(id);
 const elConnDot = $('conn-dot'), elConnText = $('conn-text');
 const elDevice = $('h-device'), elScene = $('h-scene'), elBridge = $('h-bridge');
-const elLink = $('h-link'), elClients = $('h-clients'), elAuto = $('h-auto');
+const elLink = $('h-link'), elClients = $('h-clients'), elMode = $('h-mode');
 const elTotals = $('totals'), elAwaiting = $('awaiting'), elAgents = $('agents');
+const elAgentsCount = $('agents-count');
 const elStateJson = $('statejson'), elFrames = $('frames'), elFramesCount = $('frames-count');
 const elSignals = $('signals'), elHooks = $('hooks');
 
@@ -55,33 +56,37 @@ function render() {
   elScene.textContent = current_scene() || '(none)';
   elDevice.textContent = s.device_name || '—';
 
-  // totals
+  // totals → stat strip
   const t = s.totals || {};
+  const stat = (n, l, cls = '') => `<div class="stat"><div class="n ${cls}">${n}</div><div class="l">${l}</div></div>`;
+  const fmt = (n) => (n ?? 0).toLocaleString('en-US');
   elTotals.innerHTML =
-    `<div class="grid2">` +
-    `<span class="k">total</span><span>${t.total ?? 0}</span>` +
-    `<span class="k">running</span><span class="s-running">${t.running ?? 0}</span>` +
-    `<span class="k">waiting</span><span class="s-waiting">${t.waiting ?? 0}</span>` +
-    `<span class="k">tokens</span><span>${t.tokens ?? 0}</span>` +
-    `<span class="k">tokens_today</span><span>${t.tokens_today ?? 0}</span>` +
-    `<span class="k">owner</span><span>${esc(s.owner)}</span>` +
-    `</div>`;
+    stat(fmt(t.total), 'agents') +
+    stat(fmt(t.running), 'running', t.running ? 'ok' : '') +
+    stat(fmt(t.waiting), 'waiting', t.waiting ? 'warn' : '') +
+    stat(fmt(t.tokens), 'tokens') +
+    stat(fmt(t.tokens_today), 'today');
 
-  // agents detail
+  // agents → cards
   const slots = s.slots || [];
+  elAgentsCount.textContent = slots.length ? `${slots.length} 活跃` : '';
   if (!slots.length) {
     elAgents.innerHTML = '<span class="muted">无活跃 agent</span>';
   } else {
-    let rows = '<table><tr><th>kind</th><th>session</th><th>status</th>' +
-      '<th>awaiting</th><th>tok</th><th>msg / cwd</th></tr>';
-    for (const a of slots) {
-      rows += `<tr><td>${esc(a.kind)}</td><td>${esc(a.session_id)}</td>` +
-        `<td class="s-${a.status}">${esc(a.status)}</td>` +
-        `<td>${a.awaiting && a.awaiting !== 'none' ? esc(a.awaiting) : '<span class="muted">—</span>'}</td>` +
-        `<td>${a.tokens ?? 0}</td>` +
-        `<td>${esc(a.msg)}${a.cwd ? `<br><span class="muted">${esc(a.cwd)}</span>` : ''}</td></tr>`;
-    }
-    elAgents.innerHTML = rows + '</table>';
+    elAgents.innerHTML = slots.map(a => {
+      const k = a.kind === 'claude-code' ? 'cc' : a.kind === 'codex' ? 'cx' : 'ag';
+      const aw = a.awaiting && a.awaiting !== 'none' ? `<span class="aw">${esc(a.awaiting)}</span>` : '';
+      return `<div class="agent">
+        <span class="badge ${k}">${k}</span>
+        <div class="grow">
+          <div class="top"><span class="st st-${esc(a.status)}">${esc(a.status)}</span>${aw}
+            <span class="sid">${esc(a.session_id).slice(0, 14)}</span></div>
+          ${a.msg ? `<div class="msg">${esc(a.msg)}</div>` : ''}
+          ${a.cwd ? `<div class="cwd">${esc(a.cwd)}</div>` : ''}
+        </div>
+        <div class="tok">${fmt(a.tokens)}<small>tok</small></div>
+      </div>`;
+    }).join('');
   }
 
   // awaiting interaction — only while the device reports prompt active
@@ -103,8 +108,9 @@ function renderAwaiting(s) {
   if (p.mode === 'reply') {
     const opts = [p.tool, p.hint].filter(Boolean);
     elAwaiting.innerHTML =
-      `<div class="awaiting"><b>quick-reply</b> <span class="muted">id=${id}</span>` +
-      `<div class="row" style="margin-top:8px">` +
+      `<div class="takeover"><div class="hl">⌶ quick-reply</div>` +
+      `<div class="meta"><span class="k">id</span><span class="mono">${id}</span></div>` +
+      `<div class="row">` +
       opts.map((o, i) => `<button class="opt" data-reply="${i}">${i + 1}. ${esc(o)}</button>`).join('') +
       `</div></div>`;
     elAwaiting.querySelectorAll('button[data-reply]').forEach(b => {
@@ -112,13 +118,14 @@ function renderAwaiting(s) {
     });
   } else {
     elAwaiting.innerHTML =
-      `<div class="awaiting"><b>permission</b> <span class="muted">id=${id}</span>` +
-      `<div class="grid2" style="margin:6px 0">` +
+      `<div class="takeover"><div class="hl">🔒 permission</div>` +
+      `<div class="meta">` +
       `<span class="k">tool</span><span>${esc(p.tool)}</span>` +
-      `<span class="k">hint</span><span>${esc(p.hint)}</span></div>` +
+      `<span class="k">hint</span><span class="mono">${esc(p.hint)}</span>` +
+      `<span class="k">id</span><span class="mono">${id}</span></div>` +
       `<div class="row">` +
-      `<button class="approve" data-dec="once">Approve (once)</button>` +
-      `<button class="deny" data-dec="deny">Deny</button></div></div>`;
+      `<button class="approve" data-dec="once">✓ Approve (once)</button>` +
+      `<button class="deny" data-dec="deny">✕ Deny</button></div></div>`;
     elAwaiting.querySelectorAll('button[data-dec]').forEach(b => {
       b.onclick = () => sendDecision(p.id, b.dataset.dec);
     });
@@ -135,14 +142,27 @@ async function sendReply(id, choice) {
 }
 
 // ── frames + signals logs ────────────────────────────────────────────────────
+function renderFrames() {
+  elFramesCount.textContent = `${frameN} 帧`;
+  if (!frames.length) { elFrames.innerHTML = '<div class="empty">等待 hook/注入事件…</div>'; return; }
+  elFrames.innerHTML = frames.slice(-150).reverse().map(f => {
+    const body = f.line.replace(/^dash\s+\S+\s*/, '');   // strip "dash <verb> " prefix
+    return `<div class="ln"><span class="t">${f.t}</span>` +
+      `<span class="v v-${esc(f.verb)}">${esc(f.verb)}</span>` +
+      `<span class="body">${esc(body.slice(0, 220)) || '·'}</span></div>`;
+  }).join('');
+}
 function pushFrame(line) {
   const verb = line.split(/\s+/)[1] || '?';
   frames.push({ t: now(), verb, line });
   if (frames.length > MAX) frames.shift();
   frameN++;
-  elFramesCount.textContent = `${frameN} 帧`;
-  elFrames.innerHTML = frames.slice(-120).reverse().map(f =>
-    `<div class="ln"><span class="t">${f.t}</span> <span class="v">${esc(f.verb.padEnd(8))}</span> ${esc(f.line.slice(0, 200))}</div>`
+  renderFrames();
+}
+function renderSignals() {
+  if (!signals.length) { elSignals.innerHTML = '<div class="empty">无</div>'; return; }
+  elSignals.innerHTML = signals.slice(-150).reverse().map(x =>
+    `<div class="ln"><span class="t">${x.t}</span> <span class="sig">${esc(x.sig)}</span></div>`
   ).join('');
 }
 function pushSignals(arr) {
@@ -150,11 +170,10 @@ function pushSignals(arr) {
     signals.push({ t: now(), sig });
     if (signals.length > MAX) signals.shift();
   }
-  if (!signals.length) return;
-  elSignals.innerHTML = signals.slice(-120).reverse().map(x =>
-    `<div class="ln"><span class="t">${x.t}</span> <span class="sig">${esc(x.sig)}</span></div>`
-  ).join('');
+  renderSignals();
 }
+$('frames-clear').onclick = () => { frames.length = 0; frameN = 0; renderFrames(); };
+$('signals-clear').onclick = () => { signals.length = 0; renderSignals(); };
 
 // ── SSE: feed every real dash line to the WASM data layer ────────────────────
 const es = new EventSource('/events');
@@ -178,19 +197,26 @@ es.onmessage = (ev) => {
 
 function setConn() {
   elConnDot.className = 'dot ' + (connected ? 'live' : 'off');
-  elConnText.textContent = connected ? 'LIVE' : '已断开(自动重连)';
+  elConnText.textContent = connected ? 'LIVE' : '已断开 · 重连中';
 }
 
 // ── /state poll: bridge/device health for the header ─────────────────────────
+function setPill(el, ok, okText, badText) {
+  el.textContent = ok ? okText : badText;
+  el.className = ok ? 'ok' : 'bad';
+}
 async function pollState() {
   try {
     const st = await (await fetch('/state')).json();
-    elBridge.textContent = st.bridge_reachable ? `✓ ${st.bridge_addr}` : `✗ ${st.bridge_addr}`;
-    elBridge.style.color = st.bridge_reachable ? 'var(--green)' : 'var(--red)';
-    elLink.textContent = st.device_connected ? '✓ connected' : '✗ no bridge';
-    elLink.style.color = st.device_connected ? 'var(--green)' : 'var(--red)';
+    setPill(elBridge, st.bridge_reachable, '✓ ' + st.bridge_addr, '✗ ' + st.bridge_addr);
+    if (st.serial) {                       // real device: bridge owns COM, mirror taps us
+      elLink.textContent = 'serial ' + st.serial; elLink.className = 'ok';
+    } else {
+      setPill(elLink, st.device_connected, '✓ connected', '✗ no bridge');
+    }
     elClients.textContent = st.clients;
-    elAuto.textContent = st.auto;
+    elMode.textContent = (st.serial ? 'real' : 'mock') + ' · ' + (st.gate ? 'gate' : 'observe');
+    elMode.className = st.gate ? 'warn' : '';
   } catch {}
 }
 
@@ -320,11 +346,12 @@ const SCENE_GROUPS = [
 function buildSceneDriver() {
   const host = $('scene-presets');
   for (const g of SCENE_GROUPS) {
+    const wrap = document.createElement('div');
+    wrap.className = 'grp';
     const lbl = document.createElement('div');
-    lbl.className = 'muted';
-    lbl.style.cssText = 'margin:8px 0 3px;font-size:11px';
+    lbl.className = 'lbl';
     lbl.textContent = g.name;
-    host.appendChild(lbl);
+    wrap.appendChild(lbl);
     const row = document.createElement('div');
     row.className = 'row';
     for (const it of g.items) {
@@ -333,7 +360,8 @@ function buildSceneDriver() {
       b.onclick = () => sendDash(it.cmd, it.payload ?? null);
       row.appendChild(b);
     }
-    host.appendChild(row);
+    wrap.appendChild(row);
+    host.appendChild(wrap);
   }
 }
 
