@@ -166,6 +166,40 @@ def test_sweep_stale_drops_dead_keeps_fresh_and_recent_awaiting():
     assert {a["session_id"] for a in reg.snapshot_v1()["agents"]} == {"fresh"}
 
 
+def _dry_settings(**over):
+    from claude_buddy_bridge import Settings
+    base = dict(throttle_ms=250, keepalive_ms=10000, permission_timeout_s=60.0,
+                device_name="x", owner="y", theme="noir", port_kind="tcp",
+                port="127.0.0.1:9999", listen="127.0.0.1:7399", health_poll_s=5.0,
+                dry_run=True)
+    base.update(over)
+    return Settings(**base)
+
+
+def test_observe_mode_does_not_gate_permissions():
+    """Default (observe): a dangerous command is NOT gated by the dashboard —
+    returns plain continue (Claude Code's own prompt handles approval), so the
+    agent never stalls waiting on a device button."""
+    from claude_buddy_bridge import _build_stack
+    bridge, *_ = _build_stack(_dry_settings(gate_permissions=False))
+    res = bridge.handle({"type": "pre_tool_use", "agent": "claude-code",
+                         "session_id": "S", "tool_name": "Bash",
+                         "tool_input": {"command": "rm -rf /tmp/x"}})
+    assert res == {"continue": True}, res
+    assert "hookSpecificOutput" not in res
+
+
+def test_gate_mode_gates_permissions():
+    """gate_permissions=True restores the approve/deny interaction: a dangerous
+    command goes through the permission round-trip (dry-run → deny)."""
+    from claude_buddy_bridge import _build_stack
+    bridge, *_ = _build_stack(_dry_settings(gate_permissions=True))
+    res = bridge.handle({"type": "pre_tool_use", "agent": "claude-code",
+                         "session_id": "S", "tool_name": "Bash",
+                         "tool_input": {"command": "rm -rf /tmp/x"}})
+    assert res.get("hookSpecificOutput", {}).get("permissionDecision") == "deny", res
+
+
 def test_session_end_drops_session():
     from claude_buddy_bridge import _build_stack, Settings
     settings = Settings(throttle_ms=250, keepalive_ms=10000, permission_timeout_s=60.0,
@@ -191,7 +225,9 @@ def main() -> int:
              test_idle_turn_sweep_leaves_fresh_running_alone,
              test_session_end_drops_session,
              test_multiple_waiting_agents_still_fit_wire_cap,
-             test_sweep_stale_drops_dead_keeps_fresh_and_recent_awaiting]
+             test_sweep_stale_drops_dead_keeps_fresh_and_recent_awaiting,
+             test_observe_mode_does_not_gate_permissions,
+             test_gate_mode_gates_permissions]
     failures = 0
     for t in tests:
         try:

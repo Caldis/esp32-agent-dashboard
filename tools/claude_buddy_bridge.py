@@ -1193,11 +1193,20 @@ class Bridge:
         pusher: DevicePusher,
         publisher: SnapshotPublisher,
         permission_timeout_s: float,
+        gate_permissions: bool = False,
     ) -> None:
         self.registry = registry
         self.pusher = pusher
         self.publisher = publisher
         self.permission_timeout_s = permission_timeout_s
+        # When False (default = "observe"), the dashboard does NOT gate tool
+        # permissions — it just shows activity and lets Claude Code's own
+        # permission prompt (in its terminal) handle approval. When True
+        # ("gate"), a permission-required tool blocks here until the device/
+        # browser answers (the approve/deny-via-device interaction feature).
+        # Observe avoids stalling the agent ~60s on every dangerous-looking
+        # command when nobody is watching the device buttons.
+        self.gate_permissions = gate_permissions
 
     def handle(self, raw: dict) -> dict:
         if _DEBUG:
@@ -1291,7 +1300,7 @@ class Bridge:
             # A tool is now in flight (may run for minutes) — exempt from the
             # idle-turn sweep until PostToolUse clears it.
             self.registry.set_tool_in_flight(agent, sid, True)
-            if looks_like_permission_required(evt):
+            if looks_like_permission_required(evt) and self.gate_permissions:
                 prompt = {
                     "id": f"req_{uuid.uuid4().hex[:8]}",
                     "tool": evt["tool_name"],
@@ -1466,6 +1475,7 @@ class Settings:
     health_poll_s: float
     dry_run: bool
     mirror: Optional[str] = None
+    gate_permissions: bool = False
 
     def as_redacted_dict(self) -> dict:
         return {
@@ -1526,6 +1536,7 @@ def build_settings(args) -> Settings:
             cfg.get("health_poll_s"), DEFAULT_HEALTH_POLL_S)),
         dry_run=bool(getattr(args, "dry_run", False)),
         mirror=getattr(args, "mirror", None),
+        gate_permissions=bool(getattr(args, "gate_permissions", False)),
     )
 
 
@@ -1589,6 +1600,7 @@ def _build_stack(settings: Settings):
         pusher=pusher,
         publisher=publisher,
         permission_timeout_s=settings.permission_timeout_s,
+        gate_permissions=settings.gate_permissions,
     )
     return bridge, pusher, publisher, registry, health, setup_state
 
@@ -1879,6 +1891,10 @@ def _add_v1_flags(p):
                    help="don't push to device, print would-be commands")
     p.add_argument("--mirror", default=None, metavar="HOST:PORT",
                    help="also copy every pushed line to this TCP tap (web mirror)")
+    p.add_argument("--gate-permissions", action="store_true",
+                   help="block tool calls until approved via device/browser "
+                        "(default: observe — let Claude Code's own prompt gate, "
+                        "so the agent never stalls waiting on the dashboard)")
 
 
 def main(argv: list[str] | None = None) -> int:

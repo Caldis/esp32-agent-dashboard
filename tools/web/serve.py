@@ -288,7 +288,8 @@ class DeviceServer(threading.Thread):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def spawn_bridge(host: str, device_port: int, bridge_port: int,
-                 serial: str | None = None) -> subprocess.Popen:
+                 serial: str | None = None,
+                 gate_permissions: bool = False) -> subprocess.Popen:
     extra = []
     if serial:
         # Drive a REAL ESP32 over serial (e.g. COM9). The bridge owns the port
@@ -299,6 +300,8 @@ def spawn_bridge(host: str, device_port: int, bridge_port: int,
         extra = ["--mirror", f"{host}:{device_port}"]
     else:
         transport = ["--port-kind", "tcp", "--port", f"{host}:{device_port}"]
+    if gate_permissions:
+        extra += ["--gate-permissions"]
     cmd = [
         sys.executable, str(BRIDGE_SCRIPT), "serve",
         *transport, *extra, "--listen", f"{host}:{bridge_port}",
@@ -558,6 +561,9 @@ def main(argv: list[str] | None = None) -> int:
                          "port (e.g. COM9) instead of the mock TCP device. /dash "
                          "and /inject reach the physical screen (web data mirror "
                          "is off in this mode).")
+    ap.add_argument("--gate-permissions", action="store_true",
+                    help="block tool calls until approved via device/browser "
+                         "(default: observe — don't stall the agent)")
     args = ap.parse_args(argv)
 
     _Handler.bridge_addr = (args.host, args.bridge_port)
@@ -571,8 +577,13 @@ def main(argv: list[str] | None = None) -> int:
 
     bridge_proc = None
     if args.spawn_bridge:
+        # Gate by default in mock mode (so the web approve/deny demo works out of
+        # the box); observe by default on a REAL serial device (don't stall the
+        # live agent ~60s on every dangerous command). --gate-permissions forces
+        # gating in either mode.
+        gate = args.gate_permissions or not args.serial
         bridge_proc = spawn_bridge(args.host, args.device_port, args.bridge_port,
-                                   serial=args.serial)
+                                   serial=args.serial, gate_permissions=gate)
     elif args.serial:
         print("[serve] --serial given without --spawn-bridge: run the bridge "
               "yourself with --port-kind serial --port " + args.serial,
