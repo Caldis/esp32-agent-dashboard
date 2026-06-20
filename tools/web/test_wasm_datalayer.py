@@ -195,6 +195,23 @@ def test_escaped_quote_snapshot_roundtrip():
     print("ok test_escaped_quote_snapshot_roundtrip")
 
 
+def test_control_chars_in_value_escaped():
+    """state_json must escape control chars (newline/tab) inside string values,
+    else it emits invalid JSON (browser JSON.parse: 'Bad control character').
+    A multi-line user prompt in msg used to break the web mirror."""
+    lib = load_lib()
+    _decl_feed(lib)
+    lib.dash_init()
+    payload = {"agents": [{"kind": "claude-code", "session_id": "s",
+                           "status": "running", "msg": "line1\nline2\ttab"}],
+               "totals": {"total": 1}}
+    feed(lib, 'dash snapshot "' + json.dumps(payload, separators=(",", ":")) + '"')
+    raw = lib.state_json().decode("utf-8")
+    s = json.loads(raw)               # must not raise (valid JSON)
+    assert s["slots"][0]["msg"] == "line1\nline2\ttab", s["slots"][0]["msg"]
+    print("ok test_control_chars_in_value_escaped")
+
+
 def test_initial_scene():
     lib = load_lib()
     _decl_feed(lib)            # 声明 current_scene 等
@@ -239,6 +256,7 @@ if __name__ == "__main__":
     test_slot_overflow()
     test_signals()
     test_escaped_quote_snapshot_roundtrip()
+    test_control_chars_in_value_escaped()
     test_initial_scene()
     test_tokenise_pathological()
     print("ALL PASS")

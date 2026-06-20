@@ -76,12 +76,28 @@ static size_t json_str(char *dst, size_t cap, const char *src) {
      * 即已越界,故 cap<3 时走空字符串路径。 */
     if (cap < 3) { if (cap) dst[0] = '\0'; return 0; }
     dst[n++] = '"';
-    /* 每个字符最多写 2 字节(转义字符),退出时要留 闭合"(1) + NUL(1) = 2 字节 */
+    /* 转义 "、\ 与所有控制字符(< 0x20)。控制字符若原样输出会产生非法 JSON
+     * (浏览器 JSON.parse 报 "Bad control character"),例如多行 msg 里的换行。
+     * \n\r\t 用短转义(2 字节),其余控制字符用 \u00XX(6 字节)。退出时需留
+     * 闭合"(1) + NUL(1) = 2 字节。 */
+    static const char HEX[] = "0123456789abcdef";
     for (const char *p = src; *p; ++p) {
-        int need = (*p == '"' || *p == '\\') ? 2 : 1;
+        unsigned char c = (unsigned char)*p;
+        int need;
+        if (c == '"' || c == '\\' || c == '\n' || c == '\r' || c == '\t') need = 2;
+        else if (c < 0x20) need = 6;
+        else need = 1;
         if (n + need + 2 > cap) break; /* 确保退出后还有闭合"和NUL的位置 */
-        if (*p == '"' || *p == '\\') dst[n++] = '\\';
-        dst[n++] = *p;
+        if (c == '"' || c == '\\') { dst[n++] = '\\'; dst[n++] = (char)c; }
+        else if (c == '\n') { dst[n++] = '\\'; dst[n++] = 'n'; }
+        else if (c == '\r') { dst[n++] = '\\'; dst[n++] = 'r'; }
+        else if (c == '\t') { dst[n++] = '\\'; dst[n++] = 't'; }
+        else if (c < 0x20) {
+            dst[n++] = '\\'; dst[n++] = 'u'; dst[n++] = '0'; dst[n++] = '0';
+            dst[n++] = HEX[(c >> 4) & 0xf]; dst[n++] = HEX[c & 0xf];
+        } else {
+            dst[n++] = (char)c;
+        }
     }
     dst[n++] = '"';  /* 闭合引号,此时 n <= cap-1 */
     dst[n]   = '\0'; /* NUL 终止,此时 n <= cap-1,所以 dst[n] 合法 */
