@@ -94,6 +94,9 @@ function render() {
   if (!active) currentPrompt = null;
   renderAwaiting(s);
 
+  // device state machine (debug)
+  renderDeviceState(s);
+
   // full state
   elStateJson.textContent = JSON.stringify(s, null, 2);
 }
@@ -130,6 +133,99 @@ function renderAwaiting(s) {
       b.onclick = () => sendDecision(p.id, b.dataset.dec);
     });
   }
+}
+
+// ── device state machine (debug) ─────────────────────────────────────────────
+// Infers what the DEVICE is showing (zzz / thinking / your turn / pick / …) from
+// the same mirror data, records each transition (which signal moved it, when),
+// and draws the full state graph so you can see the current state, where it can
+// go next, and why it did / didn't move. Mirrors the firmware's scene logic:
+// esp32_main scene tick (awaiting) + agent_commands cmd_snapshot (idle/dashboard).
+const elDevCur = $('dev-current'), elDevGraph = $('dev-graph'), elDevHist = $('dev-history');
+let lastFedLine = '';
+let devState = null;
+const devHistory = [];
+
+const DEV_STATES = {
+  idle:     { label: 'zzz 睡眠',  cls: 's-idle',    desc: '无活跃 agent(total=0)' },
+  thinking: { label: 'thinking',  cls: 's-running', desc: '有 agent 运行中;平时呼吸动画,有新工具活动自动显示明细 6s 再回落' },
+  continue: { label: 'your turn', cls: 's-waiting', desc: 'agent 结束回合,球在你这边' },
+  pick:     { label: 'pick 选项', cls: 's-waiting', desc: 'agent 给了编号选项(展示)' },
+  type:     { label: 'type 输入', cls: 's-waiting', desc: 'agent 问了开放问题' },
+  clarify:  { label: 'clarify',   cls: 's-waiting', desc: 'agent 请求澄清' },
+  approve:  { label: 'approve',   cls: 's-waiting', desc: '权限请求(observe 模式少见)' },
+  prompt:   { label: 'prompt',    cls: 's-waiting', desc: 'dash prompt 权限 takeover' },
+};
+// outgoing edges: what makes a state leave, and to where
+const DEV_EDGES = {
+  idle:     [{ to: 'thinking', cond: '收到 snapshot 且 total>0(首个 agent)' }],
+  thinking: [{ to: 'continue', cond: 'Stop · 分类 continue' },
+             { to: 'pick',     cond: 'Stop · 检测到编号选项' },
+             { to: 'type',     cond: 'Stop · 问句结尾' },
+             { to: 'clarify',  cond: 'Stop · 澄清关键词' },
+             { to: 'idle',     cond: 'total→0(全部结束 / SessionEnd)' }],
+  continue: [{ to: 'thinking', cond: '你提交 / agent 调工具(清 awaiting)' },
+             { to: 'idle',     cond: 'total→0' }],
+  pick:     [{ to: 'thinking', cond: '你提交 / 调工具' }, { to: 'idle', cond: 'total→0' }],
+  type:     [{ to: 'thinking', cond: '你提交 / 调工具' }, { to: 'idle', cond: 'total→0' }],
+  clarify:  [{ to: 'thinking', cond: '你提交 / 调工具' }, { to: 'idle', cond: 'total→0' }],
+  approve:  [{ to: 'thinking', cond: '决策完成' }, { to: 'idle', cond: 'total→0' }],
+  prompt:   [{ to: 'thinking', cond: 'prompt 清除(snapshot prompt:null)' }],
+};
+
+function deviceState(s) {
+  const t = s.totals || {}, slots = s.slots || [];
+  if (s.prompt && s.prompt.active) return 'prompt';
+  const aw = slots.find(a => a.awaiting && a.awaiting !== 'none');
+  if (aw) return DEV_STATES[aw.awaiting] ? aw.awaiting : 'continue';
+  if ((t.total || 0) === 0) return 'idle';
+  return 'thinking';
+}
+
+function renderDeviceState(s) {
+  const key = deviceState(s);
+  if (devState !== key) {
+    const verb = lastFedLine ? (lastFedLine.split(/\s+/)[1] || '?') : '(初始)';
+    // Semantic reason: the device only ever receives `snapshot`, so the raw verb
+    // is uninformative. Use the matching from→to edge condition as the "why".
+    let reason = verb === '(初始)' ? '初始状态' : '';
+    if (devState && DEV_EDGES[devState]) {
+      const e = DEV_EDGES[devState].find(x => x.to === key);
+      if (e) reason = e.cond;
+    }
+    if (!reason) reason = verb + ' 信号';
+    devHistory.push({ t: now(), from: devState, to: key, sig: verb, reason });
+    if (devHistory.length > 200) devHistory.shift();
+    devState = key;
+  }
+  const st = DEV_STATES[key] || { label: key, cls: '', desc: '' };
+  const last = devHistory[devHistory.length - 1];
+  const lbl = (k) => DEV_STATES[k] ? DEV_STATES[k].label : (k || '∅');
+
+  const edges = (DEV_EDGES[key] || []).map(e =>
+    `<div class="e">→ <b>${esc(lbl(e.to))}</b> <span class="ed">当 ${esc(e.cond)}</span></div>`).join('');
+  elDevCur.innerHTML =
+    `<div class="dev-now"><div class="name ${st.cls}">${esc(st.label)}</div>` +
+    `<div class="by">${esc(st.desc)}</div>` +
+    `<div class="by">触发原因 <b style="color:var(--teal)">${esc(last ? last.reason : '—')}</b>` +
+    (last && last.from ? ` · 从 <b>${esc(lbl(last.from))}</b> 转入` : '') +
+    (last ? ` · ${esc(last.t)}` : '') +
+    (last && last.sig ? ` <span class="ed">(底层 ${esc(last.sig)})</span>` : '') + `</div>` +
+    `<div class="next"><span class="muted">下一步可能:</span>${edges || ' (终态)'}</div></div>`;
+
+  elDevGraph.innerHTML = '<div class="sm">' + Object.keys(DEV_STATES).map(k => {
+    const node = DEV_STATES[k];
+    const ed = (DEV_EDGES[k] || []).map(e => `<span class="ed">→ ${esc(lbl(e.to))}</span>`).join('');
+    return `<div class="sm-node ${k === key ? 'on' : ''}"><div class="t ${node.cls}">` +
+      `${esc(node.label)}${k === key ? '  ◀ 当前' : ''}</div>` +
+      `<div class="d">${esc(node.desc)}</div>` +
+      `<div class="edges">${ed || '<span class="ed">(终态)</span>'}</div></div>`;
+  }).join('') + '</div>';
+
+  elDevHist.innerHTML = devHistory.slice(-60).reverse().map(h =>
+    `<div class="ln"><span class="t">${h.t}</span> <span class="body">${esc(lbl(h.from))} → ` +
+    `<b>${esc(lbl(h.to))}</b> <span class="ed">${esc(h.reason || h.sig)}</span></span></div>`
+  ).join('') || '<div class="empty">无</div>';
 }
 
 async function sendDecision(id, decision) {
@@ -184,6 +280,7 @@ es.onmessage = (ev) => {
   try { line = JSON.parse(ev.data); } catch { line = ev.data; }
   if (typeof line !== 'string') return;
   pushFrame(line);
+  lastFedLine = line;              // newest signal — attributes state transitions
   if (line.includes(' prompt ')) {
     const p = parsePromptPayload(line);
     if (p && p.id) currentPrompt = p;
