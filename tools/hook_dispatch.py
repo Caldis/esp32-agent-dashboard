@@ -71,6 +71,35 @@ def _dlog(msg: str) -> None:
         pass
 
 
+# Targeted debug mode. If $TEMP/hook_dispatch_target.json exists, it scopes which
+# sessions reach the bridge — used to silence the main session while debugging so
+# the device reflects only the test input (events from other sources, e.g.
+# /inject which goes straight to the bridge). Shapes:
+#   {"only":    ["<sid-prefix>", ...]}   forward ONLY these sessions
+#   {"exclude": ["<sid-prefix>", ...]}   forward all EXCEPT these
+# Absent/invalid → forward everything (normal operation).
+_TARGET_FILE = os.path.join(
+    os.environ.get("TEMP", os.environ.get("TMPDIR", "/tmp")),
+    "hook_dispatch_target.json",
+)
+
+
+def _forward_allowed(payload: dict) -> bool:
+    try:
+        if not os.path.exists(_TARGET_FILE):
+            return True
+        with open(_TARGET_FILE, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+    except (OSError, json.JSONDecodeError, ValueError):
+        return True
+    sid = str(payload.get("session_id", ""))
+    only = cfg.get("only")
+    if only:
+        return any(sid.startswith(p) for p in only)
+    excl = cfg.get("exclude") or []
+    return not any(sid.startswith(p) for p in excl)
+
+
 def _passthrough(reason: str = "") -> int:
     """Always-safe fallback response if the bridge is unreachable."""
     out: dict = {"continue": True}
@@ -268,6 +297,9 @@ def main(argv: list[str]) -> int:
     timeout = PROMPT_TIMEOUT if event_type == "pre_tool_use" else DEFAULT_TIMEOUT
 
     sid = str(payload.get("session_id", ""))[:10]
+    if not _forward_allowed(payload):
+        _dlog(f"{event_type} {sid} FILTERED(targeted-debug) -> passthrough")
+        return _passthrough()
     if _cb_is_open():
         _dlog(f"{event_type} {sid} CB_OPEN -> drop")
         return _passthrough("circuit breaker open — bridge skipped")
