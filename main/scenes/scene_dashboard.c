@@ -58,8 +58,23 @@ typedef struct {
     lv_obj_t *footer_right;      /* "N.Nk tokens" */
     lv_obj_t *footer_caption_l;
     lv_obj_t *footer_caption_r;
+    /* v2.8.0: two view modes. AMBIENT (default) is a calm "thinking" pulse —
+     * the small round screen doesn't need the full tool/thought firehose at
+     * rest. Tapping the screen reveals DETAILED (the feed rows above); after
+     * DETAIL_TIMEOUT_MS with no tap it relaxes back to AMBIENT. */
+    lv_obj_t *touch_layer;       /* full-screen transparent tap catcher (top z) */
+    lv_obj_t *ambient_grp;       /* container: ring + dot + label + hint */
+    lv_obj_t *ambient_ring;
+    lv_obj_t *ambient_dot;       /* breathing inner dot (animated) */
+    lv_obj_t *ambient_lbl;       /* "thinking…" / "N agents working" */
+    lv_obj_t *ambient_hint;      /* "tap for detail" */
+    bool      detailed;          /* current mode */
+    bool      breath_armed;
+    uint32_t  last_tap_ms;
     lv_timer_t *timer;
 } dash_t;
+
+#define DETAIL_TIMEOUT_MS  10000   /* auto-relax to ambient after this idle */
 
 /* Flat entry for aggregation. */
 typedef struct {
@@ -184,6 +199,57 @@ static void format_tokens(char *buf, size_t cap, uint64_t tok)
 #define COL_MOSS_OK    0x588A5C
 #define COL_GOLD_WARN  0xB89020
 
+/* ── Ambient "thinking" view + mode switch ───────────────────────── */
+
+static void anim_breath_size(void *obj, int32_t v)
+{
+    lv_obj_set_size((lv_obj_t *)obj, v, v);
+    lv_obj_center((lv_obj_t *)obj);
+}
+
+static void arm_breath(dash_t *d)
+{
+    if (d->breath_armed || !d->ambient_dot) return;
+    d->breath_armed = 1;
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, d->ambient_dot);
+    lv_anim_set_values(&a, 16, 34);
+    lv_anim_set_time(&a, 1500);
+    lv_anim_set_playback_time(&a, 1500);
+    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+    lv_anim_set_exec_cb(&a, anim_breath_size);
+    lv_anim_start(&a);
+}
+
+/* Show ambient (detailed=false) or detailed feed (detailed=true). The feed
+ * rows themselves are populated/hidden by tick(); here we just toggle the
+ * ambient group and remember the mode + tap time. */
+static void set_mode(dash_t *d, bool detailed)
+{
+    d->detailed = detailed;
+    d->last_tap_ms = lv_tick_get();
+    if (detailed) {
+        lv_obj_add_flag(d->ambient_grp, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_clear_flag(d->ambient_grp, LV_OBJ_FLAG_HIDDEN);
+        /* hide all feed rows immediately so they don't flash under ambient */
+        for (int i = 0; i < FEED_ROWS_MAX; ++i) {
+            lv_obj_add_flag(d->row_verb[i],  LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(d->row_label[i], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+}
+
+static void on_tap(lv_event_t *e)
+{
+    dash_t *d = (dash_t *)lv_event_get_user_data(e);
+    if (!d) return;
+    /* Any tap reveals detail and (re)starts the 10s relax timer. */
+    set_mode(d, true);
+}
+
 /* ── Tick ────────────────────────────────────────────────────────── */
 
 static void tick(lv_timer_t *t)
@@ -194,14 +260,40 @@ static void tick(lv_timer_t *t)
     agent_state_lock();
     agent_state_t *st = agent_state_get();
 
-    /* Header */
+    /* Header (shared by both modes) */
     char clock[16];
     format_clock(clock, sizeof(clock), st);
     lv_label_set_text(d->time_lbl, clock);
     lv_label_set_text(d->device_lbl,
                       st->device_name[0] ? st->device_name : "DASHBOARD");
 
-    /* Feed */
+    int active_now = st->running + st->waiting;
+
+    /* Auto-relax: detail mode times out back to ambient after no taps. */
+    if (d->detailed &&
+        (lv_tick_get() - d->last_tap_ms) > DETAIL_TIMEOUT_MS) {
+        set_mode(d, false);
+    }
+
+    /* AMBIENT mode: just update the thinking label + footer, skip the feed. */
+    if (!d->detailed) {
+        const char *verb = (st->running > 0) ? "thinking" :
+                           (active_now > 0)  ? "your turn" : "idle";
+        char amb[32];
+        if (st->running > 1) snprintf(amb, sizeof(amb), "%d agents working", st->running);
+        else                 snprintf(amb, sizeof(amb), "%s", verb);
+        lv_label_set_text(d->ambient_lbl, amb);
+
+        char left[24], tok_str[16];
+        snprintf(left, sizeof(left), "%d", active_now);
+        format_tokens(tok_str, sizeof(tok_str), st->tokens_today);
+        lv_label_set_text(d->footer_left,  left);
+        lv_label_set_text(d->footer_right, tok_str);
+        agent_state_unlock();
+        return;
+    }
+
+    /* Feed (detailed mode only) */
     feed_entry_t feed[FEED_ROWS_MAX];
     int n = collect_feed(feed, FEED_ROWS_MAX);
 
@@ -344,6 +436,59 @@ static void init(scene_t *s, lv_obj_t *parent)
     lv_label_set_text(d->footer_caption_r, "tokens today");
     lv_obj_set_pos(d->footer_caption_r, 284, FOOTER_CAP_Y);
 
+    /* AMBIENT group — calm thinking pulse, shown by default. Centered ring
+     * with a breathing inner dot + a status word + a "tap for detail" hint. */
+    d->ambient_grp = lv_obj_create(parent);
+    lv_obj_remove_style_all(d->ambient_grp);
+    lv_obj_set_size(d->ambient_grp, SCREEN_W, 230);
+    lv_obj_align(d->ambient_grp, LV_ALIGN_TOP_MID, 0, 150);
+    lv_obj_clear_flag(d->ambient_grp, LV_OBJ_FLAG_SCROLLABLE);
+
+    d->ambient_ring = lv_obj_create(d->ambient_grp);
+    lv_obj_set_size(d->ambient_ring, 96, 96);
+    lv_obj_align(d->ambient_ring, LV_ALIGN_TOP_MID, 0, 6);
+    lv_obj_set_style_bg_opa(d->ambient_ring, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_radius(d->ambient_ring, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_border_color(d->ambient_ring, lv_color_hex(COL_TEAL), 0);
+    lv_obj_set_style_border_width(d->ambient_ring, 2, 0);
+    lv_obj_set_style_border_opa(d->ambient_ring, LV_OPA_40, 0);
+    lv_obj_clear_flag(d->ambient_ring, LV_OBJ_FLAG_SCROLLABLE);
+
+    d->ambient_dot = lv_obj_create(d->ambient_ring);
+    lv_obj_set_size(d->ambient_dot, 18, 18);
+    lv_obj_center(d->ambient_dot);
+    lv_obj_set_style_bg_color(d->ambient_dot, lv_color_hex(COL_TEAL), 0);
+    lv_obj_set_style_bg_opa(d->ambient_dot, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(d->ambient_dot, 0, 0);
+    lv_obj_set_style_radius(d->ambient_dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_clear_flag(d->ambient_dot, LV_OBJ_FLAG_SCROLLABLE);
+
+    d->ambient_lbl = lv_label_create(d->ambient_grp);
+    lv_obj_set_style_text_color(d->ambient_lbl, lv_color_hex(COL_TEXT), 0);
+    lv_obj_set_style_text_font(d->ambient_lbl, &lv_font_montserrat_28, 0);
+    lv_label_set_text(d->ambient_lbl, "thinking");
+    lv_obj_align(d->ambient_lbl, LV_ALIGN_TOP_MID, 0, 122);
+
+    d->ambient_hint = lv_label_create(d->ambient_grp);
+    lv_obj_set_style_text_color(d->ambient_hint, lv_color_hex(COL_INK_MUTE), 0);
+    lv_obj_set_style_text_font(d->ambient_hint, &lv_font_montserrat_12, 0);
+    lv_label_set_text(d->ambient_hint, "tap for detail");
+    lv_obj_align(d->ambient_hint, LV_ALIGN_TOP_MID, 0, 168);
+
+    /* Full-screen transparent tap catcher, kept on top so a tap anywhere
+     * toggles into detail. Dashboard has no other interactive elements. */
+    d->touch_layer = lv_obj_create(parent);
+    lv_obj_remove_style_all(d->touch_layer);
+    lv_obj_set_size(d->touch_layer, SCREEN_W, SCREEN_H);
+    lv_obj_set_pos(d->touch_layer, 0, 0);
+    lv_obj_add_flag(d->touch_layer, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(d->touch_layer, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(d->touch_layer, on_tap, LV_EVENT_CLICKED, d);
+    lv_obj_move_foreground(d->touch_layer);
+
+    arm_breath(d);
+    d->detailed = false;   /* start in ambient */
+
     d->timer = lv_timer_create(tick, 500, d);
     lv_timer_pause(d->timer);
 }
@@ -352,6 +497,8 @@ static void on_show(scene_t *s)
 {
     dash_t *d = (dash_t *)s->user_data;
     if (!d) return;
+    set_mode(d, false);              /* always (re)enter at the calm view */
+    if (d->touch_layer) lv_obj_move_foreground(d->touch_layer);
     if (d->timer) {
         lv_timer_resume(d->timer);
         tick(d->timer);
