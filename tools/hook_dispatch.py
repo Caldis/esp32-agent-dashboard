@@ -24,17 +24,23 @@ import sys
 
 DEFAULT_HOST = os.environ.get("CLAUDE_BUDDY_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.environ.get("CLAUDE_BUDDY_PORT", "7321"))
-# v1: 5s for non-PreToolUse events (never block CC for longer); the bridge
-# itself replies within ~1ms in the common case.
-DEFAULT_TIMEOUT = float(os.environ.get("CLAUDE_BUDDY_TIMEOUT", "5.0"))
-# v1: PreToolUse permission round-trip can take up to 60 s (user has to
-# physically tap a button on the device, default permission-timeout-s).
-PROMPT_TIMEOUT = float(os.environ.get("CLAUDE_BUDDY_PROMPT_TIMEOUT", "60.0"))
+# 3s for non-PreToolUse events — the bridge replies within ~1ms in the common
+# case; this is just the "bridge is wedged/down" ceiling before we pass through.
+DEFAULT_TIMEOUT = float(os.environ.get("CLAUDE_BUDDY_TIMEOUT", "3.0"))
+# PreToolUse timeout. Was 60s for the device approve/deny round-trip — but the
+# device is observe-only by default now (it never gates), so the bridge replies
+# instantly and 60s only ever fired when the bridge was wedged (e.g. mid-restart)
+# — blocking the AGENT for a full minute per tool call and tripping the breaker.
+# 8s is plenty for observe; raise CLAUDE_BUDDY_PROMPT_TIMEOUT only if you run a
+# gate-mode device that needs time for a physical button press.
+PROMPT_TIMEOUT = float(os.environ.get("CLAUDE_BUDDY_PROMPT_TIMEOUT", "8.0"))
 
-# v2.7.0 circuit breaker: N consecutive timeouts in W seconds → skip for M seconds.
+# circuit breaker: N consecutive timeouts in W seconds → skip for M seconds.
+# Cooldown kept short (20s) so a transient bridge restart doesn't black-hole
+# hooks (and the device) for a whole minute afterwards.
 CB_THRESHOLD = int(os.environ.get("CLAUDE_BUDDY_CB_THRESHOLD", "3"))
 CB_WINDOW_S = float(os.environ.get("CLAUDE_BUDDY_CB_WINDOW", "30.0"))
-CB_COOLDOWN_S = float(os.environ.get("CLAUDE_BUDDY_CB_COOLDOWN", "60.0"))
+CB_COOLDOWN_S = float(os.environ.get("CLAUDE_BUDDY_CB_COOLDOWN", "20.0"))
 _CB_STATE_FILE = os.path.join(
     os.environ.get("TEMP", os.environ.get("TMPDIR", "/tmp")),
     "claude_buddy_cb.json",
