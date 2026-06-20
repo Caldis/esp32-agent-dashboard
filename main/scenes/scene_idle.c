@@ -12,6 +12,7 @@
 #include "scenes.h"
 #include "agent_state.h"
 #include "theme.h"
+#include "status_bar.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -22,6 +23,7 @@
 #define PERIOD_MS   2400u
 
 typedef struct {
+    status_bar_t sb;              /* shared top time + bottom active/tokens */
     lv_obj_t   *dot;
     lv_obj_t   *zzz_a;
     lv_obj_t   *zzz_b;
@@ -98,6 +100,9 @@ static void idle_tick(lv_timer_t *t)
 {
     idle_state_t *st = (idle_state_t *)lv_timer_get_user_data(t);
     if (!st) return;
+    agent_state_lock();
+    status_bar_update(&st->sb, agent_state_get());
+    agent_state_unlock();
     uint32_t now = lv_tick_get();
     uint32_t phase = now - st->t0_ms;
 
@@ -134,6 +139,8 @@ static void idle_init(scene_t *s, lv_obj_t *parent)
     s->user_data = st;
     st->t0_ms = lv_tick_get();
     st->last_sub_state = -1;
+
+    status_bar_create(parent, &st->sb);
 
     /* Soft dot */
     st->dot = lv_obj_create(parent);

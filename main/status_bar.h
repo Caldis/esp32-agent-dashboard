@@ -1,0 +1,18 @@
+#pragma once
+#include "lvgl.h"
+#include "agent_state.h"
+
+/* Shared status bar — top time + bottom active/token, identical across every
+ * scene. Each scene owns one on its root: call status_bar_create() in init()
+ * and status_bar_update() in tick(). One definition = one consistent style and
+ * placement everywhere (vs each scene drawing its own header/footer). */
+typedef struct {
+    lv_obj_t *time_lbl;     /* "HH:MM" top-center, 48pt */
+    lv_obj_t *active_num;   /* active count, footer-left, teal 28pt */
+    lv_obj_t *active_cap;   /* "active" caption */
+    lv_obj_t *token_num;    /* tokens today, footer-right, 28pt */
+    lv_obj_t *token_cap;    /* "tokens today" caption */
+} status_bar_t;
+
+void status_bar_create(lv_obj_t *parent, status_bar_t *sb);
+void status_bar_update(status_bar_t *sb, const agent_state_t *st);
