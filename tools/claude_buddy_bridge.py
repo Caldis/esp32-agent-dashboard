@@ -1382,20 +1382,22 @@ class Bridge:
             # prefer summary when present.
             if summary:
                 ctx = [summary[:48]]
+            # Options (if any) are now DISPLAY-ONLY: the device shows them as a
+            # numbered list ("pick") but does NOT round-trip a choice back. The
+            # old 2-option path pushed an interactive reply-prompt + wrote the
+            # picked text to the clipboard — that was a device-side synchronous
+            # interaction, which we've stopped. The device is a one-way status
+            # mirror; the user acts in their own terminal, not on the device.
+            if len(options) >= 2:
+                kind = "pick"
             self.registry.upsert(agent, sid, status="waiting")
             self.registry.set_tool_in_flight(agent, sid, False)
-
-            if len(options) == 2:
-                self.publisher.bump()
-                req_id = f"rpl_{uuid.uuid4().hex[:8]}"
-                self.pusher.push_reply_prompt(req_id, options)
-            else:
-                self.registry.set_awaiting(
-                    agent, sid,
-                    kind=kind, context=ctx,
-                    summary=summary, options=options,
-                )
-                self.publisher.bump()
+            self.registry.set_awaiting(
+                agent, sid,
+                kind=kind, context=ctx,
+                summary=summary, options=options,
+            )
+            self.publisher.bump()
             return {"continue": True}
 
         if t == "assistant_event":
