@@ -215,6 +215,23 @@ def test_full_lifecycle_state_transitions():
     assert state(A) is None, state(A)                             # gone → idle
 
 
+def test_push_sends_cjk_as_raw_utf8():
+    """Regression: the device's tiny_json can't decode \\uXXXX, so the bridge
+    must send CJK as raw UTF-8 (ensure_ascii=False). Guards against reverting to
+    the json.dumps default that turned 下一步 into \\u4e0b... (rendered as ?)."""
+    from claude_buddy_bridge import _build_stack
+    bridge, pusher, *_ = _build_stack(_dry_settings())
+    captured = []
+    pusher._mirror_write = lambda line: captured.append(line)
+    pusher.push("snapshot", {"agents": [{"kind": "claude-code", "session_id": "z",
+                "status": "waiting", "awaiting_kind": "pick",
+                "awaiting_summary": "下一步怎么走"}], "totals": {"total": 1}})
+    assert captured, "push emitted no line"
+    line = captured[0]
+    assert "下一步怎么走" in line, line          # raw UTF-8 on the wire
+    assert "\\u4e0b" not in line, line           # NOT \\uXXXX escaped
+
+
 def test_sessionless_stop_creates_no_phantom():
     """A Stop with no session_id must NOT create a pid-phantom that sticks on
     'your turn' (regression for the recurring stuck-zzz/your-turn)."""
@@ -310,7 +327,8 @@ def main() -> int:
              test_observe_mode_does_not_gate_permissions,
              test_gate_mode_gates_permissions,
              test_full_lifecycle_state_transitions,
-             test_sessionless_stop_creates_no_phantom]
+             test_sessionless_stop_creates_no_phantom,
+             test_push_sends_cjk_as_raw_utf8]
     failures = 0
     for t in tests:
         try:
