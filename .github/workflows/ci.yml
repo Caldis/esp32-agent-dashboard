@@ -90,6 +90,14 @@ jobs:
           wait $MOCK_PID 2>/dev/null || true
           echo "$REPLY" | grep -q "^OK"
 
+      - name: Host tests — runtime, classifier, snapshot, hook_dispatch
+        run: |
+          set -euo pipefail
+          python tools/test_bridge_runtime.py
+          python tools/test_awaiting_classifier.py
+          python tools/test_bridge_snapshot.py
+          python tools/test_hook_dispatch.py
+
       - name: Bridge replay — dry run (asserts dash commands emitted)
         run: |
           set -euo pipefail
