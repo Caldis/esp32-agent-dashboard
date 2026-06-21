@@ -7,10 +7,10 @@
 #
 # Firmware build is NOT in CI — cross-compiling ESP-IDF for ESP32-S3
 # inside a Linux GitHub-Actions runner is slow and runner-image-fragile.
-# The firmware-side parser is exercised through mock_device.py (which
-# mirrors components/aurora-harness/src/console_protocol.c's tokeniser
-# exactly). Real-hardware verification happens at release time via
-# tools/smoke.ps1.
+# The firmware-side parser is exercised through tools/mock_device_v1.py
+# (which mirrors esp-harness-core's console_protocol.c tokeniser exactly).
+# Real-hardware verification is manual: `python -m esp_harness build|flash|
+# screenshot` from PowerShell (see tools/web/README.md).
 
 name: bridge roundtrip
 
