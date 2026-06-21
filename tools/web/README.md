@@ -48,12 +48,26 @@ e.g. `./launch.ps1 COM9`.
 | `CLAUDE_BUDDY_IDLE_TURN_S` | 60 | a silent running agent flips to "your turn" after this (ESC/stall fallback — CC fires no hook on interrupt) |
 | `CLAUDE_BUDDY_DEBUG=1` | off | bridge logs every received event + every line pushed (with OVERSIZE flag) |
 | `hook_dispatch_debug.on` | off | `touch $TEMP/hook_dispatch_debug.on` → hook_dispatch logs each call's outcome to `$TEMP/hook_dispatch_debug.log` |
+| `hook_dispatch_target.json` | off | `$TEMP/hook_dispatch_target.json` with `{"exclude":["<sid-prefix>"]}` or `{"only":[...]}` scopes which sessions reach the bridge. Silence your own session while debugging so the device reflects ONLY test input (e.g. `/inject`, which bypasses hook_dispatch) — breaks the "operator is also a monitored agent" problem. |
 
 ## Build & flash firmware (Windows, ESP-IDF via EIM)
 
-Must run from **PowerShell** (idf.py refuses Git Bash). The globally-installed
-`esp-harness.exe` may be broken (`No module named esp_harness.cli`); use the
-source checkout instead:
+**First build only — generate the embedded CJK font.** The device renders Chinese
+(awaiting summary/options) via lv_tiny_ttf over an embedded SimHei GB2312 subset.
+The ~2MB `main/zh.ttf` is gitignored (derived from a system font), so a fresh
+checkout must regenerate it or the build fails (`EMBED_FILES "zh.ttf"` not found):
+
+```bash
+python tools/make_cjk_font.py     # subsets SimHei → fonts/zh.ttf → main/zh.ttf
+```
+
+This needs the 6MB app partition (the default 1MB single-app can't hold the font);
+already set in `sdkconfig.defaults` (`CONFIG_PARTITION_TABLE_CUSTOM=y` +
+partitions.csv). lv_tiny_ttf is enabled there too (`CONFIG_LV_USE_TINY_TTF=y`).
+
+Then build/flash — must run from **PowerShell** (idf.py refuses Git Bash). The
+globally-installed `esp-harness.exe` may be broken (`No module named
+esp_harness.cli`); use the source checkout instead:
 
 ```powershell
 $env:PYTHONPATH = "D:\Code\esp-harness\tools\esp-harness\src"
