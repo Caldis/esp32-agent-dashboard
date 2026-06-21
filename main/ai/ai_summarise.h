@@ -3,7 +3,7 @@
  *
  * Turns the last N=10 entries of an agent_slot_t's transcript into a
  * single short line suitable for the AGENT_MSG_MAX-bounded `msg` field
- * rendered on scene_dashboard / scene_sessions.
+ * rendered on scene_dashboard.
  *
  * The summariser runs entirely on-device (no network, no host bridge
  * round-trip) — see docs/ON_DEVICE_AI.md and docs/MODEL_CARD.md for

@@ -138,10 +138,7 @@ void app_main(void)
     /* Register dashboard FIRST so it's the default (index 0). */
     scene_fw_register(&scene_dashboard);
     scene_fw_register(&scene_idle);
-    scene_fw_register(&scene_sessions);
     scene_fw_register(&scene_prompt);
-    scene_fw_register(&scene_tokens);
-    scene_fw_register(&scene_status);
     /* v2.3.0 AWAITING takeover — the scene that fires when any agent
      * is blocking on user input. Not the default (entered automatically
      * by the auto_switch_cb timer when slots report awaiting state). */
