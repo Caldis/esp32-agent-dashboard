@@ -156,6 +156,39 @@ def test_snapshot_with_surrogate_serialises_without_crashing():
     line.encode("utf-8")          # must not raise
 
 
+def test_device_safe_maps_symbols_and_keeps_gb2312():
+    if _skip():
+        return
+    ds = cbb._device_safe
+    # GB2312 hanzi + ASCII survive unchanged.
+    assert ds("中文OK 测试") == "中文OK 测试"
+    # Agent-favourite symbols become ASCII (no more .notdef boxes).
+    assert ds("done ✓") == "done v"
+    assert ds("a → b") == "a -> b"
+    assert ds("• item") == "- item"
+    assert ds("★ star") == "* star"
+    # Emoji and traditional-only hanzi are dropped, not boxed.
+    assert "🔥" not in ds("fire🔥")
+    assert ds("繁體").startswith("繁")     # 繁 is GB2312, 體 is traditional → dropped
+    assert "體" not in ds("繁體")
+    # Kept punctuation from the device subset stays.
+    assert ds("句号。中点·") == "句号。中点·"
+
+
+def test_device_safe_line_stays_valid_json():
+    if _skip():
+        return
+    line = 'dash push "' + json.dumps(
+        {"tool": "测试", "hint": "done ✓ next → 🔥"}, ensure_ascii=False) + '"'
+    safe = cbb._device_safe(line)
+    # The JSON payload inside the wire line must still parse after substitution.
+    inner = safe[safe.index('"') + 1: safe.rindex('"')]
+    obj = json.loads(inner)
+    # emoji dropped (its leading space remains), symbols mapped to ASCII.
+    assert obj["hint"].rstrip() == "done v next ->"
+    assert "🔥" not in obj["hint"]
+
+
 if __name__ == "__main__":
     import types
     _mp = types.SimpleNamespace(setattr=lambda o, n, v: setattr(o, n, v))

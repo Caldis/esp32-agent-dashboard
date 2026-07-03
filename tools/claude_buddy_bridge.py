@@ -116,6 +116,49 @@ def _wire_safe(s: str) -> str:
     (round-trips clean text untouched)."""
     return s.encode("utf-8", "replace").decode("utf-8")
 
+
+# The device font (main/zh.ttf) is a GB2312 + ASCII + limited-punctuation subset
+# of SimHei — see tools/make_cjk_font.py. Anything outside that set renders as a
+# ".notdef" box ("方块字乱码"): agent-favourite symbols (✓ → • ★ …), emoji, and
+# traditional-only hanzi. SimHei has no emoji glyphs, so expanding the subset
+# can't fix it. Instead we substitute at the host: map common symbols to ASCII
+# equivalents that keep their meaning, and drop the truly unrenderable rest.
+_DEVICE_PUNCT = set(
+    "　、。·ˉ…—～‖‘’“”〔〕〈〉《》「」『』【】（）！？：；，．±×÷°"
+)
+_SYMBOL_MAP = {
+    "✓": "v", "✔": "v", "☑": "v", "√": "v", "✅": "v",
+    "✗": "x", "✘": "x", "✕": "x", "❌": "x", "❎": "x",
+    "→": "->", "←": "<-", "↑": "^", "↓": "v", "⇒": "=>", "⟶": "->", "➜": "->",
+    "•": "-", "‣": "-", "●": "-", "◦": "-", "▪": "-", "▹": ">", "▸": ">", "▶": ">",
+    "★": "*", "☆": "*", "⭐": "*", "✦": "*", "✸": "*",
+    "⚠": "!", "❗": "!", "‼": "!!", "ℹ": "i", "✨": "*",
+    "‑": "-", "‒": "-", "–": "-", "―": "-",   # dash variants → hyphen
+    " ": " ",                              # nbsp → space
+}
+
+
+def _device_safe(s: str) -> str:
+    """Rewrite *s* so every character is renderable by the device font. ASCII and
+    GB2312 hanzi pass through; known symbols become ASCII; everything else
+    (emoji, traditional-only hanzi, exotic punctuation) is dropped. Prevents the
+    ".notdef" boxes the user saw for agent-emitted ✓/→/•/emoji."""
+    out: list[str] = []
+    for ch in s:
+        if ord(ch) < 0x80 or ch in _DEVICE_PUNCT:
+            out.append(ch)
+            continue
+        mapped = _SYMBOL_MAP.get(ch)
+        if mapped is not None:
+            out.append(mapped)
+            continue
+        try:
+            ch.encode("gb2312")        # in the device's hanzi set → keep
+            out.append(ch)
+        except UnicodeEncodeError:
+            pass                        # unrenderable → drop rather than show a box
+    return "".join(out)
+
 SAMPLE_CONFIG = """\
 # ~/.claude-buddy/config.toml — sample
 # CLI flags override every key below.
@@ -844,10 +887,14 @@ class DevicePusher:
             # device's tiny_json doesn't decode \u, and UTF-8 (3B/char) is shorter
             # on the wire than the escape (6B/char), easing the 1023B line cap.
             line = f'dash {cmd} "{json.dumps(payload, separators=(",", ":"), ensure_ascii=False)}"'
-        # Single chokepoint for every device write — guarantee the line is
-        # UTF-8-encodable so no downstream .encode() (transport, mirror) can
-        # crash on a stray surrogate from mis-decoded event text.
-        line = _wire_safe(line)
+        # Single chokepoint for every device write:
+        #  1. _device_safe — swap chars the device font can't render (✓ → • emoji
+        #     traditional hanzi) for ASCII or drop them, so nothing shows as a box.
+        #  2. _wire_safe   — guarantee UTF-8-encodable so no downstream .encode()
+        #     (transport, mirror) can crash on a stray surrogate.
+        # Structural JSON is ASCII and passes through untouched; only string
+        # values change, so the line stays valid JSON.
+        line = _wire_safe(_device_safe(line))
         if _DEBUG:
             flag = " OVERSIZE!" if len(line) > 1023 else ""
             print(f"[dbg] tx {cmd} len={len(line)}{flag}", file=sys.stderr, flush=True)
