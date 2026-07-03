@@ -175,6 +175,33 @@ def test_device_safe_maps_symbols_and_keeps_gb2312():
     assert ds("句号。中点·") == "句号。中点·"
 
 
+def test_device_safe_fullwidth_punct_to_ascii():
+    """The real remaining 乱码: agents write Chinese with fullwidth punctuation
+    (，。！？：；（）“”) but the baked SimHei subset has no glyph for the fullwidth
+    forms, so they boxed. They must degrade to ASCII, not survive as boxes."""
+    if _skip():
+        return
+    ds = cbb._device_safe
+    assert ds("结果：（完成）！") == "结果:(完成)!"
+    assert ds("问题？好的；继续") == "问题?好的;继续"
+    assert ds("“引用”和‘单引’") == '"引用"和\'单引\''
+    # None of the mapped fullwidth forms may survive in the output.
+    for box in "！？：；（）“”‘’":
+        assert box not in ds(f"x{box}y")
+
+
+def test_device_safe_uses_real_font_cmap():
+    """Root-cause guard: the renderable oracle is the font's actual cmap, so a
+    character the baked font lacks can never slip through as a box. If the font
+    is present, fullwidth ！(U+FF01) must NOT be in the cmap (that was the bug)."""
+    if _skip():
+        return
+    if cbb._FONT_CMAP is None:
+        return  # no font/fontTools in this env — heuristic fallback path
+    assert 0xFF01 not in cbb._FONT_CMAP        # fullwidth ! genuinely absent
+    assert ord("中") in cbb._FONT_CMAP          # common hanzi present
+
+
 def test_device_safe_line_stays_valid_json():
     if _skip():
         return

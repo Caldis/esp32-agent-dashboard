@@ -117,46 +117,101 @@ def _wire_safe(s: str) -> str:
     return s.encode("utf-8", "replace").decode("utf-8")
 
 
-# The device font (main/zh.ttf) is a GB2312 + ASCII + limited-punctuation subset
-# of SimHei — see tools/make_cjk_font.py. Anything outside that set renders as a
-# ".notdef" box ("方块字乱码"): agent-favourite symbols (✓ → • ★ …), emoji, and
-# traditional-only hanzi. SimHei has no emoji glyphs, so expanding the subset
-# can't fix it. Instead we substitute at the host: map common symbols to ASCII
-# equivalents that keep their meaning, and drop the truly unrenderable rest.
-_DEVICE_PUNCT = set(
-    "　、。·ˉ…—～‖‘’“”〔〕〈〉《》「」『』【】（）！？：；，．±×÷°"
-)
+# The device font (main/zh.ttf) is a subset of SimHei — see tools/make_cjk_font.py.
+# Any character it lacks a glyph for renders as a ".notdef" box ("方块字乱码").
+# The ONLY reliable way to know what it can render is the font's own cmap, so we
+# read it and treat it as ground truth — no more guessing with gb2312.encode(),
+# which wrongly trusted fullwidth punctuation (！？：；，．（）“”) that the baked
+# subset actually MISSES. For characters the font can't render we (a) map common
+# ones to meaning-preserving ASCII and (b) drop the rest rather than box them.
+
+
+def _load_font_cmap() -> Optional[frozenset]:
+    """Return the set of Unicode codepoints the device font actually has glyphs
+    for, or None if the font / fontTools isn't available (caller falls back to a
+    gb2312 heuristic). This is the authoritative 'what renders' oracle."""
+    try:
+        from fontTools.ttLib import TTFont  # type: ignore
+    except ImportError:
+        return None
+    root = Path(__file__).resolve().parent.parent
+    for rel in ("main/zh.ttf", "fonts/zh.ttf"):
+        fp = root / rel
+        if not fp.exists():
+            continue
+        try:
+            font = TTFont(str(fp), lazy=True)
+            cps: set = set()
+            for tbl in font["cmap"].tables:
+                cps |= set(tbl.cmap.keys())
+            font.close()
+            if cps:
+                return frozenset(cps)
+        except Exception:  # noqa: BLE001 - any parse failure → heuristic fallback
+            continue
+    return None
+
+
+_FONT_CMAP = _load_font_cmap()
+
+# Meaning-preserving downgrades for characters the SimHei subset commonly lacks.
+# Fullwidth punctuation + curly quotes are the big one (agents write Chinese with
+# ，。！？：；（）“” constantly and the baked font has no glyph for the fullwidth
+# forms); symbols/emoji the font can never have follow.
 _SYMBOL_MAP = {
+    # fullwidth punctuation -> ASCII (the subset misses these -> were boxing)
+    "！": "!", "？": "?", "：": ":", "；": ";", "，": ",", "．": ".",
+    "（": "(", "）": ")", "％": "%", "＃": "#", "＠": "@", "＆": "&",
+    "｜": "|", "＝": "=", "＋": "+", "－": "-", "＊": "*",
+    "／": "/", "＼": "\\", "＜": "<", "＞": ">",
+    # curly / smart quotes -> straight
+    "‘": "'", "’": "'", "‚": "'", "“": '"', "”": '"', "„": '"',
+    # dashes / bullets
+    "‑": "-", "‒": "-", "–": "-", "―": "-", "•": "-", "‣": "-",
+    "●": "-", "◦": "-", "▪": "-", "▹": ">", "▸": ">", "▶": ">",
+    # checks / crosses
     "✓": "v", "✔": "v", "☑": "v", "√": "v", "✅": "v",
     "✗": "x", "✘": "x", "✕": "x", "❌": "x", "❎": "x",
+    # arrows
     "→": "->", "←": "<-", "↑": "^", "↓": "v", "⇒": "=>", "⟶": "->", "➜": "->",
-    "•": "-", "‣": "-", "●": "-", "◦": "-", "▪": "-", "▹": ">", "▸": ">", "▶": ">",
-    "★": "*", "☆": "*", "⭐": "*", "✦": "*", "✸": "*",
-    "⚠": "!", "❗": "!", "‼": "!!", "ℹ": "i", "✨": "*",
-    "‑": "-", "‒": "-", "–": "-", "―": "-",   # dash variants → hyphen
-    " ": " ",                              # nbsp → space
+    # stars / marks
+    "★": "*", "☆": "*", "⭐": "*", "✦": "*", "✸": "*", "✨": "*",
+    "⚠": "!", "❗": "!", "‼": "!!", "ℹ": "i",
+    " ": " ",                      # nbsp -> space
 }
 
 
+def _renderable(cp: int) -> bool:
+    if _FONT_CMAP is not None:
+        return cp in _FONT_CMAP
+    # No font available (fresh clone / no fontTools): approximate with gb2312.
+    try:
+        chr(cp).encode("gb2312")
+        return True
+    except UnicodeEncodeError:
+        return False
+
+
 def _device_safe(s: str) -> str:
-    """Rewrite *s* so every character is renderable by the device font. ASCII and
-    GB2312 hanzi pass through; known symbols become ASCII; everything else
-    (emoji, traditional-only hanzi, exotic punctuation) is dropped. Prevents the
-    ".notdef" boxes the user saw for agent-emitted ✓/→/•/emoji."""
+    """Rewrite *s* so every character is renderable by the device font. ASCII
+    passes; a known symbol becomes ASCII; a char the font actually has is kept;
+    anything else is dropped rather than shipped as a box. Symbol-map is checked
+    BEFORE the cmap so fullwidth punctuation degrades to clean ASCII even on a
+    font build that happens to carry it."""
     out: list[str] = []
     for ch in s:
-        if ord(ch) < 0x80 or ch in _DEVICE_PUNCT:
+        o = ord(ch)
+        if o < 0x80:                        # ASCII always renders
             out.append(ch)
             continue
         mapped = _SYMBOL_MAP.get(ch)
-        if mapped is not None:
+        if mapped is not None:              # preferred ASCII downgrade
             out.append(mapped)
             continue
-        try:
-            ch.encode("gb2312")        # in the device's hanzi set → keep
+        if _renderable(o):                  # font genuinely has this glyph
             out.append(ch)
-        except UnicodeEncodeError:
-            pass                        # unrenderable → drop rather than show a box
+            continue
+        # unrenderable, no mapping → drop (never emit a .notdef box)
     return "".join(out)
 
 SAMPLE_CONFIG = """\
