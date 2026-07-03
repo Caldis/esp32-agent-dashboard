@@ -264,7 +264,9 @@ static void tick(lv_timer_t *t)
         if (*p == '/' || *p == '\\') base = p + 1;
     }
     if (base && base[0]) {
-        snprintf(chip, sizeof(chip), "%s  %.26s", short_kind, base);
+        char basetrunc[27];   /* UTF-8-safe: never split a CJK folder name */
+        cjk_utf8_lcpy(basetrunc, base, sizeof(basetrunc));
+        snprintf(chip, sizeof(chip), "%s  %s", short_kind, basetrunc);
     } else {
         const char *sid = anchor->session_id;
         size_t sid_len = strlen(sid);
@@ -354,9 +356,30 @@ static void tick(lv_timer_t *t)
     }
 
     if (has_summary) {
-        lv_label_set_long_mode(s_ui.summary_marquee,
-            motion_ok ? LV_LABEL_LONG_SCROLL_CIRCULAR : LV_LABEL_LONG_DOT);
-        lv_label_set_text(s_ui.summary_marquee, anchor->awaiting_summary);
+        /* Only (re)apply long-mode + text when they actually change. LVGL's
+         * lv_label_set_long_mode UNCONDITIONALLY deletes the scroll animation
+         * and resets the offset to 0 — calling it every 500 ms tick restarted
+         * the marquee from the start each time, so a long summary never scrolled
+         * more than a few pixels and was effectively unreadable (the whole point
+         * of the v2.4.0 marquee). Cache the last-applied text/mode and leave the
+         * running animation alone when nothing changed. */
+        static char s_last_summary[AGENT_AWAITING_SUMMARY_MAX];
+        static bool s_last_motion_ok = false;
+        static bool s_have_last = false;
+        bool changed = !s_have_last
+                    || s_last_motion_ok != motion_ok
+                    || strncmp(s_last_summary, anchor->awaiting_summary,
+                               sizeof(s_last_summary)) != 0;
+        if (changed) {
+            lv_label_set_long_mode(s_ui.summary_marquee,
+                motion_ok ? LV_LABEL_LONG_SCROLL_CIRCULAR : LV_LABEL_LONG_DOT);
+            lv_label_set_text(s_ui.summary_marquee, anchor->awaiting_summary);
+            strncpy(s_last_summary, anchor->awaiting_summary,
+                    sizeof(s_last_summary) - 1);
+            s_last_summary[sizeof(s_last_summary) - 1] = '\0';
+            s_last_motion_ok = motion_ok;
+            s_have_last = true;
+        }
         lv_obj_clear_flag(s_ui.summary_marquee, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(s_ui.summary_marquee, LV_OBJ_FLAG_HIDDEN);
@@ -441,7 +464,9 @@ static void init(scene_t *s, lv_obj_t *parent)
      * clearly as the focal element. */
     s_ui.agent_chip = lv_label_create(root);
     lv_obj_set_style_text_color(s_ui.agent_chip, lv_color_hex(0x2BB3B1), 0);
-    lv_obj_set_style_text_font(s_ui.agent_chip, &lv_font_montserrat_22, 0);
+    { const lv_font_t *cf = cjk_font(22);   /* chip shows the cwd basename, which
+        * can be a Chinese project folder — needs CJK glyphs, not Montserrat. */
+      lv_obj_set_style_text_font(s_ui.agent_chip, cf ? cf : &lv_font_montserrat_22, 0); }
     lv_label_set_text(s_ui.agent_chip, "");
     lv_obj_align(s_ui.agent_chip, LV_ALIGN_TOP_MID, 0, EYEBROW_Y + 154);
 

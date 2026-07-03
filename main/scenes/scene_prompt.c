@@ -15,11 +15,13 @@
 #include "agent_state.h"
 #include "theme.h"
 #include "buttons.h"
+#include "cjk_font.h"
 
 #include <stdio.h>
 #include <string.h>
 
 #include "lvgl.h"
+#include "bsp/esp-bsp.h"
 #include "harness/scene_framework.h"
 #include "harness/console_protocol.h"
 #include "harness/toast.h"
@@ -109,11 +111,19 @@ static void prompt_decide(const char *decision)
     char toast_buf[64];
     snprintf(toast_buf, sizeof(toast_buf), "%s",
              is_reply ? "copied to clipboard" : decision);
-    harness_toast(toast_buf, 1500);
 
+    /* prompt_decide runs on the BUTTON task (BOOT/USER callbacks) as well as the
+     * LVGL task (prompt_tick timeout). Both harness_toast (lv_async_call) and
+     * scene_fw_show mutate the LVGL object tree, which is only safe under the
+     * display lock. The lock is recursive, so re-taking it from the LVGL-task
+     * path (which already holds it) is fine. Without this, a physical button
+     * press raced the render task and could corrupt the widget tree. */
+    bsp_display_lock(-1);
+    harness_toast(toast_buf, 1500);
     int home_idx = scene_fw_find_by_id("dashboard");
     if (home_idx < 0) home_idx = scene_fw_find_by_id("idle");
     if (home_idx >= 0) scene_fw_show(home_idx);
+    bsp_display_unlock();
 }
 
 static void on_boot(void *handle, void *usr)
@@ -277,15 +287,20 @@ static void prompt_init(scene_t *s, lv_obj_t *parent)
     lv_label_set_text(st->badge, "");
     lv_obj_align(st->badge, LV_ALIGN_CENTER, 0, -130);
 
+    /* tool + hint carry host-supplied text (tool name, command preview, and in
+     * reply mode the chosen option strings) that can be Chinese — use the CJK
+     * font so it isn't rendered as garbage boxes. */
+    const lv_font_t *fp22 = cjk_font(22);
+    const lv_font_t *fp14 = cjk_font(14);
     st->tool = lv_label_create(parent);
-    lv_obj_set_style_text_font(st->tool, &lv_font_montserrat_22, 0);
+    lv_obj_set_style_text_font(st->tool, fp22 ? fp22 : &lv_font_montserrat_22, 0);
     lv_obj_set_style_text_color(st->tool, lv_color_white(), 0);
     lv_obj_set_style_text_align(st->tool, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(st->tool, "?");
     lv_obj_align(st->tool, LV_ALIGN_CENTER, 0, -80);
 
     st->hint = lv_label_create(parent);
-    lv_obj_set_style_text_font(st->hint, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(st->hint, fp14 ? fp14 : &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_align(st->hint, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(st->hint, 360);
     lv_label_set_long_mode(st->hint, LV_LABEL_LONG_WRAP);

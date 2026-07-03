@@ -6,12 +6,25 @@ stdin, forward it to the long-running ``claude_buddy_bridge serve``
 daemon over loopback TCP, and pipe the daemon's JSON response back to
 stdout (which Claude Code reads).
 
-If the bridge isn't running we MUST NOT block Claude Code — we print
-``{"continue": true}`` and exit 0.
+Design contract (unchanged): this hook MUST NOT block Claude Code and
+MUST NOT be chatty. In the common failure case we print ``{"continue":
+true}`` and exit 0, silently.
+
+Self-healing (v3): if the bridge isn't running, we AUTO-START it
+(``claude_buddy_bridge serve``, detached) instead of just failing — so the
+user never has to babysit the daemon. A best-effort cooldown + the
+bridge's own single-instance guard prevent a spawn stampede across the
+many concurrent hook processes.
+
+User-facing messages (``systemMessage``) are the text the user sees in
+their Claude Code terminal. They are surfaced ONLY on state transitions
+(offline→online, first offline, bridge-wedged) and hard-throttled — no
+more one-line-per-tool-call spam. Steady state (bridge healthy, or
+bridge briefly unreachable and already being started) is silent.
 
 Why a separate script: ``hooks.command`` is invoked per event, so we want
-this hook to be small, dependency-free, and fast (under a few ms in the
-common case).
+this hook to be small, dependency-free, and fast (sub-millisecond in the
+healthy case).
 """
 
 from __future__ import annotations
@@ -20,68 +33,96 @@ import json
 import os
 import re
 import socket
+import subprocess
 import sys
+import time
+
+# CC pipes UTF-8 JSON on stdin. On a non-UTF-8 locale (e.g. Chinese Windows
+# cp936) the default text decode mangles any CJK in prompts/tool args and can
+# even raise mid-read. Force UTF-8 so the payload survives verbatim. Guarded so
+# a stub stdin (tests) without reconfigure() doesn't explode.
+try:  # pragma: no cover - environment dependent
+    sys.stdin.reconfigure(encoding="utf-8", errors="replace")
+except (AttributeError, ValueError):
+    pass
 
 DEFAULT_HOST = os.environ.get("CLAUDE_BUDDY_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.environ.get("CLAUDE_BUDDY_PORT", "7321"))
-# 3s for non-PreToolUse events — the bridge replies within ~1ms in the common
-# case; this is just the "bridge is wedged/down" ceiling before we pass through.
+# Connect timeout. Kept SHORT: a healthy bridge accepts instantly, and when the
+# bridge is down some hosts (loopback firewalls) DROP the SYN rather than
+# refusing it, so a long connect timeout would stall every tool call for its
+# full duration. 0.5s is plenty for a live local bridge.
+CONNECT_TIMEOUT = float(os.environ.get("CLAUDE_BUDDY_CONNECT_TIMEOUT", "0.5"))
+# Read timeout — how long we wait for the bridge to REPLY once connected. The
+# bridge answers within ~1ms in the common case; this is the "bridge accepted
+# the socket but is wedged" ceiling before we give up on this one event.
 DEFAULT_TIMEOUT = float(os.environ.get("CLAUDE_BUDDY_TIMEOUT", "3.0"))
-# PreToolUse timeout. Was 60s for the device approve/deny round-trip — but the
-# device is observe-only by default now (it never gates), so the bridge replies
-# instantly and 60s only ever fired when the bridge was wedged (e.g. mid-restart)
-# — blocking the AGENT for a full minute per tool call and tripping the breaker.
-# 8s is plenty for observe; raise CLAUDE_BUDDY_PROMPT_TIMEOUT only if you run a
-# gate-mode device that needs time for a physical button press.
+# PreToolUse read timeout — the device is observe-only by default (it never
+# gates), so the bridge replies instantly. 8s only ever matters for a gate-mode
+# device awaiting a physical button press.
 PROMPT_TIMEOUT = float(os.environ.get("CLAUDE_BUDDY_PROMPT_TIMEOUT", "8.0"))
 
-# circuit breaker: N consecutive timeouts in W seconds → skip for M seconds.
-# Cooldown kept short (20s) so a transient bridge restart doesn't black-hole
-# hooks (and the device) for a whole minute afterwards.
+# ── self-healing: auto-start the bridge when it's not running ─────────
+# Default ON — this is the "I never want to manually start the daemon again"
+# behaviour. Set CLAUDE_BUDDY_AUTOSTART=0 to disable.
+AUTOSTART = os.environ.get("CLAUDE_BUDDY_AUTOSTART", "1").lower() in (
+    "1", "true", "yes", "on",
+)
+# Don't re-spawn within this window: the bridge needs a few seconds to boot,
+# import esp_harness, open the serial port and start listening. Re-spawning
+# inside that window just races (the bridge's single-instance guard rejects the
+# duplicate, but we avoid the churn).
+AUTOSTART_COOLDOWN_S = float(os.environ.get("CLAUDE_BUDDY_AUTOSTART_COOLDOWN", "20.0"))
+# After a spawn, skip the connect probe entirely for this grace period — the
+# bridge isn't listening yet, so probing just costs every event CONNECT_TIMEOUT
+# for nothing. Pass straight through.
+AUTOSTART_GRACE_S = float(os.environ.get("CLAUDE_BUDDY_AUTOSTART_GRACE", "4.0"))
+
+# circuit breaker: N consecutive WEDGE timeouts in W seconds → skip for M
+# seconds. This now guards ONLY the "connected but the bridge never replied"
+# case (a genuinely stuck daemon). Plain "bridge offline" no longer trips it —
+# that path auto-starts instead. Kept so a wedged bridge can't stall the agent
+# on every single tool call.
 CB_THRESHOLD = int(os.environ.get("CLAUDE_BUDDY_CB_THRESHOLD", "3"))
 CB_WINDOW_S = float(os.environ.get("CLAUDE_BUDDY_CB_WINDOW", "30.0"))
 CB_COOLDOWN_S = float(os.environ.get("CLAUDE_BUDDY_CB_COOLDOWN", "20.0"))
-_CB_STATE_FILE = os.path.join(
-    os.environ.get("TEMP", os.environ.get("TMPDIR", "/tmp")),
-    "claude_buddy_cb.json",
-)
 
+# How often (at most) we surface a *persistent* condition to the user. State
+# TRANSITIONS (offline→online, healthy→wedged) always speak once; this only
+# throttles the "still offline / still wedged" repeats.
+NOTE_INTERVAL_S = float(os.environ.get("CLAUDE_BUDDY_NOTE_INTERVAL", "60.0"))
 
-_DBG_FLAG = os.path.join(
-    os.environ.get("TEMP", os.environ.get("TMPDIR", "/tmp")),
-    "hook_dispatch_debug.on",
-)
-_DBG_LOG = os.path.join(
-    os.environ.get("TEMP", os.environ.get("TMPDIR", "/tmp")),
-    "hook_dispatch_debug.log",
-)
+_TMP = os.environ.get("TEMP", os.environ.get("TMPDIR", "/tmp"))
+# Single consolidated state file (atomic writes) — circuit breaker, last-known
+# connectivity, last user-message time, last autostart time. One file keeps the
+# concurrent-writer surface small and lets us reason about transitions.
+_STATE_FILE = os.path.join(_TMP, "claude_buddy_hook_state.json")
+_AUTOSTART_LOG = os.path.join(_TMP, "claude_buddy_bridge.autostart.log")
+
+_DBG_FLAG = os.path.join(_TMP, "hook_dispatch_debug.on")
+_DBG_LOG = os.path.join(_TMP, "hook_dispatch_debug.log")
 
 
 def _dlog(msg: str) -> None:
     """Append a diagnostic line iff the sentinel file exists. Off by default
-    (no overhead beyond one stat), so safe to ship — create the .on file to
-    trace dropped hook events end-to-end, delete it to stop."""
+    (one stat), so safe to ship — create the .on file to trace hook events
+    end-to-end, delete it to stop."""
     try:
         if not os.path.exists(_DBG_FLAG):
             return
-        import time as _t
         with open(_DBG_LOG, "a", encoding="utf-8") as f:
-            f.write(f"{_t.time():.3f} pid={os.getpid()} {msg}\n")
+            f.write(f"{time.time():.3f} pid={os.getpid()} {msg}\n")
     except OSError:
         pass
 
 
 # Targeted debug mode. If $TEMP/hook_dispatch_target.json exists, it scopes which
 # sessions reach the bridge — used to silence the main session while debugging so
-# the device reflects only the test input (events from other sources, e.g.
-# /inject which goes straight to the bridge). Shapes:
+# the device reflects only the test input. Shapes:
 #   {"only":    ["<sid-prefix>", ...]}   forward ONLY these sessions
 #   {"exclude": ["<sid-prefix>", ...]}   forward all EXCEPT these
 # Absent/invalid → forward everything (normal operation).
-_TARGET_FILE = os.path.join(
-    os.environ.get("TEMP", os.environ.get("TMPDIR", "/tmp")),
-    "hook_dispatch_target.json",
-)
+_TARGET_FILE = os.path.join(_TMP, "hook_dispatch_target.json")
 
 
 def _forward_allowed(payload: dict) -> bool:
@@ -100,65 +141,144 @@ def _forward_allowed(payload: dict) -> bool:
     return not any(sid.startswith(p) for p in excl)
 
 
-def _passthrough(reason: str = "") -> int:
-    """Always-safe fallback response if the bridge is unreachable."""
+# ── shared state (atomic) ────────────────────────────────────────────
+
+def _state_load() -> dict:
+    try:
+        with open(_STATE_FILE, "r", encoding="utf-8") as f:
+            s = json.load(f)
+        if isinstance(s, dict):
+            return s
+    except (OSError, json.JSONDecodeError, ValueError):
+        pass
+    return {}
+
+
+def _state_save(state: dict) -> None:
+    """Atomic write: temp + os.replace so concurrent hook processes never read a
+    half-written (torn) JSON blob. Best-effort; a lost update just means one
+    process's bookkeeping is stale, never a crash."""
+    tmp = f"{_STATE_FILE}.{os.getpid()}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(state, f)
+        os.replace(tmp, _STATE_FILE)
+    except OSError:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+
+def _cb_is_open(state: dict) -> bool:
+    return time.time() < float(state.get("cb_open_until", 0.0) or 0.0)
+
+
+def _cb_record_timeout(state: dict) -> None:
+    """Record a WEDGE timeout (connected, no reply) and trip the breaker if the
+    threshold is reached within the window."""
+    now = time.time()
+    cutoff = now - CB_WINDOW_S
+    ts = [t for t in state.get("cb_timestamps", []) if t > cutoff]
+    ts.append(now)
+    if len(ts) >= CB_THRESHOLD:
+        state["cb_open_until"] = now + CB_COOLDOWN_S
+        ts = []
+    state["cb_timestamps"] = ts
+
+
+def _cb_clear(state: dict) -> None:
+    state["cb_timestamps"] = []
+    state["cb_open_until"] = 0.0
+
+
+# ── self-healing: bridge auto-start ──────────────────────────────────
+
+def _bridge_script() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "claude_buddy_bridge.py")
+
+
+def _spawn_bridge() -> bool:
+    """Launch ``claude_buddy_bridge.py serve`` fully detached. The bridge reads
+    its own port/config from ~/.claude-buddy/config.toml (COM9 default), so we
+    pass no transport args. Returns True if the spawn call itself succeeded."""
+    script = _bridge_script()
+    if not os.path.exists(script):
+        return False
+    try:
+        logf = open(_AUTOSTART_LOG, "ab")
+    except OSError:
+        logf = subprocess.DEVNULL
+    cmd = [sys.executable, script, "serve"]
+    kwargs: dict = dict(
+        stdin=subprocess.DEVNULL, stdout=logf, stderr=logf, close_fds=True,
+    )
+    if os.name == "nt":
+        # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW:
+        # survive the hook process exiting, no console window flash.
+        kwargs["creationflags"] = 0x00000008 | 0x00000200 | 0x08000000
+    else:
+        kwargs["start_new_session"] = True
+    try:
+        subprocess.Popen(cmd, **kwargs)
+        _dlog(f"spawned bridge: {' '.join(cmd)}")
+        return True
+    except Exception as e:  # noqa: BLE001 - spawn must never raise into the hook
+        _dlog(f"spawn bridge FAILED: {e}")
+        return False
+    finally:
+        if logf not in (subprocess.DEVNULL, None):
+            try:
+                logf.close()
+            except OSError:
+                pass
+
+
+def _maybe_autostart(state: dict) -> str:
+    """If enabled and not on cooldown, spawn the bridge. Mutates *state* with
+    the attempt time. Returns one of: 'started' (spawned now), 'cooldown'
+    (recently attempted, skipped), 'disabled', 'failed'."""
+    if not AUTOSTART:
+        return "disabled"
+    now = time.time()
+    if now - float(state.get("start_ts", 0.0) or 0.0) < AUTOSTART_COOLDOWN_S:
+        return "cooldown"
+    state["start_ts"] = now
+    return "started" if _spawn_bridge() else "failed"
+
+
+# ── user-facing messages (transition-aware, throttled) ───────────────
+
+def _passthrough(msg: str = "") -> int:
     out: dict = {"continue": True}
-    if reason:
-        out["systemMessage"] = reason
+    if msg:
+        out["systemMessage"] = msg
     print(json.dumps(out))
     return 0
 
 
-import time as _time
-
-def _cb_load() -> dict:
-    try:
-        with open(_CB_STATE_FILE, "r") as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError, ValueError):
-        return {"timestamps": [], "open_until": 0.0}
-
-
-def _cb_save(state: dict) -> None:
-    try:
-        with open(_CB_STATE_FILE, "w") as f:
-            json.dump(state, f)
-    except OSError:
-        pass
-
-
-def _cb_is_open() -> bool:
-    """Return True if circuit is open (should short-circuit)."""
-    state = _cb_load()
-    return _time.time() < state.get("open_until", 0.0)
-
-
-def _cb_record_timeout() -> None:
-    """Record a timeout and trip the breaker if threshold reached."""
-    now = _time.time()
-    state = _cb_load()
-    cutoff = now - CB_WINDOW_S
-    ts = [t for t in state.get("timestamps", []) if t > cutoff]
-    ts.append(now)
-    if len(ts) >= CB_THRESHOLD:
-        state["open_until"] = now + CB_COOLDOWN_S
-        ts = []
-    state["timestamps"] = ts
-    _cb_save(state)
-
-
-def _cb_record_success() -> None:
-    """Clear timeout history on a successful round-trip."""
-    state = _cb_load()
-    if state.get("timestamps") or state.get("open_until", 0.0) > 0:
-        _cb_save({"timestamps": [], "open_until": 0.0})
+def _note(state: dict, conn: str, msg: str) -> str:
+    """Decide whether to surface *msg* for connection state *conn*. Speaks on
+    every transition (conn changed since last event) and at most once per
+    NOTE_INTERVAL_S while the condition persists. Returns the message to show
+    ('' = stay silent). Mutates *state* bookkeeping."""
+    prev = state.get("conn", "unknown")
+    now = time.time()
+    transition = conn != prev
+    state["conn"] = conn
+    if not msg:
+        return ""
+    if transition or (now - float(state.get("msg_ts", 0.0) or 0.0)) >= NOTE_INTERVAL_S:
+        state["msg_ts"] = now
+        return msg
+    return ""
 
 
 # ── dash-state extraction (v2.4.0 contract) ──────────────────────────
 #
-# When CC fires `Stop`, we read the transcript file and extract the
-# `<dash-state>` block from the last assistant message. The block lets
-# the agent supply a marquee `summary` + 2-4 `options` for the device's
+# On Stop we read the transcript's last assistant message and extract any
+# `<dash-state>` block (marquee summary + 2-4 options) for the device's
 # AWAITING takeover. See docs/DASH_STATE_CONTRACT.md.
 
 _DASH_STATE_RE = re.compile(
@@ -183,19 +303,15 @@ def _extract_dash_state(text: str) -> dict | None:
         if not line:
             continue
         if not in_options:
-            # Look for `summary: ...` (case-insensitive on the key)
             if line.lower().startswith("summary:"):
                 summary = line.split(":", 1)[1].strip()
                 continue
             if line.lower().startswith("options:"):
                 in_options = True
                 continue
-            # Tolerate freeform lines before `options:` only as summary
-            # continuation if summary not yet set.
             if not summary:
                 summary = line.strip()
         else:
-            # Strip bullet markers `-` `*` `•`
             stripped = line.lstrip()
             if stripped.startswith(("-", "*", "•")):
                 opt = stripped[1:].strip()
@@ -212,17 +328,12 @@ def _extract_dash_state(text: str) -> dict | None:
 
 
 def _read_last_assistant_text(transcript_path: str) -> str:
-    """Best-effort: pull the most recent assistant message text from
-    a CC transcript JSONL. Falls back to empty string on any error."""
+    """Best-effort: pull the most recent assistant message text from a CC
+    transcript JSONL. Tail-reads only (~128KB) — Stop is a BLOCKING hook and
+    transcripts grow to many MB. Falls back to empty string on any error."""
     if not transcript_path or not os.path.exists(transcript_path):
         return ""
     try:
-        # Tail-read only. CC transcripts grow to many MB and Stop is a BLOCKING
-        # hook — reading the whole file added hundreds of ms to EVERY end-of-turn
-        # (and got worse as the file grew, e.g. ~430ms at 14MB), which the user
-        # felt as a stall when a turn finished. Pull just the last ~128KB and
-        # scan backwards; the most recent assistant message is virtually always
-        # in there. O(1) in transcript size.
         with open(transcript_path, "rb") as f:
             f.seek(0, 2)
             size = f.tell()
@@ -244,11 +355,6 @@ def _read_last_assistant_text(transcript_path: str) -> str:
             continue
         if (rec.get("type") or rec.get("role")) != "assistant":
             continue
-        # CC nests the real text under rec["message"]["content"] (a list of
-        # blocks); simpler shapes put it at the top level. Support both, and
-        # keep only "text" blocks (skip tool_use blocks — no prose). The old
-        # code only checked the top level, so it never extracted anything from a
-        # real CC transcript and the awaiting classifier always fell back.
         msg = rec.get("message") if isinstance(rec.get("message"), dict) else rec
         content = msg.get("content") or msg.get("text") or ""
         if isinstance(content, list):
@@ -264,11 +370,26 @@ def _read_last_assistant_text(transcript_path: str) -> str:
     return ""
 
 
+def _is_tool_result(content) -> bool:
+    """True if a `user` transcript record is actually a tool_result delivery
+    (not a real human prompt). CC wraps tool outputs in a user-role record whose
+    content list carries type=="tool_result" blocks."""
+    if isinstance(content, list):
+        for b in content:
+            if isinstance(b, dict) and b.get("type") == "tool_result":
+                return True
+    return False
+
+
 def _read_turn_output_tokens(transcript_path: str) -> int:
     """Sum output_tokens of the assistant messages in the latest turn (back to
-    the previous user message). CC hooks carry NO token data, so the device's
-    'tokens today' was stuck at 0 — we read it from the transcript's
-    message.usage instead. Approximate (tail-limited), but reflects real output.
+    the previous *real* user prompt). CC hooks carry no token data, so the
+    device's 'tokens today' would be stuck at 0 without this.
+
+    Turn boundary = a user record that is a genuine prompt. A user record
+    carrying a tool_result is NOT a boundary (it's mid-turn tool output) — the
+    old code broke on it, so any turn with tool calls counted only the tokens
+    after its final tool_result, systematically under-counting.
     """
     if not transcript_path or not os.path.exists(transcript_path):
         return 0
@@ -290,18 +411,69 @@ def _read_turn_output_tokens(transcript_path: str) -> int:
             continue
         role = rec.get("type") or rec.get("role")
         if role == "user":
-            break                      # turn boundary
+            msg = rec.get("message") if isinstance(rec.get("message"), dict) else rec
+            if _is_tool_result(msg.get("content")):
+                continue               # tool output, not a turn boundary
+            break                      # real user prompt → turn boundary
         if role == "assistant":
             usage = (rec.get("message") or {}).get("usage") or {}
             total += int(usage.get("output_tokens") or 0)
     return total
 
 
+def _enrich_stop(payload: dict, event_type: str) -> None:
+    """v2.4.0: enrich Stop events with the assistant's last text, any
+    <dash-state> block, and this turn's output tokens."""
+    if event_type != "stop":
+        return
+    transcript_path = payload.get("transcript_path") or ""
+    last_text = _read_last_assistant_text(transcript_path)
+    if last_text and "last_assistant_text" not in payload:
+        payload["last_assistant_text"] = last_text
+    ds = _extract_dash_state(last_text)
+    if ds:
+        payload["dash_state"] = ds
+    payload.setdefault("tokens", _read_turn_output_tokens(transcript_path))
+
+
+def _forward(payload: dict, read_timeout: float) -> tuple[str, str]:
+    """Send *payload* to the bridge and read one reply line.
+
+    Returns (outcome, line) where outcome is:
+      'ok'      — bridge replied; *line* is its JSON response
+      'offline' — could not connect (bridge down / SYN dropped)
+      'wedged'  — connected but no reply within read_timeout (stuck daemon)
+    """
+    # Phase 1 — connect. A failure here means the bridge isn't listening. On
+    # loopback-firewalled hosts this raises socket.timeout (dropped SYN) rather
+    # than ConnectionRefused; both mean 'offline', NOT 'wedged'.
+    try:
+        sock = socket.create_connection((DEFAULT_HOST, DEFAULT_PORT),
+                                        timeout=CONNECT_TIMEOUT)
+    except (ConnectionRefusedError, socket.timeout, OSError):
+        return "offline", ""
+    # Phase 2 — send + read. A timeout here means the bridge accepted the socket
+    # but never answered → genuinely wedged.
+    try:
+        with sock:
+            sock.sendall((json.dumps(payload) + "\n").encode("utf-8"))
+            sock.settimeout(read_timeout)
+            line = sock.makefile("r", encoding="utf-8").readline()
+        return "ok", line.strip()
+    except socket.timeout:
+        return "wedged", ""
+    except OSError:
+        return "offline", ""
+
+
 def main(argv: list[str]) -> int:
     event_type = argv[1] if len(argv) > 1 else "raw"
     agent = argv[2] if len(argv) > 2 else "claude-code"
 
-    raw = sys.stdin.read().strip()
+    try:
+        raw = sys.stdin.read().strip()
+    except Exception:  # noqa: BLE001 - never let a stdin decode error block CC
+        return _passthrough()
     try:
         payload = json.loads(raw) if raw else {}
     except json.JSONDecodeError:
@@ -309,56 +481,87 @@ def main(argv: list[str]) -> int:
 
     payload.setdefault("type", event_type)
     payload.setdefault("agent", agent)
-
-    # Tag with pid + cwd for session disambiguation when Claude Code doesn't
-    # provide session_id (older versions / non-standard runners).
     payload.setdefault("pid", os.getpid())
     payload.setdefault("cwd", os.getcwd())
 
-    # v2.4.0: enrich Stop events with the assistant's last text + any
-    # <dash-state> block they appended. The bridge classifier uses the
-    # full text; the AWAITING takeover uses summary + options if present.
-    if event_type == "stop":
-        transcript_path = payload.get("transcript_path") or ""
-        last_text = _read_last_assistant_text(transcript_path)
-        if last_text and "last_assistant_text" not in payload:
-            payload["last_assistant_text"] = last_text
-        ds = _extract_dash_state(last_text)
-        if ds:
-            payload["dash_state"] = ds
-        # CC hooks carry no token counts; pull this turn's output tokens from the
-        # transcript so the device's "tokens today" isn't stuck at 0.
-        payload.setdefault("tokens", _read_turn_output_tokens(transcript_path))
+    _enrich_stop(payload, event_type)
 
-    timeout = PROMPT_TIMEOUT if event_type == "pre_tool_use" else DEFAULT_TIMEOUT
-
+    read_timeout = PROMPT_TIMEOUT if event_type == "pre_tool_use" else DEFAULT_TIMEOUT
     sid = str(payload.get("session_id", ""))[:10]
+
     if not _forward_allowed(payload):
         _dlog(f"{event_type} {sid} FILTERED(targeted-debug) -> passthrough")
         return _passthrough()
-    if _cb_is_open():
-        _dlog(f"{event_type} {sid} CB_OPEN -> drop")
-        return _passthrough("circuit breaker open — bridge skipped")
 
-    try:
-        with socket.create_connection((DEFAULT_HOST, DEFAULT_PORT),
-                                      timeout=1.0) as sock:
-            sock.sendall((json.dumps(payload) + "\n").encode("utf-8"))
-            sock.settimeout(timeout)
-            line = sock.makefile("r", encoding="utf-8").readline()
-            _cb_record_success()
-            _dlog(f"{event_type} {sid} -> {DEFAULT_HOST}:{DEFAULT_PORT} "
-                  f"resp={'EMPTY' if not line.strip() else line.strip()[:40]}")
-            print(line.strip() or json.dumps({"continue": True}))
-            return 0
-    except socket.timeout:
-        _cb_record_timeout()
-        _dlog(f"{event_type} {sid} TIMEOUT({timeout}s) -> drop")
-        return _passthrough("claude_buddy_bridge timeout")
-    except (ConnectionRefusedError, OSError) as e:
-        _dlog(f"{event_type} {sid} CONN_ERR {e} -> drop")
-        return _passthrough(f"claude_buddy_bridge offline: {e}")
+    state = _state_load()
+
+    # If we just auto-started the bridge, it isn't listening yet — don't pay the
+    # connect timeout on every event during boot; pass straight through.
+    if (time.time() - float(state.get("start_ts", 0.0) or 0.0)) < AUTOSTART_GRACE_S:
+        _dlog(f"{event_type} {sid} autostart-grace -> passthrough")
+        return _passthrough()
+
+    # A wedged bridge tripped the breaker recently — skip quietly (no spam).
+    if _cb_is_open(state):
+        _dlog(f"{event_type} {sid} CB_OPEN -> drop (silent)")
+        return _passthrough()
+
+    outcome, line = _forward(payload, read_timeout)
+
+    if outcome == "ok":
+        _cb_clear(state)
+        # Recovery: only speak if we were previously offline/wedged.
+        show = _note(state, "online", "✓ 仪表盘已连接" if state.get("conn") not in (
+            "online", "unknown", None) else "")
+        _state_save(state)
+        _dlog(f"{event_type} {sid} OK resp={line[:40] or 'EMPTY'}")
+        # The bridge's reply IS the hook response (may carry hookSpecificOutput
+        # for gate decisions). Attach a recovery note without clobbering it.
+        if show and line:
+            try:
+                obj = json.loads(line)
+                if isinstance(obj, dict) and "systemMessage" not in obj:
+                    obj["systemMessage"] = show
+                    print(json.dumps(obj))
+                    return 0
+            except json.JSONDecodeError:
+                pass
+        print(line or json.dumps({"continue": True}))
+        return 0
+
+    if outcome == "offline":
+        result = _maybe_autostart(state)
+        if result == "started":
+            msg = "仪表盘桥接未运行，正在自动启动…（几秒后自动接管，无需手动干预）"
+        elif result == "failed":
+            msg = ("仪表盘桥接自动启动失败，请手动运行："
+                   "python tools/claude_buddy_bridge.py serve")
+        elif result == "disabled":
+            msg = "仪表盘桥接离线（自动启动已关闭）"
+        else:  # cooldown — a start is already in flight; stay quiet mostly
+            msg = ""
+        show = _note(state, "offline", msg)
+        _state_save(state)
+        _dlog(f"{event_type} {sid} OFFLINE autostart={result}")
+        return _passthrough(show)
+
+    # wedged: connected but the daemon never replied. Feed the breaker so we
+    # stop stalling every tool call, and nudge the user once.
+    _cb_record_timeout(state)
+    show = _note(state, "wedged", "仪表盘桥接无响应，正在重试…")
+    _state_save(state)
+    _dlog(f"{event_type} {sid} WEDGED({read_timeout}s)")
+    return _passthrough(show)
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    try:
+        sys.exit(main(sys.argv))
+    except Exception as e:  # noqa: BLE001 - the hook must NEVER take CC down
+        # Absolute last resort: whatever went wrong, don't block the agent.
+        try:
+            print(json.dumps({"continue": True}))
+        except Exception:
+            pass
+        _dlog(f"main() crashed (caught): {e}")
+        sys.exit(0)

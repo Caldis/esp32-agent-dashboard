@@ -97,6 +97,25 @@ WIRE_MAX_BYTES = 1000
 # 12 (the in-memory cap) just bloats the snapshot and forces agent-dropping trims.
 WIRE_ENTRIES_PER_AGENT = 6
 
+# Serial open watchdog. pyserial's ser.open() can block INDEFINITELY on Windows
+# when the USB-Serial-JTAG endpoint wedges (device USB stack hung) — it doesn't
+# raise, it just never returns. Without a bound, that hung open takes down every
+# thread that touches the port (TCP handlers, publisher, health poller) and the
+# whole bridge deadlocks on one bad handle. We run every open in a watchdog
+# thread and give up after this long, so the bridge stays alive and keeps
+# retrying instead of freezing. Raise via CLAUDE_BUDDY_OPEN_TIMEOUT_S if needed.
+SERIAL_OPEN_TIMEOUT_S = float(os.environ.get("CLAUDE_BUDDY_OPEN_TIMEOUT_S", "6.0"))
+
+
+def _wire_safe(s: str) -> str:
+    """Strip lone surrogates so the string can always be UTF-8 encoded onto the
+    wire. Event text mis-decoded upstream (e.g. a CJK payload read under a
+    non-UTF-8 stdin locale) can carry unpaired surrogates that make
+    ``.encode("utf-8")`` raise — which, on the snapshot publisher thread, means
+    it never pushes and the device freezes on stale data. Replace them with '?'
+    (round-trips clean text untouched)."""
+    return s.encode("utf-8", "replace").decode("utf-8")
+
 SAMPLE_CONFIG = """\
 # ~/.claude-buddy/config.toml — sample
 # CLI flags override every key below.
@@ -460,8 +479,11 @@ class SessionRegistry:
         def wire_size() -> int:
             # Byte length of the UTF-8 wire form (ensure_ascii=False, matching the
             # actual push) — CJK is multi-byte, so count encoded bytes vs the cap.
+            # errors="replace": a lone surrogate anywhere in the data (e.g. a
+            # mis-decoded event string) must never crash the publisher tick — it
+            # would loop forever logging and never push, freezing the device.
             return len(json.dumps(snap, separators=(",", ":"),
-                                  ensure_ascii=False).encode("utf-8"))
+                                  ensure_ascii=False).encode("utf-8", "replace"))
 
         def most_recent_waiting_idx() -> int | None:
             waiting = [(i, a) for i, a in enumerate(snap["agents"])
@@ -698,6 +720,11 @@ class DevicePusher:
         self._buffered_snapshot: Optional[dict] = None
         self._stop = threading.Event()
         self._reconnect_thread: Optional[threading.Thread] = None
+        # Serial-open watchdog bookkeeping. Only ONE open attempt runs at a
+        # time (single-flight); a hung open thread is abandoned but tracked so
+        # we never stack a second blocking open on the same wedged port.
+        self._open_thread: Optional[threading.Thread] = None
+        self._open_lock = threading.Lock()
 
     def _mirror_write(self, line: str) -> None:
         """Best-effort tee of one line to the mirror tap. Never raises/blocks."""
@@ -734,19 +761,63 @@ class DevicePusher:
         print(f"[bridge] open failed after {retry_total_s}s: {last_err}", file=sys.stderr)
         return False
 
-    def _open_session(self) -> None:
-        """Open a SessionHandle and wire up our event subscribers.
-
-        Called from open_with_retry and from the reconnect path. We
-        register handlers for `evt` (permission round-trips) and
-        `payload` (HEALTH blob) plus an on_err to log device-side
-        errors so they're never silently dropped (gap G-H3).
-        """
-        session = open_persistent_session(self._port_arg)
+    def _wire_session(self, session: SessionHandle) -> None:
+        """Register our event subscribers on a freshly-opened session."""
         session.on_event(self._on_payload, kinds=frozenset({"payload"}))
         session.on_event(self._on_evt, kinds=frozenset({"evt"}))
         session.on_err(self._on_err)
-        self._session = session
+
+    def _open_session(self) -> None:
+        """Open a SessionHandle under a WATCHDOG and wire up subscribers.
+
+        ``open_persistent_session`` → ``ser.open()`` can block forever on a
+        wedged USB-Serial-JTAG port (it doesn't raise). We run it in a
+        daemon thread and bound the wait to SERIAL_OPEN_TIMEOUT_S so a bad
+        port can never freeze the caller (open_with_retry / reconnect loop).
+        Single-flight: if a prior open is still hung we don't start another —
+        we just report "still opening" so the retry loop backs off, and when
+        the port finally unwedges that one thread adopts the session.
+
+        Raises TransportError on timeout or open failure (same contract as
+        before), so every existing ``except TransportError`` keeps working.
+        """
+        with self._open_lock:
+            if self._open_thread is not None and self._open_thread.is_alive():
+                raise TransportError("serial open still in progress (port wedged?)")
+            result: dict = {}
+
+            def _worker() -> None:
+                try:
+                    session = open_persistent_session(self._port_arg)
+                    self._wire_session(session)
+                except Exception as e:  # noqa: BLE001
+                    result["error"] = e
+                    return
+                # Adopt only if nobody else already has a session and we're not
+                # shutting down; otherwise this is a late completion from an
+                # abandoned attempt — close it so we don't leak a port handle.
+                if self._session is None and not self._stop.is_set():
+                    self._session = session
+                else:
+                    try:
+                        session.close()
+                    except Exception:
+                        pass
+
+            t = threading.Thread(target=_worker, daemon=True, name="bridge-serial-open")
+            self._open_thread = t
+            t.start()
+
+        t.join(SERIAL_OPEN_TIMEOUT_S)
+        if t.is_alive():
+            # Still blocked — abandon it (tracked via _open_thread so we won't
+            # start a second) and let the caller retry later.
+            raise TransportError(
+                f"serial open timed out after {SERIAL_OPEN_TIMEOUT_S}s (port wedged?)")
+        if "error" in result:
+            raise TransportError(str(result["error"]))
+        if self._session is None:
+            raise TransportError("serial open produced no session")
 
     def close(self) -> None:
         self._stop.set()
@@ -773,6 +844,10 @@ class DevicePusher:
             # device's tiny_json doesn't decode \u, and UTF-8 (3B/char) is shorter
             # on the wire than the escape (6B/char), easing the 1023B line cap.
             line = f'dash {cmd} "{json.dumps(payload, separators=(",", ":"), ensure_ascii=False)}"'
+        # Single chokepoint for every device write — guarantee the line is
+        # UTF-8-encodable so no downstream .encode() (transport, mirror) can
+        # crash on a stray surrogate from mis-decoded event text.
+        line = _wire_safe(line)
         if _DEBUG:
             flag = " OVERSIZE!" if len(line) > 1023 else ""
             print(f"[dbg] tx {cmd} len={len(line)}{flag}", file=sys.stderr, flush=True)
@@ -784,16 +859,15 @@ class DevicePusher:
         try:
             sess = self._session
             if sess is None or not sess.is_open:
-                # Attempt fast reconnect for in-flight push
-                self._open_session()
-                if self.on_reconnect:
-                    try:
-                        self.on_reconnect()
-                    except Exception as e:
-                        print(f"[bridge] on_reconnect raised: {e}", file=sys.stderr)
-                self.health.connected = True
-                sess = self._session
-                assert sess is not None
+                # NOT connected — never open the port INLINE here. ser.open()
+                # can block for seconds (or forever on a wedged port), and this
+                # push() runs on TCP-handler / publisher / health-poller threads
+                # that must stay responsive. Hand opening to the background
+                # reconnect loop (watchdog-bounded) and fail fast; the publisher
+                # buffers the snapshot and the health poller retries in 5s.
+                self.health.connected = False
+                self._schedule_reconnect()
+                return {"ok": False, "error": "not connected (reconnecting)"}
             sess.write_line(line)
             elapsed_ms = (time.monotonic() - started) * 1000
             with self._lock:
@@ -877,17 +951,30 @@ class DevicePusher:
             self._reconnect_thread.start()
 
     def _reconnect_loop(self) -> None:
-        deadline = time.monotonic() + 30.0
-        while time.monotonic() < deadline and not self._stop.is_set():
+        """Keep trying to reopen the port until we succeed or the bridge stops.
+
+        Persistent by design: a device unplugged for minutes must still be
+        picked up the moment it comes back — a fixed deadline would give up and
+        leave the screen dark until the next restart. The watchdog-bounded
+        _open_session + the 2s backoff keep this from busy-spinning, and the
+        single-flight guard means a wedged open never stacks up.
+        """
+        attempts = 0
+        while not self._stop.is_set():
+            attempts += 1
             try:
                 if self._session is not None:
                     try:
                         self._session.close()
                     except Exception:
                         pass
+                    # Must null out BEFORE opening: the watchdog worker only
+                    # adopts a fresh session when _session is None.
+                    self._session = None
                 self._open_session()
                 self.health.connected = True
-                print("[bridge] reconnected", file=sys.stderr)
+                print(f"[bridge] reconnected (after {attempts} attempt(s))",
+                      file=sys.stderr)
                 if self.on_reconnect:
                     try:
                         self.on_reconnect()
@@ -898,7 +985,7 @@ class DevicePusher:
                     self.push("snapshot", buf)
                 return
             except TransportError:
-                time.sleep(2.0)
+                self._stop.wait(2.0)
 
     def _record_health(self, obj: dict) -> None:
         prev_uptime = self.health.last_uptime_s
@@ -1271,6 +1358,11 @@ class Bridge:
             else:
                 self.publisher.resume()
             return {"ok": True, "paused": self.publisher.paused}
+        if ctl == "__ping__":
+            # Liveness probe used by the single-instance guard: a starting bridge
+            # asks "is one already running here?" An unambiguous reply (role +
+            # pid) tells the newcomer to bow out.
+            return {"ok": True, "role": "claude_buddy_bridge", "pid": os.getpid()}
 
         evt = normalize_event(raw)
         t = evt["type"]
@@ -1650,8 +1742,35 @@ def _build_stack(settings: Settings):
 # Subcommand: serve
 # ─────────────────────────────────────────────────────────────────────────────
 
+def bridge_already_running(listen: str, *, timeout: float = 1.0) -> bool:
+    """Single-instance guard: return True if a live bridge already answers on
+    *listen*. Used so an auto-started duplicate (hook_dispatch spawns one per
+    "bridge offline" detection) bows out instead of fighting over the port and
+    the serial handle. Cheap __ping__ round-trip; any error → assume none."""
+    try:
+        host, port_s = listen.split(":")
+        with socket.create_connection((host, int(port_s)), timeout=timeout) as sock:
+            sock.sendall(b'{"type":"__ping__"}\n')
+            sock.settimeout(timeout)
+            line = sock.makefile("r", encoding="utf-8").readline()
+        obj = json.loads(line or "{}")
+        return obj.get("role") == "claude_buddy_bridge"
+    except (OSError, ValueError, json.JSONDecodeError):
+        return False
+
+
 def cmd_serve(args) -> int:
     settings = build_settings(args)
+
+    # Single-instance guard. hook_dispatch auto-starts a bridge whenever it
+    # can't reach one; several concurrent hooks (or a manual run on top of an
+    # auto-started one) would otherwise race for COM9. If a live bridge already
+    # owns this listen address, step aside cleanly.
+    if bridge_already_running(settings.listen):
+        print(f"[bridge] another instance already serving {settings.listen}; "
+              f"exiting", flush=True)
+        return 0
+
     bridge, pusher, publisher, registry, health, setup_state = _build_stack(settings)
 
     if not settings.dry_run:
@@ -1939,6 +2058,16 @@ def _add_v1_flags(p):
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Events (and `send`/`--stdin` JSONL) are UTF-8. On a non-UTF-8 locale
+    # (Chinese Windows cp936) the default stdin/stdout decode mangles CJK into
+    # lone surrogates, which then crash snapshot serialization downstream. Pin
+    # UTF-8 so payloads survive verbatim. Guarded for stub streams (tests).
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
     parser = argparse.ArgumentParser(
         prog="claude_buddy_bridge",
         description="Host bridge v1: Claude Code + Codex hook events → ESP32 dashboard.",

@@ -1,6 +1,25 @@
 #include "cjk_font.h"
 #include "esp_log.h"
 
+void cjk_utf8_lcpy(char *dst, const char *src, unsigned cap)
+{
+    if (!dst || cap == 0) return;
+    unsigned out = 0;
+    if (src) {
+        while (src[out]) {
+            unsigned char c = (unsigned char)src[out];
+            unsigned len = (c >= 0xF0) ? 4 : (c >= 0xE0) ? 3 : (c >= 0xC0) ? 2 : 1;
+            if (out + len > cap - 1) break;      /* whole char wouldn't fit */
+            for (unsigned i = 0; i < len; ++i) {
+                if (!src[out + i]) { dst[out] = '\0'; return; }  /* input cut short */
+                dst[out + i] = src[out + i];
+            }
+            out += len;
+        }
+    }
+    dst[out] = '\0';
+}
+
 #if LV_USE_TINY_TTF
 
 /* Embedded SimHei GB2312 subset (main/zh.ttf via EMBED_FILES). IDF names the
@@ -8,8 +27,11 @@
 extern const uint8_t zh_ttf_start[] asm("_binary_zh_ttf_start");
 extern const uint8_t zh_ttf_end[]   asm("_binary_zh_ttf_end");
 
-/* tiny_ttf fonts are per-size; cache the handful of sizes the scenes ask for. */
-#define CJK_CACHE_MAX 6
+/* tiny_ttf fonts are per-size; cache every size the scenes/overlays ask for.
+ * Sizes in play: status-bar 18, banner 16/14, awaiting 22/20, prompt 22/14, …
+ * Keep the cap comfortably above the distinct-size count so the per-event
+ * push banner never misses the cache and leaks a font per notification. */
+#define CJK_CACHE_MAX 12
 static lv_font_t *s_font[CJK_CACHE_MAX];
 static int        s_px[CJK_CACHE_MAX];
 

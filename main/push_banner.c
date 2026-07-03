@@ -13,6 +13,7 @@
 
 #include "lvgl.h"
 #include "anim/apple_ease.h"
+#include "cjk_font.h"
 
 #define BANNER_DEFAULT_MS  3000
 #define BANNER_MAX_TEXT    96
@@ -78,15 +79,21 @@ static void banner_show_async(void *arg)
     lv_obj_set_style_flex_main_place(c, LV_FLEX_ALIGN_CENTER, 0);
     lv_obj_align(c, LV_ALIGN_TOP_MID, 0, BANNER_Y_START);
 
+    /* CJK fonts: the hint is host-supplied (a tool summary / command preview)
+     * and routinely contains Chinese. Montserrat has no CJK glyphs, so it
+     * rendered as a strip of garbage boxes ("乱码"). Use the CJK font, falling
+     * back to Latin only if tiny_ttf is unavailable. */
+    const lv_font_t *ftool = cjk_font(16);
+    const lv_font_t *fhint = cjk_font(14);
     lv_obj_t *tool_lbl = lv_label_create(c);
     lv_obj_set_style_text_color(tool_lbl, lv_color_hex(0x2BB3B1), 0);
-    lv_obj_set_style_text_font(tool_lbl, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(tool_lbl, ftool ? ftool : &lv_font_montserrat_16, 0);
     lv_label_set_text(tool_lbl, req->tool);
 
     if (req->hint[0]) {
         lv_obj_t *hint_lbl = lv_label_create(c);
         lv_obj_set_style_text_color(hint_lbl, lv_color_hex(0x8A807A), 0);
-        lv_obj_set_style_text_font(hint_lbl, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(hint_lbl, fhint ? fhint : &lv_font_montserrat_14, 0);
         lv_label_set_long_mode(hint_lbl, LV_LABEL_LONG_DOT);
         lv_obj_set_flex_grow(hint_lbl, 1);
         lv_label_set_text(hint_lbl, req->hint);
@@ -120,14 +127,12 @@ void push_banner_show(const char *tool, const char *hint, uint32_t duration_ms)
     if (!tool) return;
     banner_req_t *req = (banner_req_t *)malloc(sizeof(*req));
     if (!req) return;
-    strncpy(req->tool, tool, sizeof(req->tool) - 1);
-    req->tool[sizeof(req->tool) - 1] = '\0';
-    if (hint) {
-        strncpy(req->hint, hint, sizeof(req->hint) - 1);
-        req->hint[sizeof(req->hint) - 1] = '\0';
-    } else {
-        req->hint[0] = '\0';
-    }
+    /* UTF-8-safe truncation: the host caps hint at 40 CHARS (up to 120 bytes of
+     * CJK) but this buffer is 48 BYTES — a plain strncpy would slice a Chinese
+     * character in half and leave garbage bytes. cjk_utf8_lcpy stops on a
+     * character boundary. */
+    cjk_utf8_lcpy(req->tool, tool, sizeof(req->tool));
+    cjk_utf8_lcpy(req->hint, hint, sizeof(req->hint));
     req->duration_ms = duration_ms ? duration_ms : BANNER_DEFAULT_MS;
     lv_async_call(banner_show_async, req);
 }

@@ -88,12 +88,20 @@ void scene_auto_switch_cb(lv_timer_t *t)
     if (awaiting_idx < 0 || current_idx < 0) return;
 
     bool any_awaiting = false;
+    bool prompt_active = false;
     agent_state_lock();
     if (agent_state_most_recent_awaiting() != NULL) any_awaiting = true;
+    prompt_active = agent_state_get()->prompt_active;
     agent_state_unlock();
 
+    /* An active permission prompt is the higher-priority interactive scene: it
+     * owns the physical BOOT/USER buttons. If we let the AWAITING takeover grab
+     * the screen while a prompt is up, the prompt is hidden (its countdown
+     * pauses, its buttons stop responding) yet AWAITING shows "BOOT approve /
+     * USER deny" that do nothing — the device-side approval becomes dead. So
+     * suppress the takeover while a prompt is active. */
     bool on_awaiting = (current_idx == awaiting_idx);
-    if (any_awaiting && !on_awaiting) {
+    if (any_awaiting && !on_awaiting && !prompt_active) {
         s_pre_awaiting_scene_idx = current_idx;
         bsp_display_lock(-1);
         scene_fw_show(awaiting_idx);
@@ -125,6 +133,18 @@ void app_main(void)
     /* Load persisted theme / device name / owner / default scene from NVS. */
     agent_commands_load_config();
 
+    /* Register the `dash` command family NOW — before the (comparatively slow)
+     * display + scene setup below. The console task starts reading the moment
+     * console_protocol_init() runs, and the bridge pushes `dash config`/`dash
+     * time` the instant it connects. If `dash` isn't registered yet those first
+     * pushes bounce with "unknown command: dash" and are LOST — and since the
+     * bridge only re-pushes config on reconnect (not keepalive), the device
+     * could sit on default name/theme/clock until the next reconnect. The dash
+     * handlers only depend on agent_state + theme (both initialised above), not
+     * on scenes (a snapshot arriving pre-scene-registration simply skips the
+     * auto-switch), so it is safe to register here. */
+    agent_commands_register();
+
     bsp_display_lock(-1);
 
     lv_obj_t *scr = lv_screen_active();
@@ -155,8 +175,6 @@ void app_main(void)
     lv_timer_create(scene_auto_switch_cb, 500, NULL);
 
     bsp_display_unlock();
-
-    agent_commands_register();
 
     if (!buttons_init()) {
         ESP_LOGW(TAG, "buttons_init failed — prompt scene needs button "
