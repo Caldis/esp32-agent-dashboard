@@ -34,3 +34,23 @@ out). A single-instance guard makes duplicate starts exit cleanly, and the
 bridge reconnects to the device indefinitely (serial open is watchdog-bounded,
 so a wedged COM9 never freezes it). The device shows "· 等待主机连接 ·" /
 "· 主机已断开 ·" when the snapshot stream goes stale rather than freezing.
+
+### Flashing (COM9 contention with autostart)
+`idf.py flash` needs exclusive COM9, but stopping the bridge makes the next
+tool-call hook auto-start a new one that grabs the port mid-flash (esptool then
+fails to connect). Before flashing, disable autostart for the duration, e.g.:
+`printf '{"start_ts": %d}' $(($(date +%s)+3600)) > "$TEMP/claude_buddy_hook_state.json"`
+(a future `start_ts` puts every hook in cooldown so none spawns), then kill the
+bridge and flash; delete that state file afterwards to re-enable. Or just
+`export CLAUDE_BUDDY_AUTOSTART=0` in the shell that owns the hooks.
+
+Device font is a GB2312 SimHei subset (`main/zh.ttf`). The bridge gates all
+device-bound text through its actual cmap (`_device_safe`), mapping
+unrenderable chars (fullwidth punct, ✓→v, emoji) to ASCII or dropping them, so
+".notdef" boxes can't appear. To render a NEW glyph on-device you must add it to
+the font subset (`tools/make_cjk_font.py`) AND reflash — host mapping only
+downgrades.
+
+### Build/flash toolchain (this machine)
+ESP-IDF v6.0.1 via EIM. Activate in PowerShell before `idf.py`:
+`. 'C:\Espressif\tools\Microsoft.v6.0.1.PowerShell_profile.ps1'`
