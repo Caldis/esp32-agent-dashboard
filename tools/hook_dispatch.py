@@ -116,6 +116,108 @@ def _dlog(msg: str) -> None:
         pass
 
 
+# ── agent liveness: find the Claude Code host process pid ───────────
+#
+# ctrl+c / kill / terminal-close often ends a CC session WITHOUT firing the
+# SessionEnd hook (esp. on Windows), so the bridge needs an out-of-band
+# liveness signal. Every forwarded event carries `agent_pid` — the nearest ancestor
+# process that is NOT an interpreter/shell intermediary (i.e. the CC host,
+# typically node.exe / claude.exe / bun.exe). The bridge polls that pid and
+# drops the session the moment the process is gone.
+
+_INTERMEDIARY_EXES = {
+    # us + launchers CC may interpose between itself and this script
+    "python.exe", "pythonw.exe", "python3.exe", "py.exe",
+    "cmd.exe", "conhost.exe", "powershell.exe", "pwsh.exe",
+    "bash.exe", "sh.exe", "busybox64.exe", "winpty-agent.exe",
+    "python", "python3", "sh", "bash", "dash", "zsh",
+}
+
+
+def _win_process_table() -> dict:
+    """pid -> (ppid, exe_lower) for all processes (Toolhelp32 snapshot)."""
+    import ctypes
+    from ctypes import wintypes
+
+    class PROCESSENTRY32W(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ProcessID", wintypes.DWORD),
+            ("th32DefaultHeapID", ctypes.c_size_t),   # ULONG_PTR
+            ("th32ModuleID", wintypes.DWORD),
+            ("cntThreads", wintypes.DWORD),
+            ("th32ParentProcessID", wintypes.DWORD),
+            ("pcPriClassBase", ctypes.c_long),
+            ("dwFlags", wintypes.DWORD),
+            ("szExeFile", ctypes.c_wchar * 260),
+        ]
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    TH32CS_SNAPPROCESS = 0x2
+    INVALID_HANDLE = ctypes.c_void_p(-1).value
+    snap = k32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+    if snap in (0, INVALID_HANDLE):
+        return {}
+    table: dict = {}
+    try:
+        ent = PROCESSENTRY32W()
+        ent.dwSize = ctypes.sizeof(PROCESSENTRY32W)
+        ok = k32.Process32FirstW(snap, ctypes.byref(ent))
+        while ok:
+            table[int(ent.th32ProcessID)] = (
+                int(ent.th32ParentProcessID), ent.szExeFile.lower())
+            ok = k32.Process32NextW(snap, ctypes.byref(ent))
+    finally:
+        k32.CloseHandle(snap)
+    return table
+
+
+def _agent_pid_from_table(table: dict, start_pid: int) -> int:
+    """Walk ancestors from start_pid; return the first non-intermediary, or 0.
+    Pure function so tests can feed a synthetic table."""
+    pid = start_pid
+    for _ in range(8):
+        ent = table.get(pid)
+        if ent is None:
+            return 0
+        ppid = ent[0]
+        pent = table.get(ppid)
+        if pent is None or ppid <= 4 or ppid == pid:
+            return 0
+        if pent[1] not in _INTERMEDIARY_EXES:
+            return ppid
+        pid = ppid
+    return 0
+
+
+def _find_agent_pid() -> int:
+    """Best-effort pid of the CC host process. 0 = unknown (feature off)."""
+    try:
+        if os.name == "nt":
+            return _agent_pid_from_table(_win_process_table(), os.getpid())
+        # POSIX: walk /proc when available (Linux); else best-effort parent.
+        pid = os.getppid()
+        for _ in range(8):
+            if pid <= 1:
+                return 0
+            try:
+                with open(f"/proc/{pid}/comm", "r", encoding="utf-8",
+                          errors="replace") as f:
+                    name = f.read().strip().lower()
+                with open(f"/proc/{pid}/stat", "r", encoding="utf-8",
+                          errors="replace") as f:
+                    ppid = int(f.read().rsplit(")", 1)[1].split()[1])
+            except OSError:
+                return pid   # no /proc (macOS) — direct parent is our best guess
+            if name not in _INTERMEDIARY_EXES:
+                return pid
+            pid = ppid
+        return 0
+    except Exception:  # noqa: BLE001 - liveness is best-effort, never block CC
+        return 0
+
+
 # Targeted debug mode. If $TEMP/hook_dispatch_target.json exists, it scopes which
 # sessions reach the bridge — used to silence the main session while debugging so
 # the device reflects only the test input. Shapes:
@@ -505,6 +607,10 @@ def main(argv: list[str]) -> int:
     if _cb_is_open(state):
         _dlog(f"{event_type} {sid} CB_OPEN -> drop (silent)")
         return _passthrough()
+
+    # Liveness pid — attached only when we're actually about to forward
+    # (the ancestor walk costs ~1-3 ms; skip it on the fast-fail paths above).
+    payload.setdefault("agent_pid", _find_agent_pid())
 
     outcome, line = _forward(payload, read_timeout)
 

@@ -93,9 +93,10 @@ CONFIG_PATH = Path.home() / ".claude-buddy" / "config.toml"
 # (~16 bytes of wrapper around the JSON), so keep the JSON itself under ~1000 to
 # stay safely below 1023. Raised from 900 → 1000 so fewer agents get trimmed.
 WIRE_MAX_BYTES = 1000
-# Max entries[] per agent on the wire. The device renders only ~2 per agent, so
-# 12 (the in-memory cap) just bloats the snapshot and forces agent-dropping trims.
-WIRE_ENTRIES_PER_AGENT = 6
+# Max entries[] per agent on the wire. The device renders only entries[0] (the
+# fleet row's activity line), so anything beyond a couple of spares just bloats
+# the snapshot and forces agent-dropping trims when 3-4 agents are live.
+WIRE_ENTRIES_PER_AGENT = 3
 
 # Serial open watchdog. pyserial's ser.open() can block INDEFINITELY on Windows
 # when the USB-Serial-JTAG endpoint wedges (device USB stack hung) — it doesn't
@@ -285,6 +286,43 @@ class AgentEntry:
         return {"t": self.t, "tool": self.tool, "summary": self.summary[:80]}
 
 
+def _pid_alive(pid: int):
+    """Is the process alive? True / False / None(unknown). NEVER signals or
+    touches the process — Windows uses OpenProcess(QUERY_LIMITED) +
+    GetExitCodeProcess (os.kill(pid, 0) on Windows would TERMINATE it!),
+    POSIX uses the classic kill(pid, 0) existence probe."""
+    if not pid or pid <= 0:
+        return None
+    try:
+        if os.name == "nt":
+            import ctypes
+            k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            STILL_ACTIVE = 259
+            ERROR_ACCESS_DENIED = 5
+            h = k32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
+            if not h:
+                # Access denied → the pid exists (someone else's process).
+                # Invalid parameter → no such pid.
+                return ctypes.get_last_error() == ERROR_ACCESS_DENIED
+            try:
+                code = ctypes.c_ulong(0)
+                if k32.GetExitCodeProcess(h, ctypes.byref(code)):
+                    return code.value == STILL_ACTIVE
+                return None
+            finally:
+                k32.CloseHandle(h)
+        try:
+            os.kill(int(pid), 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+    except Exception:  # noqa: BLE001 - liveness must never crash the sweep
+        return None
+
+
 @dataclass
 class AgentSession:
     kind: str                              # claude-code | codex | other
@@ -292,6 +330,12 @@ class AgentSession:
     status: str = "running"                # running | waiting | idle
     cwd: str = ""
     msg: str = ""
+    # Pid of the CC host process (node/claude), attached by hook_dispatch on
+    # every forwarded event. 0 = unknown (mock/web-injected sessions). Used by
+    # sweep_dead(): ctrl+c/kill often fires NO SessionEnd hook, and without a
+    # liveness probe the corpse sat on the device as "your turn" for up to
+    # 15 min (idle-turn flip + 900 s awaiting stale window).
+    agent_pid: int = 0
     # True between a PreToolUse and its PostToolUse — i.e. a tool is actively
     # running (possibly for minutes). Used by the idle-turn sweep so a long tool
     # is NOT mistaken for an interrupted/idle agent.
@@ -503,6 +547,36 @@ class SessionRegistry:
         """Remove a session (e.g. on SessionEnd). Returns True if one existed."""
         with self._lock:
             return self._sessions.pop(self._key(agent_kind, session_id), None) is not None
+
+    def set_agent_pid(self, agent_kind: str, session_id: str, pid: int) -> None:
+        """Remember the CC host pid for liveness sweeps. No-create (a pid
+        without a session is meaningless)."""
+        with self._lock:
+            sess = self._sessions.get(self._key(agent_kind, session_id))
+            if sess is not None and pid > 0:
+                sess.agent_pid = int(pid)
+
+    def sweep_dead(self, alive_fn=None, grace_s: float = 5.0) -> int:
+        """Drop sessions whose host process is GONE (ctrl+c / kill / closed
+        terminal — none of which reliably fire SessionEnd, esp. on Windows).
+        Only an unambiguous "dead" verdict drops; unknown (pid==0, probe
+        error) falls through to sweep_stale's slower timeouts. The short
+        grace after the last event guards against racing a session's own
+        in-flight events right after a pid change. Returns number dropped."""
+        alive = alive_fn or _pid_alive
+        now = int(time.time())
+        dropped = 0
+        with self._lock:
+            dead = [
+                k for k, s in self._sessions.items()
+                if s.agent_pid > 0
+                and (now - s.last_active_unix) > grace_s
+                and alive(s.agent_pid) is False
+            ]
+            for k in dead:
+                self._sessions.pop(k, None)
+                dropped += 1
+        return dropped
 
     def sweep_idle_turns(self, timeout_s: float) -> int:
         """Flip 'running' sessions that have gone silent (no tool in flight) for
@@ -1281,9 +1355,12 @@ class SnapshotPublisher(threading.Thread):
         if self._wake.is_set() and since < self.min_interval:
             return
         # Flip silent/interrupted turns → "your turn" (CC fires no hook on ESC),
-        # and drop dead/abandoned sessions so corpses don't pile up. Both mutate
-        # the registry, so the snapshot below reflects them and gets pushed.
+        # and drop dead/abandoned sessions so corpses don't pile up. All three
+        # mutate the registry, so the snapshot below reflects them and gets
+        # pushed. sweep_dead is the fast path (ctrl+c → gone within one
+        # keepalive, ≤10 s); sweep_stale stays as the pid-less fallback.
         self.registry.sweep_idle_turns(IDLE_TURN_S)
+        self.registry.sweep_dead()
         self.registry.sweep_stale()
         snap = self.registry.snapshot_v1()
         snap_json = json.dumps(snap, sort_keys=True)
@@ -1369,6 +1446,9 @@ def normalize_event(raw: dict) -> dict:
         "tokens": int(raw.get("tokens") or 0),
         "permission_required": bool(raw.get("permission_required")),
         "cwd": raw.get("cwd", ""),
+        # Liveness pid of the CC host process (hook_dispatch ancestor walk).
+        # 0 = unknown; sweep_dead() ignores those sessions.
+        "agent_pid": int(raw.get("agent_pid") or 0),
         # v2.3.0: assistant's last message text, used by the AWAITING
         # classifier on Stop events. hook_dispatch.py is responsible for
         # extracting it from the transcript file when available.
@@ -1484,6 +1564,17 @@ class Bridge:
         if evt.get("transcript_path"):
             self.registry.set_transcript_path(agent, sid, evt["transcript_path"])
 
+        resp = self._dispatch(evt, t, agent, sid)
+
+        # Refresh the liveness pid AFTER dispatch: the handlers above are what
+        # create the session (upsert), and set_agent_pid is deliberately
+        # no-create — attaching first would silently drop the pid on a
+        # session's very first event.
+        if evt.get("agent_pid"):
+            self.registry.set_agent_pid(agent, sid, evt["agent_pid"])
+        return resp
+
+    def _dispatch(self, evt: dict, t: str, agent: str, sid: str) -> dict:
         if t == "session_start":
             # Session appeared → show it on the device immediately (idle, ball
             # in the user's court until the first prompt) instead of waiting for
