@@ -77,7 +77,12 @@ static void on_scene_changed(int idx, const scene_t *current)
 
 /* v2.3.0: auto-switch between AWAITING takeover and the active
  * non-awaiting scene. Remembers what the user was on before the
- * takeover so we restore them when awaiting clears. */
+ * takeover so we restore them when awaiting clears.
+ *
+ * v3.0 fleet rule: the takeover only fires when EXACTLY ONE agent is
+ * live. With 2+ agents a full-screen takeover would hide every other
+ * agent's progress — the dashboard's fleet rows carry the awaiting
+ * state (gold highlight) instead. */
 static int s_pre_awaiting_scene_idx = -1;
 
 void scene_auto_switch_cb(lv_timer_t *t)
@@ -89,9 +94,11 @@ void scene_auto_switch_cb(lv_timer_t *t)
 
     bool any_awaiting = false;
     bool prompt_active = false;
+    int  slot_count = 0;
     agent_state_lock();
     if (agent_state_most_recent_awaiting() != NULL) any_awaiting = true;
     prompt_active = agent_state_get()->prompt_active;
+    slot_count = agent_state_get()->slot_count;
     agent_state_unlock();
 
     /* An active permission prompt is the higher-priority interactive scene: it
@@ -101,12 +108,15 @@ void scene_auto_switch_cb(lv_timer_t *t)
      * USER deny" that do nothing — the device-side approval becomes dead. So
      * suppress the takeover while a prompt is active. */
     bool on_awaiting = (current_idx == awaiting_idx);
-    if (any_awaiting && !on_awaiting && !prompt_active) {
+    bool want_takeover = any_awaiting && (slot_count <= 1);
+    if (want_takeover && !on_awaiting && !prompt_active) {
         s_pre_awaiting_scene_idx = current_idx;
         bsp_display_lock(-1);
         scene_fw_show(awaiting_idx);
         bsp_display_unlock();
-    } else if (!any_awaiting && on_awaiting) {
+    } else if (!want_takeover && on_awaiting) {
+        /* Either nothing is awaiting anymore, or a second agent appeared —
+         * both mean the takeover must yield (to the previous scene / fleet). */
         int back = (s_pre_awaiting_scene_idx >= 0) ? s_pre_awaiting_scene_idx : 0;
         bsp_display_lock(-1);
         scene_fw_show(back);
