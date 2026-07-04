@@ -52,6 +52,9 @@ permission prompts with a physical button.
 | **Host bridge** (`tools/claude_buddy_bridge.py`) | Long-running daemon. Ingests Claude Code hooks (`hook_dispatch.py`) and Codex JSONL (`codex_wrapper.py`). Maintains a per-agent `SessionRegistry`. Pushes throttled snapshots + PUSH banners. Circuit-breaker in `hook_dispatch.py` prevents stalling CC on bridge timeouts. |
 | **Wire format** ([`PROTOCOL.md`](./PROTOCOL.md)) | One-line JSON over USB-Serial: `dash snapshot`, `dash prompt`, `dash event`, `dash tokens`, `dash push`, `dash idle`. Device replies `OK:` / `ERR:` / `EVT:`. |
 
+For the current build boundary — what ships now vs. scaffold-only files —
+see [`docs/CURRENT_ARCHITECTURE.md`](./docs/CURRENT_ARCHITECTURE.md).
+
 ## Quickstart (~15 min, longer if you need ESP-IDF)
 
 > **Prerequisites:** ESP-IDF v6.0+ must be installed and activated
@@ -106,7 +109,7 @@ For the integration map, see [`docs/HOST_INTEGRATION.md`](./docs/HOST_INTEGRATIO
 
 ## Scenes
 
-The dashboard cycles through seven scenes, all rendered with LVGL 9.x
+The dashboard cycles through its scenes, all rendered with LVGL 9.x
 on a 466×466 round AMOLED:
 
 <div align="center">
@@ -116,20 +119,21 @@ on a 466×466 round AMOLED:
 | Scene | When it shows | What it shows |
 |---|---|---|
 | **idle** | no active sessions (60 s+ since last event) | gentle "zZz" pulse, dim ring |
-| **dashboard** | one or more agents active (ambient default) | clock, feed of recent tool actions, active/token counters |
-| **sessions** | on demand or multi-agent detail | per-agent rows: name, status pip, cwd, last 3-5 transcript lines |
-| **awaiting** | agent blocked on user input (`Stop` hook) | kind-specific headline + glyph, marquee summary, numbered options, BOOT/USER affordance on approve |
+| **dashboard** | one or more agents active (ambient default) | v3 adaptive fleet view — 1 agent: breathing pulse + project + live activity line; 2-4 agents: per-agent rows (status dot, project, activity, waiting-duration/tokens), waiting rows glow gold |
+| **awaiting** | agent blocked on user input (`Stop` hook), **single-agent only** | kind-specific headline + glyph, marquee summary, numbered options, BOOT/USER affordance on approve. With 2+ agents the fleet rows carry the awaiting state instead (a takeover would hide the other agents) |
 | **prompt** | a `PreToolUse` event needs explicit approval | full-screen tool name, command preview, **BOOT** = approve, **USER** = deny, 60 s timeout |
 | **tokens** | on demand (`dash tokens`) | cumulative + today's tokens, 24 h sparkline, per-agent breakdown |
 | **status** | on demand (`dash event {scene:'status'}`) | heap free, uptime, WiFi state (v2), firmware build |
 
-Captured live:
+Captured live (v3 fleet view, real device):
 
 | | | |
 |:-:|:-:|:-:|
-| [`docs/img/dash-idle.png`](./docs/img/dash-idle.png) | [`docs/img/dash-sessions.png`](./docs/img/dash-sessions.png) | [`docs/img/dash-prompt.png`](./docs/img/dash-prompt.png) |
-| **idle** | **sessions** | **prompt** |
-| [`docs/img/dash-tokens.png`](./docs/img/dash-tokens.png) | [`docs/img/dash-status.png`](./docs/img/dash-status.png) | |
+| ![single agent](./docs/img/v3-ambient-single.png) | ![2 agents](./docs/img/v3-fleet-2-agents.png) | ![3 agents](./docs/img/v3-fleet-3-agents.png) |
+| **1 agent — ambient + activity** | **2 agents** | **3 agents** |
+| ![4 agents](./docs/img/v3-fleet-4-agents.png) | ![awaiting takeover](./docs/img/v3-takeover-single.png) | ![idle](./docs/img/v3-idle.png) |
+| **4 agents (2 waiting, gold)** | **awaiting takeover (single agent)** | **idle** |
+| ![tokens](./docs/img/dash-tokens.png) | ![status](./docs/img/dash-status.png) | |
 | **tokens** | **status** | |
 
 ## How it compares
