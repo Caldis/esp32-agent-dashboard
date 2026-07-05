@@ -183,6 +183,7 @@ void app_main(void)
      * overview → …), skipping the takeovers. */
     scene_fw_register(&scene_dashboard);
     scene_fw_register(&scene_overview);
+    scene_fw_register(&scene_clock);
     scene_fw_register(&scene_prompt);
     /* v2.3.0 AWAITING takeover — the scene that fires when any agent
      * is blocking on user input. Not the default (entered automatically

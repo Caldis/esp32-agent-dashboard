@@ -53,7 +53,7 @@ RAW_ARG_VERBS = {"scene"}
 
 # Mirrors the firmware's registered scene ids (v4). `dash scene <id>` rejects
 # anything else, same as scene_fw_find_by_id returning -1.
-SCENE_IDS = {"dashboard", "idle", "prompt", "awaiting"}
+SCENE_IDS = {"dashboard", "idle", "clock", "prompt", "awaiting"}
 
 
 class MockDeviceV1:

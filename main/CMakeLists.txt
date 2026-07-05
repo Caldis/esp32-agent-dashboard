@@ -13,6 +13,7 @@ idf_component_register(
         "harness/agent_snapshot_apply.c"
         "scenes/scene_dashboard.c"
         "scenes/scene_overview.c"
+        "scenes/scene_clock.c"
         "scenes/scene_prompt.c"
         "scenes/scene_awaiting.c"
         "anim/apple_ease.c"

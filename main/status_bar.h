@@ -20,3 +20,9 @@ typedef struct {
 
 void status_bar_create(lv_obj_t *parent, status_bar_t *sb);
 void status_bar_update(status_bar_t *sb, const agent_state_t *st);
+
+/* Format the host-synced wall clock as "HH:MM" ("--:--" until the host
+ * pushes `dash time`). Shared by the status bar's top clock and
+ * scene_clock's big face so the two can never disagree. Call with the
+ * agent_state lock held (reads host_epoch/tz fields). */
+void status_bar_format_time(char *buf, size_t cap, const agent_state_t *st);

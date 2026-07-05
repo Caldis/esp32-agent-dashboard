@@ -175,7 +175,7 @@ const console_cmd_t *shim_find_cmd(const char *name) {
 /* ── scene 桩 ───────────────────────────────────────────── */
 /* 与固件 app_main 注册顺序一致(v4):index 0 = dashboard(默认/回退)。 */
 static scene_t s_scenes[] = {
-    {"dashboard"}, {"idle"}, {"prompt"}, {"awaiting"},
+    {"dashboard"}, {"idle"}, {"clock"}, {"prompt"}, {"awaiting"},
 };
 static const int s_scene_count = (int)(sizeof(s_scenes) / sizeof(s_scenes[0]));
 static int s_cur_scene = -1;

@@ -28,7 +28,7 @@ enum { CONN_OK = 0, CONN_WAITING, CONN_STALE };
 #define FOOTER_LEFT_X  124
 #define FOOTER_RIGHT_X 284
 
-static void fmt_clock(char *buf, size_t cap, const agent_state_t *st)
+void status_bar_format_time(char *buf, size_t cap, const agent_state_t *st)
 {
     if (st->host_epoch_unix > 0) {
         uint32_t now = st->host_epoch_unix
@@ -98,7 +98,7 @@ void status_bar_create(lv_obj_t *parent, status_bar_t *sb)
 void status_bar_update(status_bar_t *sb, const agent_state_t *st)
 {
     char buf[16];
-    fmt_clock(buf, sizeof(buf), st);
+    status_bar_format_time(buf, sizeof(buf), st);
     lv_label_set_text(sb->time_lbl, buf);
 
     char left[16];
