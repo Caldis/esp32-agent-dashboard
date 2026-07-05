@@ -14,8 +14,12 @@ The current ESP32 firmware build includes:
 - Theme and icons: `main/theme.c`, `main/tool_icons.c`
 - JSON parser: `main/tiny_json.c`
 - Console command Interface: `main/harness/agent_commands.c`
-- Scenes (4, registered in `esp32_agent_dashboard_main.c`): `dashboard`,
-  `idle`, `prompt`, `awaiting`. (`sessions`, `tokens`, `status` were removed
+- Scenes (5, registered in `esp32_agent_dashboard_main.c`): `dashboard`,
+  `idle` (the Overview rollup — file is `scenes/scene_overview.c`, wire id
+  kept as `idle`), `clock`, `prompt`, `awaiting`. The first three are
+  environment scenes and switch ONLY manually (BOOT key cycle, `dash scene`,
+  `dash idle`); `prompt`/`awaiting` are state-driven takeovers that restore
+  the covered scene on exit. (`sessions`, `tokens`, `status` were removed
   in commit 1a3036c — do not reintroduce references to them.)
 - Animation helper: `main/anim/apple_ease.c`
 

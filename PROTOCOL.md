@@ -125,7 +125,26 @@ Per-agent token sample (sparkline accumulates per agent):
 
 ### `dash idle`
 
-No payload. Switches to idle scene.
+No payload. Switches to the overview scene (wire id `idle` — legacy
+alias kept for stress/profile tooling and old NVS `default_scene`
+values). Prefer `dash scene` for new code.
+
+### `dash scene` (new in v4)
+
+```
+dash scene clock
+```
+
+Payload is a raw scene id, not JSON. Switches to any registered scene
+(`dashboard` / `idle` / `clock` / `prompt` / `awaiting`); replies
+`ERR: unknown scene: <id>` otherwise.
+
+v4 scene contract: the three environment scenes (dashboard, overview,
+clock) change ONLY on explicit request — the device BOOT key, `dash
+scene`, or `dash idle`. Snapshots never move them (the pre-v4
+0-agents→idle / N-agents→dashboard auto-switch is gone). The two
+takeovers stay state-driven: a prompt (or `agents[].awaiting`) enters
+its scene and, on clear, restores whatever the user was viewing.
 
 ### `dash config` (new in v1)
 
@@ -136,7 +155,7 @@ Set device-side parameters. Persisted to NVS so they survive reboot.
   "device_name": "Clawd",
   "owner": "Felix",
   "theme": "noir",
-  "default_scene": "sessions"
+  "default_scene": "dashboard"
 }
 ```
 
@@ -164,7 +183,7 @@ internals:
 OK: {
   "device_name": "Clawd",
   "owner": "Felix",
-  "scene": "sessions",
+  "scene": "dashboard",
   "uptime_s": 8412,
   "heap_free": 84200,
   "heap_min": 78400,

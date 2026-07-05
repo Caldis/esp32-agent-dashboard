@@ -48,9 +48,9 @@ permission prompts with a physical button.
 
 | Layer | What it gives you |
 |---|---|
-| **Firmware** (`main/`) | 4 LVGL scenes (dashboard / idle / prompt / awaiting) on the Waveshare ESP32-S3-Touch-AMOLED-2.16. Built on the [esp-harness](https://github.com/Caldis/esp-harness) console protocol + scene framework. Per-agent status pet on the single-agent view. |
+| **Firmware** (`main/`) | 5 LVGL scenes (dashboard / overview / clock / prompt / awaiting) on the Waveshare ESP32-S3-Touch-AMOLED-2.16. Built on the [esp-harness](https://github.com/Caldis/esp-harness) console protocol + scene framework. Per-agent status pet on the single-agent view. |
 | **Host bridge** (`tools/claude_buddy_bridge.py`) | Long-running daemon. Ingests Claude Code hooks (`hook_dispatch.py`) and Codex JSONL (`codex_wrapper.py`). Maintains a per-agent `SessionRegistry`. Pushes throttled snapshots. Circuit-breaker in `hook_dispatch.py` prevents stalling CC on bridge timeouts. |
-| **Wire format** ([`PROTOCOL.md`](./PROTOCOL.md)) | One-line JSON over USB-Serial: `dash snapshot`, `dash prompt`, `dash event`, `dash tokens`, `dash idle`. Device replies `OK:` / `ERR:` / `EVT:`. |
+| **Wire format** ([`PROTOCOL.md`](./PROTOCOL.md)) | One-line JSON over USB-Serial: `dash snapshot`, `dash prompt`, `dash event`, `dash tokens`, `dash scene`. Device replies `OK:` / `ERR:` / `EVT:`. |
 
 For the current build boundary — what ships now vs. scaffold-only files —
 see [`docs/CURRENT_ARCHITECTURE.md`](./docs/CURRENT_ARCHITECTURE.md).
@@ -90,10 +90,11 @@ python tools/claude_buddy_bridge.py serve --serial-port COM9
 # → "[bridge] serving on 127.0.0.1:7321 | dry_run=False | serial=COM9"
 ```
 
-Now start a Claude Code session. The device wakes from `idle` →
-shows the running session → if a `Bash` tool needs approval, the
-prompt scene takes over and waits for **BOOT** (approve) or **USER**
-(deny). 60 s timeout falls through to "deny" by default.
+Now start a Claude Code session. The dashboard picks up the running
+session → if a `Bash` tool needs approval, the prompt scene takes over
+and waits for **BOOT** (approve) or **USER** (deny), then returns to
+whatever view you were on. 60 s timeout falls through to "deny" by
+default.
 
 > **No board?** You can still iterate the bridge against the included
 > TCP mock device:
@@ -109,21 +110,22 @@ For the integration map, see [`docs/HOST_INTEGRATION.md`](./docs/HOST_INTEGRATIO
 
 ## Scenes
 
-The dashboard cycles through its scenes, all rendered with LVGL 9.x
-on a 466×466 round AMOLED:
+Three environment scenes cycle on the **BOOT** key (dashboard →
+overview → clock → …) and never switch on their own; two takeovers
+enter on state and restore whatever you were viewing when they clear.
+All rendered with LVGL 9.x on a 466×466 round AMOLED:
 
 <div align="center">
 <img src="docs/img/scenes-strip.png" alt="scene overview" width="780" onerror="this.style.display='none'">
 </div>
 
-| Scene | When it shows | What it shows |
+| Scene | Enters via | What it shows |
 |---|---|---|
-| **idle** | no active sessions (60 s+ since last event) | gentle "zZz" pulse, dim ring |
-| **dashboard** | one or more agents active (ambient default) | v3 adaptive fleet view — 1 agent: breathing pulse + project + live activity line; 2-4 agents: per-agent rows (status dot, project, activity, waiting-duration/tokens), waiting rows glow gold |
+| **dashboard** | BOOT cycle (boot default) | v3 adaptive fleet view — 1 agent: status pet + project + live activity line; 2-4 agents: per-agent rows (status dot, project, activity, waiting-duration/tokens), waiting rows glow gold; "no agents" empty state |
+| **overview** | BOOT cycle | cross-agent rollup — big live-agent count, "N running · M waiting", today/total token sums, kind mix (`cc x2 · cx x1`); gentle "zZz" pulse when no agents (wire id stays `idle`) |
+| **clock** | BOOT cycle | StandBy-style big centered clock (host-synced, `--:--` without host), active/tokens footer; iOS-ease entrance from the top-clock position |
 | **awaiting** | agent blocked on user input (`Stop` hook), **single-agent only** | kind-specific headline + glyph, marquee summary, numbered options, BOOT/USER affordance on approve. With 2+ agents the fleet rows carry the awaiting state instead (a takeover would hide the other agents) |
 | **prompt** | a `PreToolUse` event needs explicit approval | full-screen tool name, command preview, **BOOT** = approve, **USER** = deny, 60 s timeout |
-| **tokens** | on demand (`dash tokens`) | cumulative + today's tokens, 24 h sparkline, per-agent breakdown |
-| **status** | on demand (`dash event {scene:'status'}`) | heap free, uptime, WiFi state (v2), firmware build |
 
 Captured live (v3 fleet view, real device):
 
@@ -132,9 +134,7 @@ Captured live (v3 fleet view, real device):
 | ![single agent](./docs/img/v3-ambient-single.png) | ![2 agents](./docs/img/v3-fleet-2-agents.png) | ![3 agents](./docs/img/v3-fleet-3-agents.png) |
 | **1 agent — ambient + activity** | **2 agents** | **3 agents** |
 | ![4 agents](./docs/img/v3-fleet-4-agents.png) | ![awaiting takeover](./docs/img/v3-takeover-single.png) | ![idle](./docs/img/v3-idle.png) |
-| **4 agents (2 waiting, gold)** | **awaiting takeover (single agent)** | **idle** |
-| ![tokens](./docs/img/dash-tokens.png) | ![status](./docs/img/dash-status.png) | |
-| **tokens** | **status** | |
+| **4 agents (2 waiting, gold)** | **awaiting takeover (single agent)** | **overview, no agents (zZz)** |
 
 ## How it compares
 
