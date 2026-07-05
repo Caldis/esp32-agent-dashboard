@@ -9,6 +9,15 @@
  * summary / options / context); the device font (Montserrat) has no CJK glyphs. */
 const lv_font_t *cjk_font(int px);
 
+/* Clock face font: M PLUS Rounded 1c Black subset to "0-9 : -" only
+ * (main/clock_digits.ttf, ~2.4KB, regenerate with tools/make_clock_font.py).
+ * Rounded + heavy for the StandBy look; the colon's side bearings are
+ * pre-tightened in the subset. ONLY those twelve glyphs exist — anything
+ * else renders empty, so keep it to status_bar_format_time() output.
+ * Returns NULL when tiny_ttf is unavailable (fall back to cjk_font /
+ * Montserrat). */
+const lv_font_t *clock_font(int px);
+
 /* Copy a UTF-8 string into dst[cap] WITHOUT splitting a multi-byte character at
  * the truncation boundary. A byte-level truncation (strncpy) that cuts a 3-byte
  * CJK codepoint in half leaves invalid trailing bytes that render as garbage

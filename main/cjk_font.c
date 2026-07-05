@@ -56,8 +56,37 @@ const lv_font_t *cjk_font(int px)
     return f;   /* cache full (won't happen with so few sizes) — leak-free enough */
 }
 
+/* Clock digits: rounded subset for scene_clock (see header). Same
+ * tiny_ttf pipeline, its own tiny cache — the face wants one size but a
+ * follow-up (e.g. seconds readout) may add another. */
+extern const uint8_t clock_ttf_start[] asm("_binary_clock_digits_ttf_start");
+extern const uint8_t clock_ttf_end[]   asm("_binary_clock_digits_ttf_end");
+
+#define CLOCK_CACHE_MAX 4
+static lv_font_t *s_clock_font[CLOCK_CACHE_MAX];
+static int        s_clock_px[CLOCK_CACHE_MAX];
+
+const lv_font_t *clock_font(int px)
+{
+    if (px <= 0) return NULL;
+    for (int i = 0; i < CLOCK_CACHE_MAX; ++i)
+        if (s_clock_font[i] && s_clock_px[i] == px) return s_clock_font[i];
+
+    size_t sz = (size_t)(clock_ttf_end - clock_ttf_start);
+    lv_font_t *f = lv_tiny_ttf_create_data((const void *)clock_ttf_start, sz, px);
+    if (!f) {
+        ESP_LOGE("cjk", "clock tiny_ttf create FAILED px=%d sz=%u",
+                 px, (unsigned)sz);
+        return NULL;
+    }
+    for (int i = 0; i < CLOCK_CACHE_MAX; ++i)
+        if (!s_clock_font[i]) { s_clock_font[i] = f; s_clock_px[i] = px; return f; }
+    return f;
+}
+
 #else  /* tiny_ttf not built — callers fall back to the Latin font */
 
 const lv_font_t *cjk_font(int px) { (void)px; return NULL; }
+const lv_font_t *clock_font(int px) { (void)px; return NULL; }
 
 #endif

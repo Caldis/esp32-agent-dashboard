@@ -38,3 +38,6 @@ step2-browser-smoke.png
 fonts/zh.ttf
 fonts/_gb2312.txt
 main/zh.ttf
+# clock_digits.ttf source (3.6MB OFL original; the committed 2.4KB subset
+# is regenerated from it via tools/make_clock_font.py)
+fonts/MPLUSRounded1c-Black.ttf

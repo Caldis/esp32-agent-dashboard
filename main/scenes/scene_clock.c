@@ -13,16 +13,19 @@
  * disagree; "--:--" until the host pushes `dash time`.
  *
  * The face is rendered by tiny_ttf at CLOCK_PX from the embedded
- * SimHei subset (digits + ':' are in GB2312). SimHei digits are on the
- * thin side for true StandBy weight — an ExtraBold digits-only subset
- * is a planned enhancement, not a blocker (see SCENE_V4_DESIGN §5).
+ * M PLUS Rounded 1c Black digit subset (clock_font() — rounded, heavy,
+ * colon side bearings pre-tightened; the SF-Rounded look StandBy has).
+ * Falls back to the SimHei subset, then Montserrat.
  *
- * Entrance (v4 M4): on every show the face starts where the top small
- * clock lives — its y offset and a transform_scale matching the 48pt
- * size — and glides to the screen center while scaling up to 1.0, both
- * tracks on apple_ease_out (iOS standard cubic-bezier). Visually the
- * top clock "becomes" the big clock instead of the face popping in.
- * motion_reduced skips straight to the resting pose.
+ * Entrance (v4 M4, plan B): on every show the face starts at the top
+ * small-clock position, fully transparent, and glides down to center
+ * while fading in — apple_ease_out on both tracks. Plan A additionally
+ * animated transform_scale (small→full size), but scaling a 150px
+ * tiny_ttf label re-renders it through an intermediate layer every
+ * frame and measured 12.5-13.4 fps against the panel's 30 (visible
+ * stutter); y+fade keeps the "top clock becomes the big clock" story
+ * at full frame rate. motion_reduced skips straight to the resting
+ * pose.
  */
 
 #include "scenes.h"
@@ -36,17 +39,14 @@
 
 #include "lvgl.h"
 
-#define CLOCK_PX    150
+#define CLOCK_PX    135   /* was 150; pulled to ~90% on user feedback */
 #define COL_TEXT    0xF3EEE2
 
 /* Entrance geometry. The face label is CENTER-aligned, so y is an
  * offset from the vertical middle (233 on this 466px panel). The top
  * clock renders at TOP_MID y=56 with a 48pt font — its visual center
- * sits at ≈56+29=85, i.e. offset 85-233 = -148 from screen center.
- * Start scale ≈ 256 * 48px/150px ≈ 82 so the face appears top-clock
- * sized before growing to full size. */
+ * sits at ≈56+29=85, i.e. offset 85-233 = -148 from screen center. */
 #define ENTRY_Y      (-148)
-#define ENTRY_SCALE  82
 #define ENTRY_MS     550
 
 typedef struct {
@@ -61,9 +61,13 @@ static void anim_face_y(void *obj, int32_t v)
     lv_obj_set_y((lv_obj_t *)obj, v);
 }
 
-static void anim_face_scale(void *obj, int32_t v)
+/* text_opa, NOT style_opa: widget-level opa (like transform_scale)
+ * composites the label through an intermediate layer every frame —
+ * measured as bad as the scale plan (9-15 fps). text_opa is a plain
+ * per-pixel alpha applied while blitting the glyphs; no layer. */
+static void anim_face_opa(void *obj, int32_t v)
 {
-    lv_obj_set_style_transform_scale((lv_obj_t *)obj, v, 0);
+    lv_obj_set_style_text_opa((lv_obj_t *)obj, (lv_opa_t)v, 0);
 }
 
 /* Play (or skip) the top-to-center entrance. Called from on_show on the
@@ -72,18 +76,16 @@ static void anim_face_scale(void *obj, int32_t v)
 static void clock_entrance(clock_state_t *st, bool motion_ok)
 {
     lv_anim_delete(st->face, anim_face_y);
-    lv_anim_delete(st->face, anim_face_scale);
+    lv_anim_delete(st->face, anim_face_opa);
 
     if (!motion_ok) {
         lv_obj_set_y(st->face, 0);
-        lv_obj_set_style_transform_scale(st->face, 256, 0);
+        lv_obj_set_style_text_opa(st->face, LV_OPA_COVER, 0);
         return;
     }
 
-    lv_obj_set_style_transform_pivot_x(st->face, lv_pct(50), 0);
-    lv_obj_set_style_transform_pivot_y(st->face, lv_pct(50), 0);
     lv_obj_set_y(st->face, ENTRY_Y);
-    lv_obj_set_style_transform_scale(st->face, ENTRY_SCALE, 0);
+    lv_obj_set_style_text_opa(st->face, LV_OPA_TRANSP, 0);
 
     lv_anim_t a;
     lv_anim_init(&a);
@@ -95,8 +97,8 @@ static void clock_entrance(clock_state_t *st, bool motion_ok)
     lv_anim_set_exec_cb(&a, anim_face_y);
     lv_anim_start(&a);
 
-    lv_anim_set_values(&a, ENTRY_SCALE, 256);
-    lv_anim_set_exec_cb(&a, anim_face_scale);
+    lv_anim_set_values(&a, LV_OPA_TRANSP, LV_OPA_COVER);
+    lv_anim_set_exec_cb(&a, anim_face_opa);
     lv_anim_start(&a);
 }
 
@@ -131,7 +133,8 @@ static void clock_init(scene_t *s, lv_obj_t *parent)
     lv_obj_add_flag(st->sb.time_lbl, LV_OBJ_FLAG_HIDDEN);
 
     st->face = lv_label_create(parent);
-    { const lv_font_t *bf = cjk_font(CLOCK_PX);
+    { const lv_font_t *bf = clock_font(CLOCK_PX);
+      if (!bf) bf = cjk_font(CLOCK_PX);
       lv_obj_set_style_text_font(st->face, bf ? bf : &lv_font_montserrat_48, 0); }
     lv_obj_set_style_text_color(st->face, lv_color_hex(COL_TEXT), 0);
     lv_label_set_text(st->face, "--:--");
@@ -164,11 +167,11 @@ static void clock_on_hide(scene_t *s)
     clock_state_t *st = (clock_state_t *)s->user_data;
     if (!st) return;
     /* Kill an in-flight entrance and park at the resting pose so the
-     * scene-framework crossfade never snapshots a shrunken face. */
+     * scene-framework crossfade never snapshots a mid-flight face. */
     lv_anim_delete(st->face, anim_face_y);
-    lv_anim_delete(st->face, anim_face_scale);
+    lv_anim_delete(st->face, anim_face_opa);
     lv_obj_set_y(st->face, 0);
-    lv_obj_set_style_transform_scale(st->face, 256, 0);
+    lv_obj_set_style_text_opa(st->face, LV_OPA_COVER, 0);
     if (st->timer) lv_timer_pause(st->timer);
 }
 

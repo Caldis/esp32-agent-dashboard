@@ -24,6 +24,9 @@ idf_component_register(
         # Gitignored (derived from a system font); regenerate fonts/zh.ttf then
         # copy to main/zh.ttf.
         "zh.ttf"
+        # Clock face digits (M PLUS Rounded 1c Black subset "0-9:-", ~2.4KB,
+        # OFL — committed). Regenerate with tools/make_clock_font.py.
+        "clock_digits.ttf"
     INCLUDE_DIRS
         "."
         "scenes"
