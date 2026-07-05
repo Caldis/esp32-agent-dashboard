@@ -207,6 +207,23 @@ int tj_value_string(const tj_span_t v, char *dst, size_t cap)
         dst[w++] = c;
     }
     dst[w] = '\0';
+    /* A byte-capped copy can slice a multi-byte UTF-8 character in half
+     * (the wire is CJK-heavy). A torn tail is malformed UTF-8 that ends
+     * up verbatim inside LVGL labels — trim back to the last complete
+     * character so this function can never emit it. */
+    if (w > 0) {
+        size_t s = w;
+        while (s > 0 && ((unsigned char)dst[s - 1] & 0xC0) == 0x80) s--;
+        if (s > 0) {
+            unsigned char lead = (unsigned char)dst[s - 1];
+            size_t need = (lead >= 0xF0) ? 4 : (lead >= 0xE0) ? 3 :
+                          (lead >= 0xC0) ? 2 : 1;
+            if (need > 1 && (w - (s - 1)) < need) {
+                w = s - 1;
+                dst[w] = '\0';
+            }
+        }
+    }
     return (int)w;
 }
 

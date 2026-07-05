@@ -26,6 +26,7 @@
 #include "theme.h"
 #include "status_bar.h"
 #include "cjk_font.h"
+#include "pet.h"
 #include "anim/apple_ease.h"
 
 #include <stdio.h>
@@ -77,13 +78,11 @@ typedef struct {
     status_bar_t sb;             /* shared top time + bottom active/tokens */
     /* ambient (single-agent) group */
     lv_obj_t *ambient_grp;
-    lv_obj_t *ambient_ring;
-    lv_obj_t *ambient_dot;       /* breathing inner dot */
+    pet_t    *pet;               /* per-kind status creature (v3.1) */
     lv_obj_t *ambient_lbl;       /* status word */
     lv_obj_t *ambient_proj;      /* "cc  <project>" */
     lv_obj_t *ambient_act;       /* live activity line */
     int       ambient_target_y;  /* last slide target; 0 = not yet placed */
-    bool      breath_armed;
     /* fleet (multi-agent) rows */
     fleet_row_t rows[AGENT_SLOT_MAX];
     int       last_layout_n;     /* row count last laid out; -1 forces layout */
@@ -196,28 +195,6 @@ static void compose_activity(const agent_slot_t *s, char *buf, size_t cap)
 
 /* ── ambient (single-agent) mode ─────────────────────────────────── */
 
-static void anim_breath_size(void *obj, int32_t v)
-{
-    lv_obj_set_size((lv_obj_t *)obj, v, v);
-    lv_obj_center((lv_obj_t *)obj);
-}
-
-static void arm_breath(dash_t *d)
-{
-    if (d->breath_armed || !d->ambient_dot) return;
-    d->breath_armed = 1;
-    lv_anim_t a;
-    lv_anim_init(&a);
-    lv_anim_set_var(&a, d->ambient_dot);
-    lv_anim_set_values(&a, 16, 34);
-    lv_anim_set_time(&a, 1500);
-    lv_anim_set_playback_time(&a, 1500);
-    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
-    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
-    lv_anim_set_exec_cb(&a, anim_breath_size);
-    lv_anim_start(&a);
-}
-
 static void anim_ambient_y(void *obj, int32_t v)
 {
     lv_obj_set_y((lv_obj_t *)obj, v);
@@ -248,7 +225,13 @@ static void ambient_slide_to(dash_t *d, int target, bool motion_ok)
     lv_anim_start(&a);
 }
 
-static void render_ambient(dash_t *d, const agent_state_t *st)
+/* Shared single-agent detail cluster. focus_pos > 0 marks Key3 focus
+ * mode: the project line gains a "pos/live" prefix in gold and the
+ * ring/dot pick up the slot's waiting accent, so a pinned agent reads
+ * differently from the lone-agent ambient screen. */
+static void render_single(dash_t *d, const agent_state_t *st,
+                          const agent_slot_t *one, const char *verb,
+                          int focus_pos, int focus_live)
 {
     for (int i = 0; i < AGENT_SLOT_MAX; ++i) {
         lv_obj_add_flag(d->rows[i].card, LV_OBJ_FLAG_HIDDEN);
@@ -256,27 +239,41 @@ static void render_ambient(dash_t *d, const agent_state_t *st)
     lv_obj_clear_flag(d->ambient_grp, LV_OBJ_FLAG_HIDDEN);
     d->last_layout_n = -1;   /* force row re-layout when fleet returns */
 
-    int active_now = st->running + st->waiting;
-    const char *verb = (st->running > 0) ? "thinking" :
-                       (active_now > 0)  ? "your turn" : "idle";
     lv_label_set_text(d->ambient_lbl, verb);
 
-    /* Find the (single) live slot for project + activity detail. */
-    const agent_slot_t *one = NULL;
-    for (int i = 0; i < AGENT_SLOT_MAX; ++i) {
-        if (st->slots[i].in_use) { one = &st->slots[i]; break; }
+    bool focused = (focus_pos > 0);
+    lv_obj_set_style_text_color(d->ambient_proj,
+        lv_color_hex(focused ? COL_GOLD : COL_TEXT_DIM), 0);
+
+    /* The pet mirrors the agent: kind picks the creature, state picks
+     * the animation (working bounce / expectant sway / sleeping). */
+    pet_mood_t mood = PET_MOOD_IDLE;
+    if (one) {
+        if (one->awaiting_kind != AWAITING_NONE
+            || one->status == AGENT_STATUS_WAITING) {
+            mood = PET_MOOD_WAITING;
+        } else if (one->status == AGENT_STATUS_RUNNING) {
+            mood = PET_MOOD_WORKING;
+        }
     }
+    pet_set(d->pet, one ? one->kind : NULL, mood);
+
     ambient_slide_to(d, one ? AMBIENT_Y_INFO : AMBIENT_Y_CENTERED,
                      !st->motion_reduced);
     if (one) {
-        char proj[64];
+        char proj[80];
+        char prefix[16] = "";
+        if (focused) {
+            snprintf(prefix, sizeof(prefix), "%d/%d  ", focus_pos, focus_live);
+        }
         const char *base = cwd_basename(one->cwd);
         char basetrunc[40];
         if (base) {
             cjk_utf8_lcpy(basetrunc, base, sizeof(basetrunc));
-            snprintf(proj, sizeof(proj), "%s  %s", short_kind(one->kind), basetrunc);
+            snprintf(proj, sizeof(proj), "%s%s  %s",
+                     prefix, short_kind(one->kind), basetrunc);
         } else {
-            snprintf(proj, sizeof(proj), "%s", short_kind(one->kind));
+            snprintf(proj, sizeof(proj), "%s%s", prefix, short_kind(one->kind));
         }
         lv_label_set_text(d->ambient_proj, proj);
 
@@ -287,6 +284,41 @@ static void render_ambient(dash_t *d, const agent_state_t *st)
         lv_label_set_text(d->ambient_proj, "");
         lv_label_set_text(d->ambient_act, "");
     }
+}
+
+static void render_ambient(dash_t *d, const agent_state_t *st)
+{
+    int active_now = st->running + st->waiting;
+    const char *verb = (st->running > 0) ? "thinking" :
+                       (active_now > 0)  ? "your turn" : "idle";
+
+    /* Find the (single) live slot for project + activity detail. */
+    const agent_slot_t *one = NULL;
+    for (int i = 0; i < AGENT_SLOT_MAX; ++i) {
+        if (st->slots[i].in_use) { one = &st->slots[i]; break; }
+    }
+    render_single(d, st, one, verb, 0, 0);
+}
+
+/* Key3 focus mode: pin the detail cluster to one slot of a 2+ fleet.
+ * The verb comes from the pinned slot, not the aggregate totals. */
+static void render_focus(dash_t *d, const agent_state_t *st,
+                         const agent_slot_t *one)
+{
+    const char *verb =
+        (one->awaiting_kind != AWAITING_NONE)
+            ? awaiting_headline(one->awaiting_kind)
+        : (one->status == AGENT_STATUS_RUNNING) ? "thinking"
+        : (one->status == AGENT_STATUS_WAITING) ? "your turn"
+        : "idle";
+
+    int pos = 0, live = 0;
+    for (int i = 0; i < AGENT_SLOT_MAX; ++i) {
+        if (!st->slots[i].in_use) continue;
+        live++;
+        if (&st->slots[i] <= one) pos++;
+    }
+    render_single(d, st, one, verb, pos, live);
 }
 
 /* ── fleet (multi-agent) mode ────────────────────────────────────── */
@@ -402,8 +434,14 @@ static void tick(lv_timer_t *t)
     agent_state_lock();
     agent_state_t *st = agent_state_get();
     status_bar_update(&d->sb, st);
-    if (st->slot_count >= 2) render_fleet(d, st);
-    else                     render_ambient(d, st);
+    const agent_slot_t *focus = NULL;
+    if (st->focused_slot >= 0 && st->focused_slot < AGENT_SLOT_MAX
+        && st->slots[st->focused_slot].in_use) {
+        focus = &st->slots[st->focused_slot];
+    }
+    if (st->slot_count >= 2 && focus) render_focus(d, st, focus);
+    else if (st->slot_count >= 2)     render_fleet(d, st);
+    else                              render_ambient(d, st);
     agent_state_unlock();
 }
 
@@ -430,24 +468,10 @@ static void init(scene_t *s, lv_obj_t *parent)
     lv_obj_align(d->ambient_grp, LV_ALIGN_TOP_MID, 0, AMBIENT_Y_CENTERED);
     lv_obj_clear_flag(d->ambient_grp, LV_OBJ_FLAG_SCROLLABLE);
 
-    d->ambient_ring = lv_obj_create(d->ambient_grp);
-    lv_obj_set_size(d->ambient_ring, 96, 96);
-    lv_obj_align(d->ambient_ring, LV_ALIGN_TOP_MID, 0, 0);
-    lv_obj_set_style_bg_opa(d->ambient_ring, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_radius(d->ambient_ring, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_border_color(d->ambient_ring, lv_color_hex(COL_TEAL), 0);
-    lv_obj_set_style_border_width(d->ambient_ring, 2, 0);
-    lv_obj_set_style_border_opa(d->ambient_ring, LV_OPA_40, 0);
-    lv_obj_clear_flag(d->ambient_ring, LV_OBJ_FLAG_SCROLLABLE);
-
-    d->ambient_dot = lv_obj_create(d->ambient_ring);
-    lv_obj_set_size(d->ambient_dot, 18, 18);
-    lv_obj_center(d->ambient_dot);
-    lv_obj_set_style_bg_color(d->ambient_dot, lv_color_hex(COL_TEAL), 0);
-    lv_obj_set_style_bg_opa(d->ambient_dot, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(d->ambient_dot, 0, 0);
-    lv_obj_set_style_radius(d->ambient_dot, LV_RADIUS_CIRCLE, 0);
-    lv_obj_clear_flag(d->ambient_dot, LV_OBJ_FLAG_SCROLLABLE);
+    /* v3.1: the abstract breathing ring became a per-agent pet — same
+     * 96x96 slot at the top of the ambient cluster. */
+    d->pet = pet_create(d->ambient_grp);
+    lv_obj_align(pet_obj(d->pet), LV_ALIGN_TOP_MID, 0, 0);
 
     d->ambient_lbl = lv_label_create(d->ambient_grp);
     lv_obj_set_style_text_color(d->ambient_lbl, lv_color_hex(COL_TEXT), 0);
@@ -514,8 +538,6 @@ static void init(scene_t *s, lv_obj_t *parent)
         lv_label_set_long_mode(r->act_lbl, LV_LABEL_LONG_DOT);
         lv_label_set_text(r->act_lbl, "");
     }
-
-    arm_breath(d);
 
     d->timer = lv_timer_create(tick, 500, d);
     lv_timer_pause(d->timer);

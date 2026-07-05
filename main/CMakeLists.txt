@@ -3,6 +3,9 @@ idf_component_register(
         "esp32_agent_dashboard_main.c"
         "agent_state.c"
         "buttons.c"
+        "pwr_key.c"
+        "button_router.c"
+        "pet.c"
         "theme.c"
         "tiny_json.c"
         "tool_icons.c"
@@ -12,7 +15,6 @@ idf_component_register(
         "scenes/scene_idle.c"
         "scenes/scene_prompt.c"
         "scenes/scene_awaiting.c"
-        "push_banner.c"
         "anim/apple_ease.c"
         "cjk_font.c"
         "status_bar.c"
@@ -40,4 +42,6 @@ idf_component_register(
     PRIV_REQUIRES
         nvs_flash
         esp_timer
+        # pwr_key.c talks to the AXP2101 PMU over the BSP's I2C bus.
+        esp_driver_i2c
 )

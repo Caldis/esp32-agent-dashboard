@@ -4,11 +4,14 @@
  * Boot order:
  *   1. NVS (RF calibration storage, settings)
  *   2. BSP display + LVGL
- *   3. console_protocol_init + harness default commands
- *   4. agent_state_init + theme_init + load persisted config
- *   5. scenes registered under LVGL lock
- *   6. agent_commands_register — `dash` subcommand family
- *   7. buttons_init (BOOT/USER for the prompt scene)
+ *   3. agent_state_init + theme_init + load persisted config
+ *   4. harness default commands + agent_commands_register (`dash` family)
+ *   5. console_protocol_init — listen LAST, after every command exists
+ *      (register-then-listen: see comment in app_main)
+ *   6. scenes registered under LVGL lock
+ *   7. buttons_init + pwr_key_init + button_router_init — three-key
+ *      mode switching (BOOT=view, USER=focus, PWR=screen); an active
+ *      prompt overrides to BOOT=approve / USER=deny
  *   8. heap watchdog timer (emits EVT: low_heap if free < 50 KB)
  *
  * After boot the device sits on the default scene (configurable via
@@ -35,6 +38,8 @@
 #include "scenes/scenes.h"
 #include "agent_state.h"
 #include "buttons.h"
+#include "pwr_key.h"
+#include "button_router.h"
 #include "theme.h"
 #include "harness/agent_commands.h"
 
@@ -107,6 +112,13 @@ void scene_auto_switch_cb(lv_timer_t *t)
      * pauses, its buttons stop responding) yet AWAITING shows "BOOT approve /
      * USER deny" that do nothing — the device-side approval becomes dead. So
      * suppress the takeover while a prompt is active. */
+    /* A dark screen must never hide input the agent is blocked on — wake
+     * it the moment a prompt or an awaiting state arrives. Manual PWR
+     * screen-off stays sticky only while everything is ambient. */
+    if ((any_awaiting || prompt_active) && button_router_screen_is_off()) {
+        button_router_screen_wake();
+    }
+
     bool on_awaiting = (current_idx == awaiting_idx);
     bool want_takeover = any_awaiting && (slot_count <= 1);
     if (want_takeover && !on_awaiting && !prompt_active) {
@@ -135,25 +147,26 @@ void app_main(void)
 
     bsp_display_start();
 
-    console_protocol_init();
-    harness_default_register();
-
     agent_state_init();
     theme_init();
     /* Load persisted theme / device name / owner / default scene from NVS. */
     agent_commands_load_config();
 
-    /* Register the `dash` command family NOW — before the (comparatively slow)
-     * display + scene setup below. The console task starts reading the moment
-     * console_protocol_init() runs, and the bridge pushes `dash config`/`dash
-     * time` the instant it connects. If `dash` isn't registered yet those first
-     * pushes bounce with "unknown command: dash" and are LOST — and since the
-     * bridge only re-pushes config on reconnect (not keepalive), the device
-     * could sit on default name/theme/clock until the next reconnect. The dash
-     * handlers only depend on agent_state + theme (both initialised above), not
-     * on scenes (a snapshot arriving pre-scene-registration simply skips the
-     * auto-switch), so it is safe to register here. */
+    /* Register-then-listen: EVERY console command must exist before
+     * console_protocol_init() spawns the reader task. The bridge pushes
+     * `dash config`/`dash time` the instant it (re)connects; when that
+     * burst lands mid-boot the lines sit in the USB-CDC RX buffer and are
+     * drained the moment the console task starts. With the old order
+     * (console first, `dash` registered a few calls later) those drained
+     * lines deterministically bounced with "unknown command: dash" — and
+     * since the bridge re-pushes config/time only on reconnect (not on
+     * keepalive), the device sat on the default name/theme and a --:--
+     * clock until the next reconnect. The dash handlers only depend on
+     * agent_state + theme (initialised above), not on scenes (a snapshot
+     * arriving pre-scene-registration simply skips the auto-switch). */
+    harness_default_register();
     agent_commands_register();
+    console_protocol_init();
 
     bsp_display_lock(-1);
 
@@ -190,6 +203,10 @@ void app_main(void)
         ESP_LOGW(TAG, "buttons_init failed — prompt scene needs button "
                       "support to send EVT decisions");
     }
+    /* PWR (AXP2101) is best-effort: if the PMU doesn't answer, the other
+     * two keys still route. */
+    pwr_key_init();
+    button_router_init();
 
     /* If config picked a non-default starting scene, honour it. */
     char start_scene[AGENT_DEFAULT_SCENE_MAX];

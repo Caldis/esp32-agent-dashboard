@@ -72,3 +72,7 @@ CONFIG_LV_USE_TINY_TTF=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_LV_TINY_TTF_CACHE_GLYPH_CNT=256
+
+# Task-WDT starvation (render wedge) must self-heal: panic -> reboot -> bridge
+# force-resyncs within seconds. Better a 15s blip than a frozen panel.
+CONFIG_ESP_TASK_WDT_PANIC=y

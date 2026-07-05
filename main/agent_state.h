@@ -127,6 +127,12 @@ typedef struct {
     agent_slot_t  slots[AGENT_SLOT_MAX];
     int           slot_count;                   /* how many `in_use` */
 
+    /* Device-local UI state: Key3 focus cycling. -1 = auto (fleet rows
+     * when 2+, ambient when ≤1); >=0 pins the dashboard to that slot's
+     * single-agent detail view. Never comes from the wire; reset to -1
+     * when the focused slot is pruned. */
+    int           focused_slot;
+
     /* Aggregate totals (from snapshot's "totals" object, or computed
      * from slots on v0 flat snapshots). */
     int           total;
@@ -164,6 +170,7 @@ typedef struct {
 
     /* Counters for `dash health` reply. */
     uint32_t      snapshots_received;
+    uint32_t      snapshot_dropped_agents;
     uint32_t      prompts_received;
     uint32_t      decisions_sent;
 } agent_state_t;

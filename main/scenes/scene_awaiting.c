@@ -371,9 +371,20 @@ static void tick(lv_timer_t *t)
                     || strncmp(s_last_summary, anchor->awaiting_summary,
                                sizeof(s_last_summary)) != 0;
         if (changed) {
+            /* HARD CAP the marquee text. A circular-scroll label lays the
+             * FULL string out at its natural width and redraws every frame
+             * of the scroll — a 208-byte CJK summary is ~1500px of 22px
+             * tiny_ttf glyphs, and iterating all of them per frame (twice,
+             * for the circular seam) pins the swdraw thread at 100%,
+             * starves IDLE1 and trips the task watchdog: the device-freeze
+             * root cause (3 field incidents, bisected 2026-07-05; marquee
+             * off survived the same payload). ~32 hanzi scrolls fine and
+             * is all a glanceable strip can usefully show anyway. */
+            char capped[100];
+            cjk_utf8_lcpy(capped, anchor->awaiting_summary, sizeof(capped));
             lv_label_set_long_mode(s_ui.summary_marquee,
                 motion_ok ? LV_LABEL_LONG_SCROLL_CIRCULAR : LV_LABEL_LONG_DOT);
-            lv_label_set_text(s_ui.summary_marquee, anchor->awaiting_summary);
+            lv_label_set_text(s_ui.summary_marquee, capped);
             strncpy(s_last_summary, anchor->awaiting_summary,
                     sizeof(s_last_summary) - 1);
             s_last_summary[sizeof(s_last_summary) - 1] = '\0';

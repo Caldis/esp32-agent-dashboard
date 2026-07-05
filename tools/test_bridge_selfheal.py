@@ -205,15 +205,15 @@ def test_device_safe_uses_real_font_cmap():
 def test_device_safe_line_stays_valid_json():
     if _skip():
         return
-    line = 'dash push "' + json.dumps(
-        {"tool": "测试", "hint": "done ✓ next → 🔥"}, ensure_ascii=False) + '"'
+    line = 'dash event "' + json.dumps(
+        {"tool": "测试", "text": "done ✓ next → 🔥"}, ensure_ascii=False) + '"'
     safe = cbb._device_safe(line)
     # The JSON payload inside the wire line must still parse after substitution.
     inner = safe[safe.index('"') + 1: safe.rindex('"')]
     obj = json.loads(inner)
     # emoji dropped (its leading space remains), symbols mapped to ASCII.
-    assert obj["hint"].rstrip() == "done v next ->"
-    assert "🔥" not in obj["hint"]
+    assert obj["text"].rstrip() == "done v next ->"
+    assert "🔥" not in obj["text"]
 
 
 if __name__ == "__main__":

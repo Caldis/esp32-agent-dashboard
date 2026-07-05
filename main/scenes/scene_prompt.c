@@ -14,7 +14,6 @@
 #include "scenes.h"
 #include "agent_state.h"
 #include "theme.h"
-#include "buttons.h"
 #include "cjk_font.h"
 
 #include <stdio.h>
@@ -45,8 +44,6 @@ typedef struct {
     uint32_t    pulse_t0_ms;
     char        cached_id[AGENT_PROMPT_ID_MAX];
 } prompt_state_t;
-
-static prompt_state_t *s_active = NULL;
 
 static lv_obj_t *make_chip(lv_obj_t *parent, const char *label,
                            lv_align_t align, int x, int y, uint32_t colour)
@@ -126,22 +123,13 @@ static void prompt_decide(const char *decision)
     bsp_display_unlock();
 }
 
-static void on_boot(void *handle, void *usr)
+/* Public entry for the button router — the physical BOOT/USER semantics
+ * live in button_router.c now; this scene only owns the decision I/O.
+ * prompt_decide already no-ops when no prompt is active, so a stray call
+ * can't double-fire a decision. */
+void scene_prompt_decide(const char *decision)
 {
-    (void)handle; (void)usr;
-    if (s_active == NULL) return;
-    const scene_t *cur = scene_fw_current();
-    if (cur == NULL || strcmp(cur->id, "prompt") != 0) return;
-    prompt_decide("once");
-}
-
-static void on_user(void *handle, void *usr)
-{
-    (void)handle; (void)usr;
-    if (s_active == NULL) return;
-    const scene_t *cur = scene_fw_current();
-    if (cur == NULL || strcmp(cur->id, "prompt") != 0) return;
-    prompt_decide("deny");
+    prompt_decide(decision);
 }
 
 /* Triangle-wave pulse → returns scale in 256-fixed-point.
@@ -268,7 +256,6 @@ static void prompt_init(scene_t *s, lv_obj_t *parent)
 {
     prompt_state_t *st = lv_malloc_zeroed(sizeof(*st));
     s->user_data = st;
-    s_active = st;
 
     const theme_palette_t *pal = theme_current();
 
@@ -333,8 +320,6 @@ static void prompt_on_show(scene_t *s)
         lv_timer_resume(st->tick);
         prompt_tick(st->tick);
     }
-    buttons_set_handler(BUTTON_BOOT, on_boot, NULL);
-    buttons_set_handler(BUTTON_USER, on_user, NULL);
 }
 
 static void prompt_on_hide(scene_t *s)

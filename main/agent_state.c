@@ -14,6 +14,8 @@
 #include "freertos/semphr.h"
 #include "lvgl.h"
 
+#include "cjk_font.h"   /* cjk_utf8_lcpy — UTF-8-safe bounded copy */
+
 static agent_state_t     s_state;
 static SemaphoreHandle_t s_mutex;
 
@@ -22,13 +24,14 @@ static SemaphoreHandle_t s_mutex;
  * rest in one pass. */
 static bool s_marked[AGENT_SLOT_MAX];
 
+/* UTF-8-safe bounded copy: a byte-level truncation (the old strnlen +
+ * memcpy) slices multi-byte CJK characters in half, and those torn
+ * bytes flow straight into LVGL labels. cjk_utf8_lcpy only ever cuts
+ * on character boundaries. */
 static void copy_bounded(char *dst, size_t cap, const char *src)
 {
     if (cap == 0) return;
-    if (src == NULL) { dst[0] = '\0'; return; }
-    size_t n = strnlen(src, cap - 1);
-    memcpy(dst, src, n);
-    dst[n] = '\0';
+    cjk_utf8_lcpy(dst, src, (unsigned)cap);
 }
 
 void agent_state_init(void)
@@ -36,6 +39,7 @@ void agent_state_init(void)
     if (s_mutex != NULL) return;
     s_mutex = xSemaphoreCreateMutex();
     memset(&s_state, 0, sizeof(s_state));
+    s_state.focused_slot = -1;
 }
 
 void agent_state_lock(void)   { if (s_mutex) xSemaphoreTake(s_mutex, portMAX_DELAY); }
@@ -99,6 +103,7 @@ int agent_state_prune_unmarked(char freed_kind[][AGENT_KIND_MAX],
         if (freed_sid)  memcpy(freed_sid[freed],  s->session_id, AGENT_SESSION_ID_MAX);
         memset(s, 0, sizeof(*s));
         s_state.slot_count--;
+        if (s_state.focused_slot == i) s_state.focused_slot = -1;
         freed++;
     }
     return freed;

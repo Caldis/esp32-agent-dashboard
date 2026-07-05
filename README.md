@@ -48,9 +48,9 @@ permission prompts with a physical button.
 
 | Layer | What it gives you |
 |---|---|
-| **Firmware** (`main/`) | 7 LVGL scenes (idle / dashboard / sessions / awaiting / prompt / tokens / status) on the Waveshare ESP32-S3-Touch-AMOLED-2.16. Built on the [esp-harness](https://github.com/Caldis/esp-harness) console protocol + scene framework. PUSH banner overlay for tool events. |
-| **Host bridge** (`tools/claude_buddy_bridge.py`) | Long-running daemon. Ingests Claude Code hooks (`hook_dispatch.py`) and Codex JSONL (`codex_wrapper.py`). Maintains a per-agent `SessionRegistry`. Pushes throttled snapshots + PUSH banners. Circuit-breaker in `hook_dispatch.py` prevents stalling CC on bridge timeouts. |
-| **Wire format** ([`PROTOCOL.md`](./PROTOCOL.md)) | One-line JSON over USB-Serial: `dash snapshot`, `dash prompt`, `dash event`, `dash tokens`, `dash push`, `dash idle`. Device replies `OK:` / `ERR:` / `EVT:`. |
+| **Firmware** (`main/`) | 4 LVGL scenes (dashboard / idle / prompt / awaiting) on the Waveshare ESP32-S3-Touch-AMOLED-2.16. Built on the [esp-harness](https://github.com/Caldis/esp-harness) console protocol + scene framework. Per-agent status pet on the single-agent view. |
+| **Host bridge** (`tools/claude_buddy_bridge.py`) | Long-running daemon. Ingests Claude Code hooks (`hook_dispatch.py`) and Codex JSONL (`codex_wrapper.py`). Maintains a per-agent `SessionRegistry`. Pushes throttled snapshots. Circuit-breaker in `hook_dispatch.py` prevents stalling CC on bridge timeouts. |
+| **Wire format** ([`PROTOCOL.md`](./PROTOCOL.md)) | One-line JSON over USB-Serial: `dash snapshot`, `dash prompt`, `dash event`, `dash tokens`, `dash idle`. Device replies `OK:` / `ERR:` / `EVT:`. |
 
 For the current build boundary — what ships now vs. scaffold-only files —
 see [`docs/CURRENT_ARCHITECTURE.md`](./docs/CURRENT_ARCHITECTURE.md).

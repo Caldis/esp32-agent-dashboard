@@ -16,7 +16,7 @@
 #include "nvs.h"
 #include "bsp/esp-bsp.h"
 #include "theme.h"            /* 经 -I main 及 -I main/harness;拉替身 lvgl.h */
-#include "push_banner.h"      /* 经 -I main 及 -I main/harness;零 LVGL */
+#include "button_router.h"    /* 经 -I main;dash btn 桩需要签名 */
 #include "harness/console_protocol.h"
 #include "harness/scene_framework.h"
 
@@ -90,15 +90,17 @@ bool theme_set_by_name(const char *name) {
 }
 const char *theme_current_name(void) { return s_theme; }
 
-/* ── push banner 桩 → 信号队列 ──────────────────────────── */
+/* ── button router 桩 → 信号队列(dash btn 是渲染/路由,数据层只发信号) ── */
 static void signals_push(const char *line);  /* fwd */
-void push_banner_show(const char *tool, const char *hint, uint32_t dur) {
-    char buf[160];
-    snprintf(buf, sizeof(buf), "push tool=%s hint=%s dur=%u",
-             tool ? tool : "", hint ? hint : "", (unsigned)dur);
+void button_router_press(button_router_key_t key) {
+    const char *name = (key == ROUTER_KEY_BOOT) ? "boot"
+                     : (key == ROUTER_KEY_USER) ? "user" : "pwr";
+    char buf[32];
+    snprintf(buf, sizeof(buf), "btn key=%s", name);
     signals_push(buf);
 }
-void push_banner_dismiss(void) { signals_push("push_dismiss"); }
+bool button_router_screen_is_off(void) { return false; }
+void button_router_screen_wake(void) {}
 
 /* ── console reply 捕获 ─────────────────────────────────── */
 static char s_reply[CONSOLE_MAX_LINE];

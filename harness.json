@@ -11,7 +11,6 @@
     "hooks": true,
     "sim": false,
     "ota": false,
-    "push-banner": true,
     "buttons": true
   },
   "agent": {

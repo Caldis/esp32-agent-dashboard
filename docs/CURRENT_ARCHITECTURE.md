@@ -17,7 +17,6 @@ The current ESP32 firmware build includes:
 - Scenes (4, registered in `esp32_agent_dashboard_main.c`): `dashboard`,
   `idle`, `prompt`, `awaiting`. (`sessions`, `tokens`, `status` were removed
   in commit 1a3036c — do not reintroduce references to them.)
-- Overlay: `main/push_banner.c`
 - Animation helper: `main/anim/apple_ease.c`
 
 These Modules are linked with `esp-harness-core`, LVGL, the Waveshare board

@@ -26,14 +26,24 @@ Run `esp-harness cycle` after code changes (build + flash + verify).
 
 ## Bridge (self-healing)
 The bridge occupies COM9 while running. To use `esp-harness screenshot` or `esp-harness flash` directly, stop the bridge first.
-Start: `python tools/claude_buddy_bridge.py serve --serial-port COM9`
+Start: `python tools/claude_buddy_bridge.py serve --port-kind serial --port COM9`
 
 You normally DON'T need to start it by hand: `hook_dispatch.py` AUTO-STARTS the
 bridge whenever a hook can't reach one (set `CLAUDE_BUDDY_AUTOSTART=0` to opt
 out). A single-instance guard makes duplicate starts exit cleanly, and the
 bridge reconnects to the device indefinitely (serial open is watchdog-bounded,
-so a wedged COM9 never freezes it). The device shows "· 等待主机连接 ·" /
-"· 主机已断开 ·" when the snapshot stream goes stale rather than freezing.
+so a wedged COM9 never freezes it). Port loss is detected in <1s (reader-thread
+on_close callback, not next-push failure); every reconnect/reboot force-pushes
+config + time + the full live snapshot immediately, plus a second idempotent
+push 3s later — a reboot-triggered push can land mid-boot and be lost (config
+and time have no keepalive to self-heal through, unlike snapshots), so the
+device never waits for the next keepalive to resync. Firmware side, app_main
+registers ALL console commands BEFORE console_protocol_init() starts listening
+(register-then-listen), so a mid-boot push buffered in USB-CDC applies once the
+console starts instead of bouncing "unknown command: dash" — that bounce was
+the permanent-"--:--"-clock bug. The device shows "· 等待主机连接 ·" /
+"· 主机已断开 ·" within 12s (CONN_STALE_MS) when the snapshot stream goes
+stale rather than freezing.
 
 ### Flashing (COM9 contention with autostart)
 `idf.py flash` needs exclusive COM9, but stopping the bridge makes the next

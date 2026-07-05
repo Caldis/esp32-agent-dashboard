@@ -76,14 +76,23 @@ order-of-magnitude.
 
 ## Buttons at a glance
 
-| Button | Default function (firmware) | When the prompt scene is showing |
-|---|---|---|
-| **BOOT** (left, orange in the diagram) | held during reset → download mode (factory) | **approve once** — sends `EVT: permission decision=once` |
-| **USER** (right, green in the diagram) | unused at boot | **deny** — sends `EVT: permission decision=deny` |
-| **RST** (bottom, recessed) | hardware reset | hardware reset |
+All three keys are *optional mode switches* — the device stays fully
+host-driven if you never touch them. Only an active permission prompt
+gives BOOT/USER a required meaning.
 
-Mapping is a firmware decision, not a hardware constraint. Swap them
-in `main/buttons.c` (`BTN_APPROVE_GPIO` / `BTN_DENY_GPIO`).
+| Button | Ambient (no prompt) | When the prompt scene is showing |
+|---|---|---|
+| **BOOT** (GPIO 0) | **cycle view** — dashboard ↔ idle (takeover scenes are skipped; pinned while an agent is awaiting) | **approve once** — sends `EVT: permission decision=once` |
+| **USER / Key3** (GPIO 18) | **cycle focused agent** — auto → agent 1 → … → auto; pins the dashboard to one agent's detail view (needs a 2+ fleet) | **deny** — sends `EVT: permission decision=deny` |
+| **PWR** (AXP2101 PWRON, polled over I2C) | **screen off / on** — any key wakes the panel (the waking press is consumed); a prompt or awaiting state auto-wakes it | ignored (can't darken a live countdown); long-press stays the PMU hardware power-off |
+| **RST** (recessed) | hardware reset | hardware reset |
+
+Every switch flashes a toast and emits an EVT (`scene_changed`, `focus
+slot=N`, `screen state=off/on`) so the bridge sees what the human did.
+Simulate any press without hands: `dash btn <boot|user|pwr>` — same
+code path as the physical keys (`main/button_router.c`). GPIO mapping
+lives in `main/buttons.c` (`GPIO_BOOT` / `GPIO_USER`); the PWR poller
+is `main/pwr_key.c`.
 
 ## Alternative boards (untested but plausible)
 

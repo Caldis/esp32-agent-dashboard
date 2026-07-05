@@ -938,6 +938,12 @@ class DevicePusher:
         session.on_event(self._on_payload, kinds=frozenset({"payload"}))
         session.on_event(self._on_evt, kinds=frozenset({"evt"}))
         session.on_err(self._on_err)
+        # Unexpected port loss (USB yank / device reset re-enumerating
+        # USB-Serial-JTAG): the reader thread notices within its 0.5s
+        # read window — start reconnecting NOW instead of waiting for
+        # the next keepalive/health push to fail (worst case 10s of a
+        # dead link the bridge didn't know about).
+        session.on_close(self._on_session_lost)
 
     def _open_session(self) -> None:
         """Open a SessionHandle under a WATCHDOG and wire up subscribers.
@@ -1113,6 +1119,13 @@ class DevicePusher:
         """ERR replies (gap G-H3) — log to stderr so the operator sees
         them. The pre-v0.2 bridge silently dropped these."""
         print(f"[bridge] device ERR: {evt.text}", file=sys.stderr)
+
+    def _on_session_lost(self) -> None:
+        """Reader thread saw the transport die (unplug / device reset).
+        Mark disconnected and kick the reconnect loop immediately."""
+        self.health.connected = False
+        print("[bridge] port lost — reconnecting now", file=sys.stderr)
+        self._schedule_reconnect()
 
     def _schedule_reconnect(self) -> None:
         """Spawn a background reconnect attempt if one isn't already
@@ -1321,6 +1334,20 @@ class SnapshotPublisher(threading.Thread):
         self._wake.set()
 
     def bump(self) -> None:
+        self._wake.set()
+
+    def force_push(self) -> None:
+        """Push the CURRENT registry snapshot as soon as the publisher
+        thread wakes — used right after a reconnect / device reboot so
+        the screen shows live state immediately instead of waiting for
+        the next change or keepalive (up to keepalive_ms of "waiting
+        for host" after a reboot). Clearing the dedupe + throttle state
+        makes the next tick push unconditionally; racing a normal tick
+        is benign (worst case one duplicate snapshot). Respects pause()
+        — the screen-test driver's hand-pushed state must survive a
+        reconnect too."""
+        self._last_snap_json = ""
+        self._last_push_ts = 0.0
         self._wake.set()
 
     def stop(self) -> None:
@@ -1676,9 +1703,8 @@ class Bridge:
                                  tokens=evt["tokens"])
             self.registry.set_tool_in_flight(agent, sid, False)
             self.publisher.bump()
-            # v2.7.0: top-slide-down banner on device
-            hint = summary[:40] if summary != "ok" else ""
-            self.pusher.push("push", {"tool": tool_name, "hint": hint})
+            # (v2.7.0's per-tool `dash push` banner was removed in v3.1 — it
+            # flashed Read/Edit noise the fleet activity line already shows.)
             return {"continue": True}
 
         if t == "stop":
@@ -1904,8 +1930,28 @@ def _build_stack(settings: Settings):
     setup_state: dict = {}
 
     def _on_reconnect():
-        # Re-push config + time after reconnect / reboot
+        # Re-push config + time after reconnect / reboot, then force the
+        # publisher to re-send the live snapshot immediately. Without the
+        # force, a rebooted device sat on "waiting for host" until the
+        # next registry change or keepalive (up to 10s); the buffered-
+        # snapshot replay in _reconnect_loop only covers the case where
+        # a push FAILED while disconnected, not a clean reboot.
         push_initial_config_and_time(pusher, settings, force=True, state=setup_state)
+        publisher.force_push()
+        # Belt & braces (the --:-- incident): when this fires because the
+        # device just REBOOTED, the push above can land mid-boot — the lines
+        # sit in the device's USB-CDC RX buffer and may bounce ("unknown
+        # command: dash") or overflow before the console listens. Snapshots
+        # self-heal via the keepalive; config + time do NOT (they are pushed
+        # only here). Re-push once after boot has certainly finished — both
+        # pushes are idempotent, so the duplicate is harmless.
+        def _late_resync():
+            push_initial_config_and_time(pusher, settings, force=True,
+                                         state=setup_state)
+            publisher.force_push()
+        t = threading.Timer(3.0, _late_resync)
+        t.daemon = True
+        t.start()
 
     pusher = DevicePusher(
         port_kind=settings.port_kind,

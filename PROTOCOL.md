@@ -181,22 +181,12 @@ OK: {
 Bridge calls this every ~5 s for the connection-health indicator and
 to populate its own status display.
 
-### `dash push` (new in v2.7)
+### `dash push` (v2.7 – v3.0, removed)
 
-Shows a transient top-slide-down banner overlay on the device:
-
-```json
-dash push {"tool":"Read","hint":"main.py"}
-```
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `tool` | string | yes | Tool name displayed in accent color |
-| `hint` | string | no | Short context (file path, summary) in dim text |
-| `duration_ms` | number | no | Display time (default 3000 ms) |
-
-The bridge sends this on every `PostToolUse` hook event. The banner
-renders on `lv_layer_top()` above any active scene and auto-dismisses.
+The per-tool banner overlay was removed in v3.1: it flashed Read/Edit
+noise on every `PostToolUse` while the fleet activity line already
+carries the same information. Devices reply `ERR: unknown dash
+subcommand` — hosts must not send it.
 
 ## Reply tag convention (post G-4 fix)
 

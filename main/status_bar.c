@@ -14,8 +14,12 @@
 
 /* Connection health: snapshots (with the bridge's 10s keepalive) should always
  * be recent. If none has arrived for STALE_MS, the host/bridge link is down —
- * say so on-screen instead of freezing on stale data. */
-#define CONN_STALE_MS  25000u
+ * say so on-screen instead of freezing on stale data. 12s = one keepalive
+ * period + 2s slack: one missed keepalive means the link IS down (the bridge
+ * detects port loss in <1s and reconnect-pushes immediately, so a healthy
+ * link never goes this quiet); the old 25s made an unplugged device lie
+ * about live agents for close to half a minute. */
+#define CONN_STALE_MS  12000u
 enum { CONN_OK = 0, CONN_WAITING, CONN_STALE };
 
 #define HEADER_Y        56   /* time, top-center */
