@@ -167,6 +167,16 @@ typedef struct {
     char          owner[AGENT_OWNER_MAX];
     char          default_scene[AGENT_DEFAULT_SCENE_MAX];
     bool          motion_reduced;
+    /* v4.2 clock screensaver: minutes of no activity before the clock
+     * scene takes over. 0 disables. Set via `dash config`
+     * {"screensaver_min":N}, persisted to NVS. */
+    int32_t       screensaver_min;
+
+    /* v4.2: lv_tick of the last "activity" — any key press, any dash
+     * prompt/event, or a snapshot that actually changed agent state
+     * (keepalives repeating the same state don't count). Drives the
+     * screensaver timer in scene_auto_switch_cb. */
+    uint32_t      last_activity_ms;
 
     /* Counters for `dash health` reply. */
     uint32_t      snapshots_received;
@@ -187,6 +197,10 @@ void agent_state_unlock(void);
 
 /* Direct accessor — only valid while you hold the lock. */
 agent_state_t *agent_state_get(void);
+
+/* v4.2: stamp last_activity_ms = now. Takes the lock itself — call from
+ * un-locked contexts (button task, console handlers). */
+void agent_state_touch_activity(void);
 
 /* Find a slot by (kind, session_id); returns NULL if no match. Lock held. */
 agent_slot_t *agent_state_find_slot(const char *kind, const char *session_id);

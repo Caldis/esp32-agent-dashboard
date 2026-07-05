@@ -2,18 +2,18 @@
  * button_router — one place that decides what a physical key does.
  *
  * The three keys are OPTIONAL mode switches, never required input: the
- * device stays fully host-driven if nobody ever touches them. Semantics:
+ * device stays fully host-driven if nobody ever touches them. Semantics
+ * (v4.3):
  *
- *                ambient (no prompt)            permission prompt up
- *   BOOT         cycle view (dashboard/idle)    approve once
- *   USER (Key3)  cycle focused agent            deny
- *   PWR          screen off / back on           (ignored)
+ *                ambient (no prompt)             permission prompt up
+ *   BOOT         toggle view (dashboard/idle)    approve once
+ *   USER (Key3)  cycle focused agent             deny
+ *   PWR          lock to / unlock from clock     (ignored)
  *
- * Any key wakes a dark screen and is CONSUMED by the wake — pressing
- * BOOT while the panel is black never approves something you couldn't
- * see. A prompt or an AWAITING takeover auto-wakes the screen (the
- * auto-switch timer calls button_router_screen_wake), so screen-off
- * can't hide input the agent is blocked on.
+ * PWR's clock lock is sticky: unlike the idle screensaver (which yields
+ * to fresh agent activity), a locked clock stays until PWR again (back
+ * to the covered view) or BOOT (into the ambient pair). Takeovers still
+ * outrank it — a prompt/awaiting will grab the panel and restore it.
  *
  * Handlers run on the iot_button / pwr_key poll tasks; every LVGL
  * mutation goes through bsp_display_lock (recursive), the same pattern
@@ -42,8 +42,9 @@ void button_router_init(void);
  * command both land here, so tests exercise the real routing logic. */
 void button_router_press(button_router_key_t key);
 
-/* Screen-off state, exposed for the auto-wake check in main's
- * scene_auto_switch_cb. Wake restores the pre-off brightness. */
+/* Legacy screen-off API — inert since v4.3 (PWR locks to the clock
+ * instead of darkening the panel). is_off always returns false; wake is
+ * a no-op. Kept so scene_auto_switch_cb and the wasm shim stay stable. */
 bool button_router_screen_is_off(void);
 void button_router_screen_wake(void);
 

@@ -139,10 +139,13 @@ Payload is a raw scene id, not JSON. Switches to any registered scene
 (`dashboard` / `idle` / `clock` / `prompt` / `awaiting`); replies
 `ERR: unknown scene: <id>` otherwise.
 
-v4 scene contract: the three environment scenes (dashboard, overview,
-clock) change ONLY on explicit request — the device BOOT key, `dash
-scene`, or `dash idle`. Snapshots never move them (the pre-v4
-0-agents→idle / N-agents→dashboard auto-switch is gone). The two
+v4.2 scene contract: dashboard and overview are the two mutually
+exclusive ambient views — the device BOOT key toggles between them
+(`dash scene` / `dash idle` can still reach anything). Snapshots never
+move them (the pre-v4 0-agents→idle / N-agents→dashboard auto-switch is
+gone). clock is the screensaver: it enters on its own after
+`screensaver_min` minutes of no activity, leaves on new activity or any
+key, and stays reachable manually via `dash scene clock`. The two
 takeovers stay state-driven: a prompt (or `agents[].awaiting`) enters
 its scene and, on clear, restores whatever the user was viewing.
 
@@ -155,13 +158,20 @@ Set device-side parameters. Persisted to NVS so they survive reboot.
   "device_name": "Clawd",
   "owner": "Felix",
   "theme": "noir",
-  "default_scene": "dashboard"
+  "default_scene": "dashboard",
+  "screensaver_min": 10
 }
 ```
 
 All fields optional; only present fields are updated. Theme values:
 `noir` (current default — dark with rust accent), `lab` (light
 clinical), `mono` (single-colour minimal).
+
+`screensaver_min` (v4.2): minutes without activity (key press, `dash
+prompt`/`dash event`, or a snapshot that actually changes agent state —
+keepalives don't count) before the clock scene takes over as a
+screensaver. New activity restores the covered view; any key exits.
+0 disables. Default 10, clamped to 0-255, persisted to NVS.
 
 ### `dash time` (new in v1)
 

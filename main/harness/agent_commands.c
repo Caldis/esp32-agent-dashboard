@@ -101,17 +101,47 @@ static const char *json_arg(const console_args_t *a, const char **out_end)
 
 /* ── dash snapshot ───────────────────────────────────────────────── */
 
+/* Cheap digest of the agent-visible state. Compared across a snapshot
+ * apply to tell "something actually happened" (agents came/went, status
+ * or awaiting flipped, transcript advanced, tokens moved) from the
+ * bridge's 10s keepalive re-pushing identical state — only the former
+ * counts as activity for the clock screensaver. Lock held. */
+static uint32_t state_fingerprint_locked(void)
+{
+    const agent_state_t *s = agent_state_get();
+    uint32_t h = (uint32_t)(s->slot_count * 131 + s->running * 31
+                            + s->waiting * 17)
+               + (s->prompt_active ? 7u : 0u);
+    for (int i = 0; i < AGENT_SLOT_MAX; ++i) {
+        if (!s->slots[i].in_use) continue;
+        h = h * 33 + s->slots[i].entry_seq;
+        h = h * 33 + (uint32_t)s->slots[i].status;
+        h = h * 33 + (uint32_t)s->slots[i].awaiting_kind;
+        h = h * 33 + (uint32_t)s->slots[i].tokens_today;
+    }
+    return h;
+}
+
 static int cmd_snapshot(const console_args_t *a)
 {
     const char *end = NULL;
     const char *json = json_arg(a, &end);
     if (!json) return 0;
 
+    agent_state_lock();
+    uint32_t fp_before = state_fingerprint_locked();
+    agent_state_unlock();
+
     agent_snapshot_apply_result_t result;
     if (!agent_snapshot_apply_json(json, end, &result)) {
         console_reply_err("snapshot apply failed");
         return 0;
     }
+
+    agent_state_lock();
+    bool changed = (state_fingerprint_locked() != fp_before);
+    agent_state_unlock();
+    if (changed) agent_state_touch_activity();
 
     for (int i = 0; i < result.removed_count; ++i) {
         console_send_evt("agent_removed kind=%s session_id=%s",
@@ -180,6 +210,7 @@ static int cmd_prompt(const console_args_t *a)
     s->prompts_received++;
     agent_state_unlock();
 
+    agent_state_touch_activity();
     switch_to_prompt();
     console_reply_ok("{\"prompt\":\"%s\"}", id);
     return 0;
@@ -229,6 +260,7 @@ static int cmd_event(const console_args_t *a)
     agent_state_push_entry(slot, role, text, tool, NULL);
     agent_state_unlock();
 
+    agent_state_touch_activity();
     console_reply_ok("{\"event\":\"queued\"}");
     return 0;
 }
@@ -350,6 +382,10 @@ void agent_commands_load_config(void)
     if (nvs_get_u8(h, "motion_red", &mr) == ESP_OK) {
         s->motion_reduced = (mr != 0);
     }
+    uint8_t sv = 0;
+    if (nvs_get_u8(h, "saver_min", &sv) == ESP_OK) {
+        s->screensaver_min = sv;
+    }
     agent_state_unlock();
     nvs_close(h);
 }
@@ -365,12 +401,19 @@ static int cmd_config(const console_args_t *a)
     char theme_buf[16] = {0};
     char default_scene[AGENT_DEFAULT_SCENE_MAX] = {0};
     char motion_buf[8] = {0};
+    double saver_min = 0;
     bool has_dev   = tj_object_get_string(json, end, "device_name",     device_name,   sizeof(device_name));
     bool has_own   = tj_object_get_string(json, end, "owner",           owner,         sizeof(owner));
     bool has_theme = tj_object_get_string(json, end, "theme",           theme_buf,     sizeof(theme_buf));
     bool has_def   = tj_object_get_string(json, end, "default_scene",   default_scene, sizeof(default_scene));
     bool has_mr    = tj_object_get_string(json, end, "motion_reduced",  motion_buf,    sizeof(motion_buf));
+    bool has_saver = tj_object_get_double(json, end, "screensaver_min", &saver_min);
     bool motion_reduced_value = false;
+    /* minutes, clamped to the u8 NVS slot; 0 disables the screensaver */
+    if (has_saver) {
+        if (saver_min < 0)   saver_min = 0;
+        if (saver_min > 255) saver_min = 255;
+    }
 
     agent_state_lock();
     agent_state_t *s = agent_state_get();
@@ -381,6 +424,7 @@ static int cmd_config(const console_args_t *a)
         motion_reduced_value = (strcmp(motion_buf, "true") == 0 || strcmp(motion_buf, "1") == 0);
         s->motion_reduced = motion_reduced_value;
     }
+    if (has_saver) s->screensaver_min = (int32_t)saver_min;
     bool theme_ok = true;
     if (has_theme) theme_ok = theme_set_by_name(theme_buf);
     agent_state_unlock();
@@ -390,6 +434,7 @@ static int cmd_config(const console_args_t *a)
     if (has_theme && theme_ok) persist_string("theme", theme_buf);
     if (has_def)   persist_string("default_scene", default_scene);
     if (has_mr)    persist_u8("motion_red", motion_reduced_value ? 1 : 0);
+    if (has_saver) persist_u8("saver_min", (uint8_t)saver_min);
 
     console_reply_ok("{\"config\":\"applied\",\"theme\":\"%s\"}", theme_current_name());
     return 0;

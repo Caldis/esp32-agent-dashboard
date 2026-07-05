@@ -40,6 +40,15 @@ void agent_state_init(void)
     s_mutex = xSemaphoreCreateMutex();
     memset(&s_state, 0, sizeof(s_state));
     s_state.focused_slot = -1;
+    s_state.screensaver_min = 10;   /* default; NVS may override */
+    s_state.last_activity_ms = lv_tick_get();
+}
+
+void agent_state_touch_activity(void)
+{
+    agent_state_lock();
+    s_state.last_activity_ms = lv_tick_get();
+    agent_state_unlock();
 }
 
 void agent_state_lock(void)   { if (s_mutex) xSemaphoreTake(s_mutex, portMAX_DELAY); }

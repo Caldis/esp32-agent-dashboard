@@ -110,9 +110,10 @@ For the integration map, see [`docs/HOST_INTEGRATION.md`](./docs/HOST_INTEGRATIO
 
 ## Scenes
 
-Three environment scenes cycle on the **BOOT** key (dashboard →
-overview → clock → …) and never switch on their own; two takeovers
-enter on state and restore whatever you were viewing when they clear.
+The **BOOT** key toggles the two ambient views (dashboard ↔ overview);
+the clock enters on its own as a screensaver after 10 idle minutes
+(configurable) and leaves on any activity; two takeovers enter on
+state and restore whatever you were viewing when they clear.
 All rendered with LVGL 9.x on a 466×466 round AMOLED:
 
 <div align="center">
@@ -123,7 +124,7 @@ All rendered with LVGL 9.x on a 466×466 round AMOLED:
 |---|---|---|
 | **dashboard** | BOOT cycle (boot default) | v3 adaptive fleet view — 1 agent: status pet + project + live activity line; 2-4 agents: per-agent rows (status dot, project, activity, waiting-duration/tokens), waiting rows glow gold; "no agents" empty state |
 | **overview** | BOOT cycle | cross-agent rollup — big live-agent count, "N running · M waiting", today/total token sums, kind mix (`cc x2 · cx x1`); gentle "zZz" pulse when no agents (wire id stays `idle`) |
-| **clock** | BOOT cycle | StandBy-style big centered clock (host-synced, `--:--` without host), active/tokens footer; iOS-ease entrance from the top-clock position |
+| **clock** | screensaver — `screensaver_min` (default 10 min) without new messages/keys; also `dash scene clock` | StandBy-style big centered clock (host-synced, `--:--` without host), active/tokens footer; iOS-ease entrance from the top-clock position |
 | **awaiting** | agent blocked on user input (`Stop` hook), **single-agent only** | kind-specific headline + glyph, marquee summary, numbered options, BOOT/USER affordance on approve. With 2+ agents the fleet rows carry the awaiting state instead (a takeover would hide the other agents) |
 | **prompt** | a `PreToolUse` event needs explicit approval | full-screen tool name, command preview, **BOOT** = approve, **USER** = deny, 60 s timeout |
 

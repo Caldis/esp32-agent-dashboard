@@ -22,37 +22,11 @@
 
 static const char *TAG = "btn_router";
 
-/* Screen-off state. s_saved_brightness survives the off phase so wake
- * restores what the user had, not a hardcoded 100%. */
-static volatile bool s_screen_off;
-static int           s_saved_brightness = 100;
-
-/* ── screen off / wake ───────────────────────────────────────────── */
-
-static void screen_set(bool off)
-{
-    /* brightness goes over the same QSPI panel IO the render task uses
-     * for pixel data — serialise with the display lock. */
-    bsp_display_lock(-1);
-    if (off) {
-        int b = bsp_display_brightness_get();
-        if (b > 0) s_saved_brightness = b;
-        bsp_display_brightness_set(0);
-    } else {
-        bsp_display_brightness_set(s_saved_brightness > 0 ? s_saved_brightness
-                                                          : 100);
-    }
-    bsp_display_unlock();
-    s_screen_off = off;
-    console_send_evt("screen state=%s", off ? "off" : "on");
-}
-
-bool button_router_screen_is_off(void) { return s_screen_off; }
-
-void button_router_screen_wake(void)
-{
-    if (s_screen_off) screen_set(false);
-}
+/* v4.3: PWR no longer darkens the panel — it locks the view to the
+ * clock scene instead (see lock_clock_toggle). The screen-off API is
+ * kept for its callers (scene_auto_switch_cb) but is now inert. */
+bool button_router_screen_is_off(void) { return false; }
+void button_router_screen_wake(void) {}
 
 /* ── ambient actions (multi-state cycles) ────────────────────────── */
 
@@ -71,9 +45,12 @@ static void toast_locked(const char *text, uint32_t ms)
     bsp_display_unlock();
 }
 
-/* BOOT: next non-takeover scene. prompt/awaiting are entered by state,
- * never by cycling; while the AWAITING takeover owns the panel the view
- * is pinned (cycling away would just be yanked back by auto-switch).
+/* BOOT: toggle between the two ambient views (dashboard <-> overview).
+ * prompt/awaiting are entered by state, never by cycling; while the
+ * AWAITING takeover owns the panel the view is pinned (cycling away
+ * would just be yanked back by auto-switch). clock is v4.2's
+ * screensaver — the idle timer enters it, a key press leaves it, so it
+ * is skipped here too (from clock, BOOT lands on dashboard).
  * Runs entirely under the display lock: the scene registry reads race
  * scene_fw_show on the LVGL task otherwise. */
 static void cycle_view(void)
@@ -91,7 +68,8 @@ static void cycle_view(void)
         int idx = (cur_idx + step) % n;
         const scene_t *s = scene_fw_get(idx);
         if (!s) continue;
-        if (strcmp(s->id, "prompt") == 0 || strcmp(s->id, "awaiting") == 0) {
+        if (strcmp(s->id, "prompt") == 0 || strcmp(s->id, "awaiting") == 0
+            || strcmp(s->id, "clock") == 0) {
             continue;
         }
         if (idx == cur_idx) break;    /* nothing else to cycle to */
@@ -101,6 +79,44 @@ static void cycle_view(void)
                  s->display_name ? s->display_name : s->id);
         harness_toast(t, 1200);
         break;
+    }
+    bsp_display_unlock();
+}
+
+/* PWR: lock the panel to the clock view (v4.3 — replaces screen-off).
+ * One press parks the display on the big clock and it STAYS there
+ * through any amount of agent activity ("lock screen" semantics —
+ * unlike the idle screensaver, which yields to fresh messages). A
+ * second PWR press returns to the view it covered; BOOT hops back into
+ * the ambient pair directly. Ignored while a takeover owns the panel
+ * (prompt is handled earlier in button_router_press; awaiting would
+ * just be yanked back by auto-switch, so refuse with the same toast
+ * cycle_view uses). */
+static int s_pre_lock_scene_idx = -1;
+
+static void lock_clock_toggle(void)
+{
+    bsp_display_lock(-1);
+    const scene_t *cur = scene_fw_current();
+    if (cur && strcmp(cur->id, "awaiting") == 0) {
+        harness_toast("agent awaiting - view pinned", 1200);
+        bsp_display_unlock();
+        return;
+    }
+    int clock_idx = scene_fw_find_by_id("clock");
+    if (clock_idx < 0) {
+        bsp_display_unlock();
+        return;
+    }
+    int cur_idx = scene_fw_current_index();
+    if (cur_idx == clock_idx) {
+        int back = (s_pre_lock_scene_idx >= 0) ? s_pre_lock_scene_idx : 0;
+        s_pre_lock_scene_idx = -1;
+        scene_fw_show(back);
+    } else {
+        s_pre_lock_scene_idx = cur_idx;
+        scene_fw_show(clock_idx);
+        harness_toast("clock locked - PWR/BOOT to leave", 1500);
     }
     bsp_display_unlock();
 }
@@ -153,11 +169,8 @@ static void cycle_focus(void)
 
 void button_router_press(button_router_key_t key)
 {
-    /* A dark screen consumes the press that wakes it — no blind actions. */
-    if (s_screen_off) {
-        screen_set(false);
-        return;
-    }
+    /* Any press is user activity — resets the clock-screensaver timer. */
+    agent_state_touch_activity();
 
     bool prompt = false;
     agent_state_lock();
@@ -166,17 +179,30 @@ void button_router_press(button_router_key_t key)
 
     if (prompt) {
         /* The prompt is the one required interaction — it keeps the old
-         * BOOT=approve / USER=deny contract. PWR is ignored so the panel
-         * can't go dark on top of a live countdown. */
+         * BOOT=approve / USER=deny contract. PWR is ignored so the view
+         * can't lock away a live countdown. */
         if (key == ROUTER_KEY_BOOT)      scene_prompt_decide("once");
         else if (key == ROUTER_KEY_USER) scene_prompt_decide("deny");
         return;
     }
 
+    /* If the screensaver owns the clock, this press takes it over —
+     * consuming the flag atomically so the saver's "restore on
+     * activity" can't race the key's own scene change (the press
+     * already touched last_activity_ms above). PWR adopts the saver's
+     * clock as a manual lock; BOOT/USER fall through and act normally
+     * (cycle_view from clock lands on dashboard). */
+    int covered = scene_saver_consume();
+    if (covered >= 0 && key == ROUTER_KEY_PWR) {
+        s_pre_lock_scene_idx = covered;
+        toast_locked("clock locked - PWR/BOOT to leave", 1500);
+        return;
+    }
+
     switch (key) {
-        case ROUTER_KEY_BOOT: cycle_view();       break;
-        case ROUTER_KEY_USER: cycle_focus();      break;
-        case ROUTER_KEY_PWR:  screen_set(true);   break;
+        case ROUTER_KEY_BOOT: cycle_view();         break;
+        case ROUTER_KEY_USER: cycle_focus();        break;
+        case ROUTER_KEY_PWR:  lock_clock_toggle();  break;
         default: break;
     }
 }
@@ -206,5 +232,5 @@ void button_router_init(void)
     buttons_set_handler(BUTTON_BOOT, on_boot, NULL);
     buttons_set_handler(BUTTON_USER, on_user, NULL);
     pwr_key_set_handler(on_pwr, NULL);
-    ESP_LOGI(TAG, "router bound (BOOT=view, USER=focus, PWR=screen)");
+    ESP_LOGI(TAG, "router bound (BOOT=view, USER=focus, PWR=clock lock)");
 }

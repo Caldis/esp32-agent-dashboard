@@ -33,6 +33,15 @@ void scene_prompt_decide(const char *decision);
 void scene_prompt_note_origin(void);
 void scene_prompt_return_home(void);
 
+/* v4.3: consume the clock-screensaver state (implemented in
+ * esp32_agent_dashboard_main.c). Called by the button router at the
+ * start of a key press: clears the saver flag atomically so the
+ * auto-restore can't race the key's own scene change, and returns the
+ * scene index the saver covered (-1 if the saver wasn't active). The
+ * key then decides where to go (PWR adopts the clock as a manual lock;
+ * BOOT cycles into the ambient pair). Takes the display lock. */
+int scene_saver_consume(void);
+
 #ifdef __cplusplus
 }
 #endif

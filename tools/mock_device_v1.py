@@ -176,7 +176,7 @@ class MockDeviceV1:
             send('OK: {"updated":true}\n')
             return
         if verb == "config":
-            for k in ("device_name", "owner", "theme"):
+            for k in ("device_name", "owner", "theme", "screensaver_min"):
                 if payload and k in payload:
                     setattr(s, k, payload[k])
             send('OK: {"config":"applied"}\n')

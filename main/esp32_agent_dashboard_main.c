@@ -90,6 +90,29 @@ static void on_scene_changed(int idx, const scene_t *current)
  * state (gold highlight) instead. */
 static int s_pre_awaiting_scene_idx = -1;
 
+/* v4.2 clock screensaver: after screensaver_min minutes with no
+ * activity (key press / dash prompt / dash event / a snapshot that
+ * actually changed state), glide to the clock scene. Fresh activity
+ * while saving restores the covered view; a key press exits via
+ * cycle_view (which skips clock). Manual `dash scene clock` visits are
+ * NOT screensaver entries — no flag, so nothing yanks the user away. */
+static bool     s_saver_active = false;
+static int      s_pre_saver_scene_idx = -1;
+static uint32_t s_saver_enter_activity_ms = 0;
+
+int scene_saver_consume(void)
+{
+    bsp_display_lock(-1);
+    int covered = -1;
+    if (s_saver_active) {
+        covered = s_pre_saver_scene_idx;
+        s_saver_active = false;
+        s_pre_saver_scene_idx = -1;
+    }
+    bsp_display_unlock();
+    return covered;
+}
+
 void scene_auto_switch_cb(lv_timer_t *t)
 {
     (void)t;
@@ -100,10 +123,14 @@ void scene_auto_switch_cb(lv_timer_t *t)
     bool any_awaiting = false;
     bool prompt_active = false;
     int  slot_count = 0;
+    int32_t  saver_min = 0;
+    uint32_t last_activity_ms = 0;
     agent_state_lock();
     if (agent_state_most_recent_awaiting() != NULL) any_awaiting = true;
     prompt_active = agent_state_get()->prompt_active;
     slot_count = agent_state_get()->slot_count;
+    saver_min = agent_state_get()->screensaver_min;
+    last_activity_ms = agent_state_get()->last_activity_ms;
     agent_state_unlock();
 
     /* An active permission prompt is the higher-priority interactive scene: it
@@ -112,9 +139,9 @@ void scene_auto_switch_cb(lv_timer_t *t)
      * pauses, its buttons stop responding) yet AWAITING shows "BOOT approve /
      * USER deny" that do nothing — the device-side approval becomes dead. So
      * suppress the takeover while a prompt is active. */
-    /* A dark screen must never hide input the agent is blocked on — wake
-     * it the moment a prompt or an awaiting state arrives. Manual PWR
-     * screen-off stays sticky only while everything is ambient. */
+    /* (v4.3: screen-off is gone — PWR locks to the clock instead — so
+     * the wake call is inert; kept for the day a real screen-off
+     * returns.) */
     if ((any_awaiting || prompt_active) && button_router_screen_is_off()) {
         button_router_screen_wake();
     }
@@ -126,6 +153,7 @@ void scene_auto_switch_cb(lv_timer_t *t)
         bsp_display_lock(-1);
         scene_fw_show(awaiting_idx);
         bsp_display_unlock();
+        return;
     } else if (!want_takeover && on_awaiting) {
         /* Either nothing is awaiting anymore, or a second agent appeared —
          * both mean the takeover must yield (to the previous scene / fleet). */
@@ -134,6 +162,46 @@ void scene_auto_switch_cb(lv_timer_t *t)
         scene_fw_show(back);
         bsp_display_unlock();
         s_pre_awaiting_scene_idx = -1;
+        return;
+    }
+
+    /* ── clock screensaver ─────────────────────────────────────────── */
+    int clock_idx = scene_fw_find_by_id("clock");
+    if (clock_idx < 0) return;
+    bool on_clock = (current_idx == clock_idx);
+    uint32_t now = lv_tick_get();
+
+    if (s_saver_active && !on_clock) {
+        /* A key press / takeover already moved us off the clock. */
+        s_saver_active = false;
+        s_pre_saver_scene_idx = -1;
+    } else if (s_saver_active && on_clock
+               && last_activity_ms != s_saver_enter_activity_ms) {
+        /* New activity while saving — bring back what the clock
+         * covered. Re-check the flag UNDER the display lock: a key
+         * press may have consumed the saver (scene_saver_consume, also
+         * under the lock) between our unlocked read above and here —
+         * acting on the stale read would evict a freshly PWR-locked
+         * clock. */
+        bsp_display_lock(-1);
+        if (s_saver_active && scene_fw_current_index() == clock_idx) {
+            int back = (s_pre_saver_scene_idx >= 0) ? s_pre_saver_scene_idx : 0;
+            s_saver_active = false;
+            s_pre_saver_scene_idx = -1;
+            scene_fw_show(back);
+        }
+        bsp_display_unlock();
+    } else if (!s_saver_active && !on_clock
+               && !any_awaiting && !prompt_active
+               && !button_router_screen_is_off()
+               && saver_min > 0
+               && (now - last_activity_ms) >= (uint32_t)saver_min * 60000u) {
+        bsp_display_lock(-1);
+        s_pre_saver_scene_idx = scene_fw_current_index();
+        s_saver_enter_activity_ms = last_activity_ms;
+        s_saver_active = true;
+        scene_fw_show(clock_idx);
+        bsp_display_unlock();
     }
 }
 
