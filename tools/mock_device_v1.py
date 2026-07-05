@@ -26,7 +26,8 @@ class DeviceState:
     device_name: str = "MockDev"
     owner: str = "anon"
     theme: str = "noir"
-    current_scene: str = "idle"
+    current_scene: str = "dashboard"     # firmware boots on index 0 = dashboard
+    pre_prompt_scene: str | None = None  # scene covered by the prompt takeover
     epoch_unix: int = 0
     tz_offset_seconds: int = 0
     last_snapshot: dict | None = None
@@ -44,8 +45,15 @@ class DeviceState:
 # (see claude_buddy_bridge.Bridge: pusher.push("push", {...})). It was missing
 # here, so the bridge logged `device ERR: dash: unknown verb 'push'` on every
 # tool call. It's fire-and-forget (no state, no EVT) — just ACK it.
-VERBS = {"snapshot", "prompt", "event", "tokens", "idle", "config", "time",
-         "health", "push"}
+VERBS = {"snapshot", "prompt", "event", "tokens", "idle", "scene", "config",
+         "time", "health", "push"}
+
+# Verbs whose argv[2] is a raw string (scene id), not JSON.
+RAW_ARG_VERBS = {"scene"}
+
+# Mirrors the firmware's registered scene ids (v4). `dash scene <id>` rejects
+# anything else, same as scene_fw_find_by_id returning -1.
+SCENE_IDS = {"dashboard", "idle", "prompt", "awaiting"}
 
 
 class MockDeviceV1:
@@ -86,14 +94,30 @@ class MockDeviceV1:
             return
         payload = None
         if len(argv) >= 3:
-            try:
-                payload = json.loads(argv[2])
-            except json.JSONDecodeError as e:
-                self._log("MALFORMED", verb, str(e), argv[2][:80])
-                send(f"ERR: dash {verb}: malformed JSON ({e})\n")
-                return
+            if verb in RAW_ARG_VERBS:
+                payload = argv[2]
+            else:
+                try:
+                    payload = json.loads(argv[2])
+                except json.JSONDecodeError as e:
+                    self._log("MALFORMED", verb, str(e), argv[2][:80])
+                    send(f"ERR: dash {verb}: malformed JSON ({e})\n")
+                    return
         with self._lock:
             self._dispatch(verb, payload, send)
+
+    def _enter_prompt(self) -> None:
+        """Remember the covered scene (mirrors scene_prompt_note_origin)."""
+        s = self.state
+        if s.current_scene not in ("prompt", "awaiting"):
+            s.pre_prompt_scene = s.current_scene
+        s.current_scene = "prompt"
+
+    def _leave_prompt(self) -> None:
+        """Restore the covered scene (mirrors scene_prompt_return_home)."""
+        s = self.state
+        s.current_scene = s.pre_prompt_scene or "dashboard"
+        s.pre_prompt_scene = None
 
     def _dispatch(self, verb, payload, send) -> None:
         s = self.state
@@ -102,27 +126,39 @@ class MockDeviceV1:
             s.current_scene = "idle"
             send('OK: {"scene":"idle"}\n')
             return
+        if verb == "scene":
+            if not payload:
+                send("ERR: dash scene: needs an id\n")
+                return
+            if payload not in SCENE_IDS:
+                send(f"ERR: dash scene: unknown scene: {payload}\n")
+                return
+            s.current_scene = payload
+            send(f'OK: {{"scene":"{payload}"}}\n')
+            return
         if verb == "snapshot":
             s.last_snapshot = payload or {}
             s.snapshots_received += 1
             s.agent_count = len((payload or {}).get("agents") or [])
-            # Pending prompt from v1 agents[].prompt?
+            # v4 manual-switch semantics: a snapshot never moves the
+            # environment scene (the old 0-agents→idle / N-agents→sessions
+            # auto-pick is gone). Only the prompt takeover is state-driven.
             pending = None
             for a in (payload or {}).get("agents", []):
                 if a.get("prompt"):
                     pending = a["prompt"]; break
             if pending:
-                s.current_scene = "prompt"
+                self._enter_prompt()
                 s.pending_prompt = pending
                 self._offer_prompt(pending, send)
-            elif s.agent_count > 0:
-                s.current_scene = "sessions"
-            else:
-                s.current_scene = "idle"
+            elif s.current_scene == "prompt":
+                # prompt gone from the wire → restore the covered scene
+                s.pending_prompt = None
+                self._leave_prompt()
             send(f'OK: {{"scene":"{s.current_scene}","total":{s.agent_count}}}\n')
             return
         if verb == "prompt":
-            s.current_scene = "prompt"
+            self._enter_prompt()
             s.pending_prompt = payload
             s.prompts_received += 1
             self._offer_prompt(payload, send)
@@ -250,7 +286,7 @@ class MockDeviceV1:
             time.sleep(delay / 1000.0)
             send(f"EVT: permission id={prompt_id} decision={decision}\n")
             with self._lock:
-                self.state.current_scene = "idle"
+                self._leave_prompt()
                 self.state.pending_prompt = None
                 self.state.decisions_sent += 1
         threading.Thread(target=fire, daemon=True).start()

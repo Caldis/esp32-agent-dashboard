@@ -4,5 +4,6 @@
  * static inline 引用但数据层不调用)与 lv_tick_get。 */
 typedef struct { uint16_t full; } lv_color_t;
 typedef void lv_obj_t;
+typedef void lv_font_t;   /* cjk_font.h 声明用;数据层只调 cjk_utf8_lcpy */
 static inline lv_color_t lv_color_hex(uint32_t hex) { (void)hex; lv_color_t c = {0}; return c; }
 uint32_t lv_tick_get(void);   /* 由 wasm_shim.c 实现 */

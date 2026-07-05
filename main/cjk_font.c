@@ -1,6 +1,8 @@
 #include "cjk_font.h"
 #include "esp_log.h"
 
+#include <stddef.h>   /* NULL — the tiny_ttf-less fallback returns it */
+
 void cjk_utf8_lcpy(char *dst, const char *src, unsigned cap)
 {
     if (!dst || cap == 0) return;

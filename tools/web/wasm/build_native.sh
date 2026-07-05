@@ -32,6 +32,7 @@ esac
   -I "$ROOT/main" \
   -I "$ROOT/main/harness" \
   "$ROOT/main/agent_state.c" \
+  "$ROOT/main/cjk_font.c" \
   "$ROOT/main/tiny_json.c" \
   "$ROOT/main/harness/agent_snapshot_apply.c" \
   "$ROOT/main/harness/agent_commands.c" \

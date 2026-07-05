@@ -6,7 +6,8 @@
  *   dash prompt   <json>   — set prompt_active + switch scene
  *   dash event    <json>   — one-shot transcript line (per agent)
  *   dash tokens   <json>   — per-agent token counters + sparkline sample
- *   dash idle              — switch back to scene_idle
+ *   dash idle              — switch back to scene_idle (legacy alias)
+ *   dash scene    <id>     — switch to any scene by id (host remote / tests)
  *   dash config   <json>   — set device_name / owner / theme / default_scene
  *                            (persisted to NVS namespace "dashcfg")
  *   dash time     <json>   — set epoch_unix + tz_offset_seconds
@@ -16,6 +17,14 @@
  *
  * (dash push — the v2.7.0 per-tool banner — was removed in v3.1: it
  * flashed Read/Edit noise the fleet activity line already carries.)
+ *
+ * v4 scene contract: environment scenes (dashboard / overview / clock)
+ * switch ONLY by explicit request — the physical BOOT key or a host
+ * `dash idle` / `dash scene`. Snapshots never yank the view around
+ * (the v3 idle↔dashboard auto-switch is gone). The two takeovers stay
+ * state-driven: prompt_set switches in (remembering the covered scene,
+ * see scene_prompt_note_origin), prompt_clear restores it; awaiting is
+ * handled by scene_auto_switch_cb in esp32_agent_dashboard_main.c.
  *
  * The host bridge ships the JSON payload as ONE argv-token, leveraging
  * the console tokenizer's double-quote support (G-7 fix). Because the
@@ -32,6 +41,7 @@
 #include "../theme.h"
 #include "../tiny_json.h"
 #include "../button_router.h"
+#include "../scenes/scenes.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -59,6 +69,19 @@ static bool switch_scene(const char *id)
     int idx = scene_fw_find_by_id(id);
     if (idx < 0) return false;
     bsp_display_lock(-1);
+    scene_fw_show(idx);
+    bsp_display_unlock();
+    return true;
+}
+
+/* Enter the prompt takeover, remembering the scene it covers so the
+ * exit paths (decision / clear / timeout) can restore it. */
+static bool switch_to_prompt(void)
+{
+    int idx = scene_fw_find_by_id("prompt");
+    if (idx < 0) return false;
+    bsp_display_lock(-1);
+    scene_prompt_note_origin();
     scene_fw_show(idx);
     bsp_display_unlock();
     return true;
@@ -103,18 +126,17 @@ static int cmd_snapshot(const console_args_t *a)
                          result.dropped_count);
     }
 
-    /* Auto-pick scene based on new state. */
+    /* v4: only the prompt takeover is scene-driven by snapshots.
+     * Environment scenes (dashboard/overview/clock) are manual — the
+     * old total_now-based idle↔dashboard auto-switch is gone. */
     const scene_t *cur = scene_fw_current();
     const char *cur_id = cur ? cur->id : "";
     if (result.prompt_set) {
-        switch_scene("prompt");
+        switch_to_prompt();
     } else if (result.prompt_clear && strcmp(cur_id, "prompt") == 0) {
-        switch_scene("dashboard");
-    } else if (result.total_now > 0 && strcmp(cur_id, "idle") == 0) {
-        switch_scene("dashboard");
-    } else if (result.total_now == 0 && (strcmp(cur_id, "sessions") == 0 ||
-                                         strcmp(cur_id, "dashboard") == 0)) {
-        switch_scene("idle");
+        bsp_display_lock(-1);
+        scene_prompt_return_home();
+        bsp_display_unlock();
     }
 
     console_reply_ok("{\"applied\":true,\"agents\":%d,\"dropped\":%d}",
@@ -158,7 +180,7 @@ static int cmd_prompt(const console_args_t *a)
     s->prompts_received++;
     agent_state_unlock();
 
-    switch_scene("prompt");
+    switch_to_prompt();
     console_reply_ok("{\"prompt\":\"%s\"}", id);
     return 0;
 }
@@ -252,6 +274,25 @@ static int cmd_idle(const console_args_t *a)
         return 0;
     }
     console_reply_ok("{\"scene\":\"idle\"}");
+    return 0;
+}
+
+/* ── dash scene ──────────────────────────────────────────────────── */
+
+/* Generic host-side scene switch (`dash scene clock`). argv[2] is the
+ * scene id, not JSON. Counts as a manual switch under the v4 contract —
+ * used by tests and remote control, same standing as a BOOT press. */
+static int cmd_scene(const console_args_t *a)
+{
+    if (a->argc < 3 || a->argv[2] == NULL || a->argv[2][0] == '\0') {
+        console_reply_err("scene needs an id");
+        return 0;
+    }
+    if (!switch_scene(a->argv[2])) {
+        console_reply_err("unknown scene: %s", a->argv[2]);
+        return 0;
+    }
+    console_reply_ok("{\"scene\":\"%s\"}", a->argv[2]);
     return 0;
 }
 
@@ -470,7 +511,7 @@ static int cmd_dash(const console_args_t *a)
 {
     if (a->argc < 2) {
         console_reply_err("dash needs a subcommand "
-                          "(snapshot|prompt|event|tokens|idle|config|time|health|btn)");
+                          "(snapshot|prompt|event|tokens|idle|scene|config|time|health|btn)");
         return 0;
     }
     const char *sub = a->argv[1];
@@ -479,6 +520,7 @@ static int cmd_dash(const console_args_t *a)
     else if (strcmp(sub, "event")    == 0) return cmd_event(a);
     else if (strcmp(sub, "tokens")   == 0) return cmd_tokens(a);
     else if (strcmp(sub, "idle")     == 0) return cmd_idle(a);
+    else if (strcmp(sub, "scene")    == 0) return cmd_scene(a);
     else if (strcmp(sub, "config")   == 0) return cmd_config(a);
     else if (strcmp(sub, "time")     == 0) return cmd_time(a);
     else if (strcmp(sub, "health")   == 0) return cmd_health(a);
@@ -490,7 +532,7 @@ static int cmd_dash(const console_args_t *a)
 static const console_cmd_t s_cmd_dash = {
     "dash",
     cmd_dash,
-    "dash <snapshot|prompt|event|tokens|idle|config|time|health|btn> [json]"
+    "dash <snapshot|prompt|event|tokens|idle|scene|config|time|health|btn> [json|id]"
 };
 
 void agent_commands_register(void)

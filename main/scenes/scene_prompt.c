@@ -70,6 +70,39 @@ static lv_obj_t *make_chip(lv_obj_t *parent, const char *label,
     return c;
 }
 
+/* v4: the scene the prompt takeover covered, restored on every exit
+ * path (decision, external clear, timeout). -1 = nothing noted; fall
+ * back to the default scene (index 0). Written under the display lock
+ * (see scenes.h contract). */
+static int s_pre_prompt_scene_idx = -1;
+
+void scene_prompt_note_origin(void)
+{
+    int cur = scene_fw_current_index();
+    const scene_t *s = scene_fw_get(cur);
+    if (!s) return;
+    /* Never note a takeover as origin: prompt-over-prompt keeps the
+     * earlier note; prompt-over-awaiting falls back to the default and
+     * lets the awaiting auto-switch reclaim from there. */
+    if (strcmp(s->id, "prompt") == 0 || strcmp(s->id, "awaiting") == 0) return;
+    s_pre_prompt_scene_idx = cur;
+}
+
+void scene_prompt_return_home(void)
+{
+    /* Idempotence guard: exits race (prompt_tick keeps firing during the
+     * scene_fw_show crossfade, and the console task's prompt_clear path
+     * checks-then-calls without owning the tick). Only the call that
+     * finds us still ON the prompt scene restores; a second call would
+     * see the consumed (-1) note and bounce to index 0. */
+    const scene_t *cur = scene_fw_current();
+    if (!cur || strcmp(cur->id, "prompt") != 0) return;
+    int idx = s_pre_prompt_scene_idx;
+    s_pre_prompt_scene_idx = -1;
+    if (idx < 0 || idx >= scene_fw_count()) idx = 0;
+    scene_fw_show(idx);
+}
+
 static void prompt_decide(const char *decision)
 {
     char id[AGENT_PROMPT_ID_MAX];
@@ -117,9 +150,7 @@ static void prompt_decide(const char *decision)
      * press raced the render task and could corrupt the widget tree. */
     bsp_display_lock(-1);
     harness_toast(toast_buf, 1500);
-    int home_idx = scene_fw_find_by_id("dashboard");
-    if (home_idx < 0) home_idx = scene_fw_find_by_id("idle");
-    if (home_idx >= 0) scene_fw_show(home_idx);
+    scene_prompt_return_home();
     bsp_display_unlock();
 }
 
@@ -167,9 +198,9 @@ static void prompt_tick(lv_timer_t *t)
     agent_state_unlock();
 
     if (!active) {
-        int home_idx = scene_fw_find_by_id("dashboard");
-        if (home_idx < 0) home_idx = scene_fw_find_by_id("idle");
-        if (home_idx >= 0) scene_fw_show(home_idx);
+        /* Cleared externally (snapshot prompt:null raced us) — go back
+         * to wherever the user was. Runs on the LVGL task. */
+        scene_prompt_return_home();
         return;
     }
 
@@ -231,9 +262,7 @@ static void prompt_tick(lv_timer_t *t)
             agent_state_get()->prompt_active = false;
             agent_state_get()->prompt_mode_reply = false;
             agent_state_unlock();
-            int home = scene_fw_find_by_id("dashboard");
-            if (home < 0) home = scene_fw_find_by_id("idle");
-            if (home >= 0) scene_fw_show(home);
+            scene_prompt_return_home();
         } else {
             prompt_decide("deny");
         }

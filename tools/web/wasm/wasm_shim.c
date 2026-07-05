@@ -19,6 +19,7 @@
 #include "button_router.h"    /* 经 -I main;dash btn 桩需要签名 */
 #include "harness/console_protocol.h"
 #include "harness/scene_framework.h"
+#include "scenes/scenes.h"      /* 校验 scene_prompt_note_origin/return_home 桩签名 */
 
 /* ── 时间 / 信号量 / 系统桩 ─────────────────────────────── */
 static uint32_t s_tick = 0;
@@ -172,9 +173,9 @@ const console_cmd_t *shim_find_cmd(const char *name) {
 }
 
 /* ── scene 桩 ───────────────────────────────────────────── */
+/* 与固件 app_main 注册顺序一致(v4):index 0 = dashboard(默认/回退)。 */
 static scene_t s_scenes[] = {
-    {"idle"}, {"dashboard"}, {"sessions"}, {"prompt"},
-    {"tokens"}, {"status"}, {"awaiting"},
+    {"dashboard"}, {"idle"}, {"prompt"}, {"awaiting"},
 };
 static const int s_scene_count = (int)(sizeof(s_scenes) / sizeof(s_scenes[0]));
 static int s_cur_scene = -1;
@@ -194,4 +195,22 @@ const scene_t *scene_fw_current(void) {
 }
 const char *shim_current_scene_id(void) {
     return (s_cur_scene < 0) ? "" : s_scenes[s_cur_scene].id;
+}
+
+/* v4 prompt 起源记录/恢复 — 语义镜像 main/scenes/scene_prompt.c,
+ * 让数据层测试能覆盖「prompt 退出恢复先前场景」契约。 */
+static int s_pre_prompt_scene = -1;
+void scene_prompt_note_origin(void) {
+    if (s_cur_scene < 0) return;
+    const char *id = s_scenes[s_cur_scene].id;
+    if (strcmp(id, "prompt") == 0 || strcmp(id, "awaiting") == 0) return;
+    s_pre_prompt_scene = s_cur_scene;
+}
+void scene_prompt_return_home(void) {
+    /* 幂等守卫与固件一致:不在 prompt 上时不动作。 */
+    if (s_cur_scene < 0 || strcmp(s_scenes[s_cur_scene].id, "prompt") != 0) return;
+    int idx = s_pre_prompt_scene;
+    s_pre_prompt_scene = -1;
+    if (idx < 0 || idx >= s_scene_count) idx = 0;
+    scene_fw_show(idx);
 }

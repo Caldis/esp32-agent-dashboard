@@ -281,7 +281,10 @@ static void render_single(dash_t *d, const agent_state_t *st,
         compose_activity(one, act, sizeof(act));
         lv_label_set_text(d->ambient_act, act);
     } else {
-        lv_label_set_text(d->ambient_proj, "");
+        /* v4 manual switching: snapshots no longer yank a 0-agent
+         * dashboard over to idle, so it must rest here presentably —
+         * name the emptiness instead of showing a bare "idle" pet. */
+        lv_label_set_text(d->ambient_proj, "no agents");
         lv_label_set_text(d->ambient_act, "");
     }
 }

@@ -220,6 +220,38 @@ def test_initial_scene():
     print("ok test_initial_scene")
 
 
+def test_manual_scene_semantics_and_prompt_restore():
+    """v4 场景契约:快照永不移动环境场景(旧 idle↔dashboard 自动切换已删);
+    prompt takeover 记住并恢复被覆盖的场景;dash scene 泛化切换。"""
+    lib = load_lib()
+    _decl_feed(lib)
+    lib.dash_init()
+    # dash scene 手动切换
+    feed(lib, 'dash scene idle')
+    assert lib.last_reply_is_err() == 0, lib.last_reply()
+    assert lib.current_scene().decode() == "idle", lib.current_scene()
+    # agent 出现:必须停在 idle,不被抢去 dashboard
+    snap = ('{"agents":[{"kind":"claude-code","session_id":"m1",'
+            '"status":"running","msg":"work"}],'
+            '"totals":{"total":1,"running":1,"waiting":0}}')
+    feed(lib, 'dash snapshot "' + snap + '"')
+    assert lib.current_scene().decode() == "idle", lib.current_scene()
+    # agent 清零:必须停在 dashboard,不被送回 idle
+    feed(lib, 'dash scene dashboard')
+    feed(lib, 'dash snapshot "{"agents":[],"totals":{"total":0,"running":0,"waiting":0}}"')
+    assert lib.current_scene().decode() == "dashboard", lib.current_scene()
+    # prompt 从 idle 进入,清除后回 idle(不是 dashboard)
+    feed(lib, 'dash scene idle')
+    feed(lib, 'dash prompt "{"id":"p1","tool":"Bash"}"')
+    assert lib.current_scene().decode() == "prompt", lib.current_scene()
+    feed(lib, 'dash snapshot "{"agents":[],"totals":{"total":0},"prompt":null}"')
+    assert lib.current_scene().decode() == "idle", lib.current_scene()
+    # 未知 scene id → ERR
+    feed(lib, 'dash scene nope')
+    assert lib.last_reply_is_err() == 1, lib.last_reply()
+    print("ok test_manual_scene_semantics_and_prompt_restore")
+
+
 def test_tokenise_pathological():
     lib = load_lib()
     lib.g7_tokenise_join.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_size_t]
@@ -258,5 +290,6 @@ if __name__ == "__main__":
     test_escaped_quote_snapshot_roundtrip()
     test_control_chars_in_value_escaped()
     test_initial_scene()
+    test_manual_scene_semantics_and_prompt_restore()
     test_tokenise_pathological()
     print("ALL PASS")
