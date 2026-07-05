@@ -178,9 +178,11 @@ void app_main(void)
     scene_fw_init(scr);
     scene_fw_set_change_listener(on_scene_changed);
 
-    /* Register dashboard FIRST so it's the default (index 0). */
+    /* Register dashboard FIRST so it's the default (index 0). BOOT
+     * cycles environment scenes in registration order (dashboard →
+     * overview → …), skipping the takeovers. */
     scene_fw_register(&scene_dashboard);
-    scene_fw_register(&scene_idle);
+    scene_fw_register(&scene_overview);
     scene_fw_register(&scene_prompt);
     /* v2.3.0 AWAITING takeover — the scene that fires when any agent
      * is blocking on user input. Not the default (entered automatically

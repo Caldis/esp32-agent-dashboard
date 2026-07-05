@@ -6,7 +6,7 @@ extern "C" {
 #endif
 
 extern scene_t scene_dashboard;
-extern scene_t scene_idle;
+extern scene_t scene_overview;   /* v4 rollup — wire id stays "idle" */
 extern scene_t scene_prompt;
 extern scene_t scene_awaiting;   /* v2.3.0 takeover */
 
