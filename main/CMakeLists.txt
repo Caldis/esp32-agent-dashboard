@@ -18,6 +18,7 @@ idf_component_register(
         "scenes/scene_awaiting.c"
         "anim/apple_ease.c"
         "cjk_font.c"
+        "ui_type.c"
         "status_bar.c"
     EMBED_FILES
         # Subset SimHei (GB2312 + ASCII, ~2MB) rendered on-device via lv_tiny_ttf.

@@ -1,9 +1,10 @@
 /*
  * scene_prompt — full-screen permission prompt.
  *
- * v1 changes:
- *   • Tool name pulses with a gentle scale animation (1.00 → 1.04 → 1.00
- *     over 1.5 s) so the device visibly demands attention.
+ *   • Tool name at TITLE tier (52 px) is the decision object — the old
+ *     per-frame transform_scale pulse is gone: scaling a big tiny_ttf
+ *     label re-renders it through an intermediate layer every frame
+ *     (the scene_clock plan-A lesson, 9-15 fps) and starved ?dump.
  *   • Countdown turns red in the last 10 s.
  *   • Shows an agent-kind badge (e.g. "claude-code") tinted in the
  *     per-agent accent.
@@ -14,7 +15,7 @@
 #include "scenes.h"
 #include "agent_state.h"
 #include "theme.h"
-#include "cjk_font.h"
+#include "ui_type.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -28,7 +29,6 @@
 
 #define TIMEOUT_MS         60000u
 #define DANGER_WINDOW_MS   10000u
-#define PULSE_PERIOD_MS    1500u
 #define REPLY_TIMEOUT_MS   120000u
 
 typedef struct {
@@ -41,7 +41,6 @@ typedef struct {
     lv_obj_t   *timer_lbl;
     lv_timer_t *tick;
     uint32_t    activated_ms;
-    uint32_t    pulse_t0_ms;
     char        cached_id[AGENT_PROMPT_ID_MAX];
 } prompt_state_t;
 
@@ -50,8 +49,8 @@ static lv_obj_t *make_chip(lv_obj_t *parent, const char *label,
 {
     lv_obj_t *c = lv_obj_create(parent);
     lv_obj_remove_style_all(c);
-    lv_obj_set_size(c, 170, 56);
-    lv_obj_set_style_radius(c, 28, 0);
+    lv_obj_set_size(c, 190, 84);   /* two LABEL lines + breathing room */
+    lv_obj_set_style_radius(c, 32, 0);
     lv_obj_set_style_border_color(c, lv_color_hex(colour), 0);
     lv_obj_set_style_border_width(c, 2, 0);
     lv_obj_set_style_border_opa(c, LV_OPA_80, 0);
@@ -60,7 +59,11 @@ static lv_obj_t *make_chip(lv_obj_t *parent, const char *label,
     lv_obj_clear_flag(c, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *l = lv_label_create(c);
-    lv_obj_set_style_text_font(l, ui_font_or(14, &lv_font_montserrat_14), 0);
+    /* Fixed size + DOT: reply-mode chips carry option strings that can
+     * be long CJK — they must truncate inside the chip, not overflow. */
+    lv_obj_set_size(l, 174, 2 * ui_type_line(UI_T_LABEL));
+    lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_font(l, ui_type(UI_T_LABEL), 0);
     lv_obj_set_style_text_color(l, lv_color_white(), 0);
     lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(l, label);
@@ -163,19 +166,6 @@ void scene_prompt_decide(const char *decision)
     prompt_decide(decision);
 }
 
-/* Triangle-wave pulse → returns scale in 256-fixed-point.
- * 1.00 → 1.04 → 1.00 over PULSE_PERIOD_MS. */
-static int32_t pulse_scale(uint32_t phase_ms)
-{
-    uint32_t p = phase_ms % PULSE_PERIOD_MS;
-    uint32_t half = PULSE_PERIOD_MS / 2;
-    /* tri 0..1.0 */
-    uint32_t tri256 = (p < half) ? (p * 256u) / half
-                                 : ((PULSE_PERIOD_MS - p) * 256u) / half;
-    /* scale = 256 + tri * (1.04 - 1.00) = 256 + (tri256 * 10) / 256 */
-    return 256 + (int32_t)((tri256 * 10u) / 256u);
-}
-
 static void prompt_tick(lv_timer_t *t)
 {
     prompt_state_t *st = (prompt_state_t *)lv_timer_get_user_data(t);
@@ -209,7 +199,6 @@ static void prompt_tick(lv_timer_t *t)
     if (strncmp(st->cached_id, id, sizeof(st->cached_id)) != 0) {
         memcpy(st->cached_id, id, sizeof(st->cached_id));
         st->activated_ms = lv_tick_get();
-        st->pulse_t0_ms  = st->activated_ms;
     }
 
     if (is_reply) {
@@ -218,7 +207,6 @@ static void prompt_tick(lv_timer_t *t)
         lv_label_set_text(st->tool, "pick one:");
         lv_label_set_text(st->hint, "");
         lv_obj_set_style_text_color(st->tool, lv_color_hex(pal->text_dim), 0);
-        lv_obj_set_style_transform_scale(st->tool, 256, 0);
         lv_obj_t *bl = lv_obj_get_child(st->boot_chip, 0);
         lv_obj_t *ul = lv_obj_get_child(st->user_chip, 0);
         if (bl) { char b[AGENT_HINT_MAX + 8]; snprintf(b, sizeof(b), "BOOT\n%s", tool); lv_label_set_text(bl, b); }
@@ -246,14 +234,8 @@ static void prompt_tick(lv_timer_t *t)
         lv_obj_add_flag(st->badge, LV_OBJ_FLAG_HIDDEN);
     }
 
-    /* Pulse — apply transform scale to the tool label. */
-    uint32_t now = lv_tick_get();
-    int32_t scale = pulse_scale(now - st->pulse_t0_ms);
-    lv_obj_set_style_transform_scale(st->tool, scale, 0);
-    lv_obj_set_style_transform_pivot_x(st->tool, lv_pct(50), 0);
-    lv_obj_set_style_transform_pivot_y(st->tool, lv_pct(50), 0);
-
     /* Countdown */
+    uint32_t now = lv_tick_get();
     uint32_t elapsed = now - st->activated_ms;
     uint32_t timeout = is_reply ? REPLY_TIMEOUT_MS : TIMEOUT_MS;
     if (elapsed >= timeout) {
@@ -288,52 +270,57 @@ static void prompt_init(scene_t *s, lv_obj_t *parent)
 
     const theme_palette_t *pal = theme_current();
 
+    /* v4.4 top-anchored stack: eyebrow → badge → tool (the decision
+     * object, TITLE) → hint (BODY, ≤2 lines) → chips → countdown. */
     st->title = lv_label_create(parent);
-    lv_obj_set_style_text_font(st->title, ui_font_bold_or(14, &lv_font_montserrat_14), 0);
+    lv_obj_set_style_text_font(st->title, ui_type_bold(UI_T_LABEL), 0);
     lv_obj_set_style_text_letter_space(st->title, 4, 0);
     lv_obj_set_style_text_color(st->title, lv_color_hex(pal->warning), 0);
     lv_obj_set_style_text_opa(st->title, LV_OPA_80, 0);
     lv_label_set_text(st->title, "PERMISSION");
-    lv_obj_align(st->title, LV_ALIGN_CENTER, 0, -160);
+    lv_obj_align(st->title, LV_ALIGN_TOP_MID, 0, 36);
 
     /* Agent badge below title. */
     st->badge = lv_label_create(parent);
-    lv_obj_set_style_text_font(st->badge, ui_font_or(12, &lv_font_montserrat_12), 0);
+    lv_obj_set_style_text_font(st->badge, ui_type(UI_T_CAPTION), 0);
     lv_obj_set_style_text_letter_space(st->badge, 1, 0);
     lv_label_set_text(st->badge, "");
-    lv_obj_align(st->badge, LV_ALIGN_CENTER, 0, -130);
+    lv_obj_align(st->badge, LV_ALIGN_TOP_MID, 0, 76);
 
     /* tool + hint carry host-supplied text (tool name, command preview, and in
-     * reply mode the chosen option strings) that can be Chinese — ui_font
+     * reply mode the chosen option strings) that can be Chinese — ui_type
      * chains to the CJK font so it isn't rendered as garbage boxes. */
     st->tool = lv_label_create(parent);
-    lv_obj_set_style_text_font(st->tool, ui_font_bold_or(22, &lv_font_montserrat_22), 0);
+    lv_obj_set_size(st->tool, UI_CONTENT_W, ui_type_line(UI_T_TITLE));
+    lv_label_set_long_mode(st->tool, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_font(st->tool, ui_type_bold(UI_T_TITLE), 0);
     lv_obj_set_style_text_color(st->tool, lv_color_white(), 0);
     lv_obj_set_style_text_align(st->tool, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(st->tool, "?");
-    lv_obj_align(st->tool, LV_ALIGN_CENTER, 0, -80);
+    lv_obj_align(st->tool, LV_ALIGN_TOP_MID, 0, 114);
 
     st->hint = lv_label_create(parent);
-    lv_obj_set_style_text_font(st->hint, ui_font_or(14, &lv_font_montserrat_14), 0);
+    lv_obj_set_size(st->hint, UI_CONTENT_W, 2 * ui_type_line(UI_T_BODY));
+    lv_label_set_long_mode(st->hint, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_font(st->hint, ui_type(UI_T_BODY), 0);
     lv_obj_set_style_text_align(st->hint, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(st->hint, 360);
-    lv_label_set_long_mode(st->hint, LV_LABEL_LONG_WRAP);
     lv_label_set_text(st->hint, "");
-    lv_obj_align(st->hint, LV_ALIGN_CENTER, 0, -10);
+    lv_obj_align(st->hint, LV_ALIGN_TOP_MID, 0, 192);
 
     st->boot_chip = make_chip(parent, "BOOT\napprove",
-                              LV_ALIGN_CENTER, -100, 110, pal->success);
+                              LV_ALIGN_TOP_MID, -103, 296, pal->success);
     st->user_chip = make_chip(parent, "USER\ndeny",
-                              LV_ALIGN_CENTER, 100, 110, pal->danger);
+                              LV_ALIGN_TOP_MID, 103, 296, pal->danger);
 
     st->timer_lbl = lv_label_create(parent);
-    lv_obj_set_style_text_font(st->timer_lbl, ui_font_or(14, &lv_font_montserrat_14), 0);
+    lv_obj_set_style_text_font(st->timer_lbl, ui_type(UI_T_LABEL), 0);
     lv_obj_set_style_text_color(st->timer_lbl, lv_color_hex(pal->warning), 0);
     lv_label_set_text(st->timer_lbl, "60s");
-    lv_obj_align(st->timer_lbl, LV_ALIGN_CENTER, 0, 60);
+    lv_obj_align(st->timer_lbl, LV_ALIGN_TOP_MID, 0, 404);
 
-    /* Bump tick rate so the pulse looks smooth. */
-    st->tick = lv_timer_create(prompt_tick, 33, st);
+    /* 200 ms: countdown label updates once a second; nothing here
+     * animates per-frame any more. */
+    st->tick = lv_timer_create(prompt_tick, 200, st);
     lv_timer_pause(st->tick);
 }
 
@@ -342,7 +329,6 @@ static void prompt_on_show(scene_t *s)
     prompt_state_t *st = (prompt_state_t *)s->user_data;
     if (!st) return;
     st->cached_id[0] = '\0';
-    st->pulse_t0_ms = lv_tick_get();
     if (st->tick) {
         lv_timer_resume(st->tick);
         prompt_tick(st->tick);
@@ -359,7 +345,7 @@ scene_t scene_prompt = {
     .id           = "prompt",
     .display_name = "Prompt",
     .accent       = LV_COLOR_MAKE(0xFF, 0xC8, 0x57),
-    .description  = "Full-screen permission prompt with pulse and per-agent badge.",
+    .description  = "Full-screen permission prompt with per-agent badge.",
     .tags         = "agent,prompt,interactive",
     .init         = prompt_init,
     .on_show      = prompt_on_show,

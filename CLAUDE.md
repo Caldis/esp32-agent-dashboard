@@ -20,9 +20,24 @@ Run `esp-harness cycle` after code changes (build + flash + verify).
 ## Key Files
 - `harness.json` -- project config (board=esp32_s3_touch_amoled_2_16, port=COM9, modules)
 - `main/esp32_agent_dashboard_main.c` -- entry point
-- `main/scenes/` -- 4 UI scenes (dashboard, idle, prompt, awaiting)
+- `main/scenes/` -- UI scenes (dashboard, overview[wire id "idle"], clock, prompt, awaiting)
+- `main/ui_type.h` -- THE type scale. All text takes fonts from its five
+  tiers (CAPTION 20 / LABEL 26 / BODY 36 / TITLE 52 / HERO 88) via
+  ui_type()/ui_type_bold(); raw ui_font(px)/cjk_font(px) are internal to
+  ui_type.c. Sized for 0.6-1 m viewing distance on the 2.16" 466x466
+  (305 ppi) panel -- do NOT introduce ad-hoc pixel sizes or anything
+  below CAPTION.
 - `tools/claude_buddy_bridge.py` -- host bridge daemon
 - `tools/hook_dispatch.py` -- Claude Code hook forwarder
+
+## Rendering performance (hard-won, do not regress)
+- NEVER per-frame animate size/transform_scale/widget-opa on big tiny_ttf
+  labels or containers overlapping them (marquee freeze, clock plan A,
+  overview ring breath, prompt pulse -- all bisected to this). Use
+  low-frequency stepped styles from the scene tick instead.
+- Full-size `esp-harness screenshot --size 466` streams ~5 s and rides the
+  TWDT edge; any extra render load mid-dump reboots the device. Verify
+  with `--size 320` (~2.5 s, safe).
 
 ## Bridge (self-healing)
 The bridge occupies COM9 while running. To use `esp-harness screenshot` or `esp-harness flash` directly, stop the bridge first.

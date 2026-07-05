@@ -134,7 +134,6 @@ static void clock_init(scene_t *s, lv_obj_t *parent)
 
     st->face = lv_label_create(parent);
     { const lv_font_t *bf = clock_font(CLOCK_PX);
-      if (!bf) bf = cjk_font(CLOCK_PX);
       lv_obj_set_style_text_font(st->face, bf ? bf : &lv_font_montserrat_48, 0); }
     lv_obj_set_style_text_color(st->face, lv_color_hex(COL_TEXT), 0);
     lv_label_set_text(st->face, "--:--");

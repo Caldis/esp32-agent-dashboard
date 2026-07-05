@@ -4,7 +4,8 @@
 #include <time.h>
 
 #include "lvgl.h"
-#include "cjk_font.h"
+#include "cjk_font.h"   /* clock_font — the rounded digits face */
+#include "ui_type.h"
 
 #define COL_TEXT       0xF3EEE2
 #define COL_TEXT_DIM   0x8A807A
@@ -22,11 +23,15 @@
 #define CONN_STALE_MS  12000u
 enum { CONN_OK = 0, CONN_WAITING, CONN_STALE };
 
+/* Geometry (v4.4 type-scale pass): footer numbers moved to BODY(36)
+ * and captions to CAPTION(20) — the 28/12 originals measured 9'/4' of
+ * visual angle at 0.6 m, below every legibility floor. The columns sit
+ * lower and wider apart to make room. */
 #define HEADER_Y        56   /* time, top-center */
-#define FOOTER_Y       420
-#define FOOTER_CAP_Y   442
-#define FOOTER_LEFT_X  124
-#define FOOTER_RIGHT_X 284
+#define FOOTER_Y       392   /* numbers row (36 px line ends ≈435) */
+#define FOOTER_CAP_Y   438   /* captions row (20 px line ends ≈462) */
+#define FOOTER_LEFT_X  108
+#define FOOTER_RIGHT_X 262
 
 void status_bar_format_time(char *buf, size_t cap, const agent_state_t *st)
 {
@@ -77,24 +82,24 @@ void status_bar_create(lv_obj_t *parent, status_bar_t *sb)
     lv_label_set_text(sb->time_lbl, "--:--");
     lv_obj_align(sb->time_lbl, LV_ALIGN_TOP_MID, 0, HEADER_Y);
 
-    sb->active_num = mk(parent, ui_font_bold_or(28, &lv_font_montserrat_28),
-                        COL_TEAL, FOOTER_LEFT_X, FOOTER_Y - 12, "0");
-    sb->active_cap = mk(parent, ui_font_or(12, &lv_font_montserrat_12),
+    sb->active_num = mk(parent, ui_type_bold(UI_T_BODY),
+                        COL_TEAL, FOOTER_LEFT_X, FOOTER_Y, "0");
+    sb->active_cap = mk(parent, ui_type(UI_T_CAPTION),
                         COL_TEXT_DIM, FOOTER_LEFT_X, FOOTER_CAP_Y, "active");
-    sb->token_num  = mk(parent, ui_font_bold_or(28, &lv_font_montserrat_28),
-                        COL_TEXT, FOOTER_RIGHT_X, FOOTER_Y - 12, "0");
-    sb->token_cap  = mk(parent, ui_font_or(12, &lv_font_montserrat_12),
+    sb->token_num  = mk(parent, ui_type_bold(UI_T_BODY),
+                        COL_TEXT, FOOTER_RIGHT_X, FOOTER_Y, "0");
+    sb->token_cap  = mk(parent, ui_type(UI_T_CAPTION),
                         COL_TEXT_DIM, FOOTER_RIGHT_X, FOOTER_CAP_Y, "tokens today");
 
-    /* Connection-health pill, top-center under the clock. ui_font falls
-     * back to CJK for the Chinese status text; Latin if tiny_ttf is
-     * unavailable. Hidden while healthy. */
+    /* Connection-health pill, top-center above the clock. LABEL tier —
+     * it must be readable at desk distance when the link drops, but it
+     * is transient/secondary. ui_type chains to CJK for the Chinese
+     * status text. Hidden while healthy. */
     sb->conn_lbl = lv_label_create(parent);
-    lv_obj_set_style_text_font(sb->conn_lbl,
-                               ui_font_or(18, &lv_font_montserrat_14), 0);
+    lv_obj_set_style_text_font(sb->conn_lbl, ui_type(UI_T_LABEL), 0);
     lv_obj_set_style_text_align(sb->conn_lbl, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(sb->conn_lbl, "");
-    lv_obj_align(sb->conn_lbl, LV_ALIGN_TOP_MID, 0, 20);
+    lv_obj_align(sb->conn_lbl, LV_ALIGN_TOP_MID, 0, 16);
     lv_obj_add_flag(sb->conn_lbl, LV_OBJ_FLAG_HIDDEN);
     sb->conn_state = -1;   /* force first update to apply */
 }

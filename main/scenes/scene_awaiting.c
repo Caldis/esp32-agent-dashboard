@@ -4,20 +4,19 @@
  * dashboard) because Anthropic's own Agent View (2026-05) made
  * "which agents are waiting on you" the most important info to surface.
  *
- * One template, five kind variants:
+ * One template, five kind variants (v4.4 type-scale layout):
  *
  *     ┌────────────────────────────────┐
- *     │     [eyebrow: time · device]    │
+ *     │        [conn pill only]         │  ← top clock hidden
+ *     │            [GLYPH]              │  ← minimal mode only
+ *     │          <该你了>                │  ← HERO 88 (minimal) /
+ *     │                                 │    TITLE 52 (content)
+ *     │        cc esp32-agent…          │  ← LABEL chip (accent)
+ *     │      <summary, 1-2 lines>       │  ← BODY, static wrap
+ *     │      1  <option>                │  ← BODY rows, ≤3
+ *     │      2  <option>   +N 更多      │
  *     │                                 │
- *     │            [GLYPH]              │  ← kind-specific
- *     │                                 │
- *     │         <HEADLINE>              │  ← 48pt, kind-specific
- *     │           cc · a3               │  ← agent (accent color)
- *     │       <context line 1>          │  ← up to 3 lines
- *     │       <context line 2>          │
- *     │       <context line 3>          │
- *     │                                 │
- *     │       waiting Xs · +N           │  ← duration + overflow
+ *     │      [active]   [tokens]        │  ← shared footer
  *     └────────────────────────────────┘
  *
  * Reads the "most recent awaiting slot" from agent_state. The
@@ -34,7 +33,8 @@
 #include "scenes.h"
 #include "agent_state.h"
 #include "theme.h"
-#include "cjk_font.h"
+#include "cjk_font.h"   /* cjk_utf8_lcpy */
+#include "ui_type.h"
 #include "status_bar.h"
 #include "anim/apple_ease.h"
 #include "harness/scene_framework.h"
@@ -47,17 +47,19 @@
 
 /* Cached UI objects (created in on_show, freed in on_hide). */
 typedef struct {
-    status_bar_t sb;            /* shared top time + bottom active/tokens */
+    status_bar_t sb;            /* footer + conn pill; top clock hidden */
     lv_obj_t *glyph;            /* parent for the kind-specific drawing */
     lv_obj_t *glyph_inner_dot;  /* used by continue kind for breathing */
     lv_obj_t *headline;
     lv_obj_t *agent_chip;
     lv_obj_t *ctx_lines[AGENT_AWAITING_CONTEXT_LINES];
-    /* v2.4.0: marquee summary + numbered options list */
-    lv_obj_t *summary_marquee;
+    /* v4.4: static wrapped summary + numbered options (3 shown + "+N") */
+    lv_obj_t *summary_lbl;
     lv_obj_t *option_rows[AGENT_AWAITING_OPTIONS_MAX];
+    lv_obj_t *more_lbl;
     lv_obj_t *affordance;
     awaiting_kind_t last_rendered_kind;
+    int         headline_big;   /* -1 = unset; 1 = HERO, 0 = TITLE */
     char        last_session_id[AGENT_SESSION_ID_MAX];
     uint32_t    breath_anim_armed;
 } await_ui_t;
@@ -66,14 +68,18 @@ static await_ui_t s_ui;
 
 /* ── Headline text per kind ──────────────────────────────────────── */
 
+/* Chinese primary words (v4.4): 3 hanzi at HERO tier subtend 22' at
+ * 1 m — the takeover signal must read across the desk, which no
+ * 9-12-char English headline can do on a 38.8 mm panel. All chars are
+ * in the GB2312 subset. */
 static const char *headline_for(awaiting_kind_t k)
 {
     switch (k) {
-        case AWAITING_CONTINUE: return "your turn";
-        case AWAITING_APPROVE:  return "> approve?";
-        case AWAITING_PICK:     return "pick one";
-        case AWAITING_TYPE:     return "type a reply";
-        case AWAITING_CLARIFY:  return "> clarify";
+        case AWAITING_CONTINUE: return "该你了";
+        case AWAITING_APPROVE:  return "请批准";
+        case AWAITING_PICK:     return "请选择";
+        case AWAITING_TYPE:     return "请输入";
+        case AWAITING_CLARIFY:  return "需澄清";
         default:                return "";
     }
 }
@@ -88,24 +94,23 @@ static bool is_urgent(awaiting_kind_t k)
 #define SCREEN_W  466
 #define SCREEN_H  466
 
-/* v2.4.0 layout. The core group (glyph + headline + agent + summary +
- * options/ctx) is vertically centered per-frame so a 3-option turn
- * doesn't leave a void at the bottom and a 0-option turn doesn't
- * top-stick. Eyebrow and footer are anchored to panel edges and
- * unchanged; everything in between gets a dynamic top offset
- * computed in tick(). The constants below are the "stack heights" —
- * how tall each element is in lv coordinates — used to sum content
- * height for the centering math. */
-#define EYEBROW_Y         44   /* fixed: top of panel inscribed area */
-#define FOOTER_Y         432   /* fixed: bottom */
-#define GLYPH_H           76   /* glyph container is 96x96 visually; usable centerline */
-#define HEADLINE_H        54   /* 48pt montserrat line height */
-#define AGENT_H           30   /* reduced from 36 with 28pt -> 22pt font */
-#define SUMMARY_H         34   /* marquee strip */
-#define OPTION_ROW_H      32
-#define CTX_LINE_H        32
-#define AFFORDANCE_H      24
-#define INTER_GAP          6   /* between adjacent vertical elements */
+/* v4.4 layout. The scene hides the status bar's top clock (a takeover
+ * asking for input doesn't need the time — scene_clock owns that), so
+ * content owns the band from AWAIT_TOP (below the conn pill) to
+ * UI_BAND_BOT (above the footer numbers). Two presentation modes:
+ *
+ *   minimal (no summary/options/ctx) → glyph + HERO headline + chip;
+ *   content                          → TITLE headline + chip + wrapped
+ *                                      summary + up to 3 option rows
+ *                                      (+ "+N" overflow caption).
+ *
+ * The visible stack is vertically centered per-frame, same as v2.4.0.
+ * All heights come from ui_type_line() — no free-hand pixel sizes. */
+#define AWAIT_TOP         48
+#define AWAIT_BOT         UI_BAND_BOT
+#define AWAIT_GLYPH_H     96
+#define AWAIT_OPTS_SHOWN   3   /* option rows on screen; rest fold into "+N" */
+#define AWAIT_OPT_ROW_H   (ui_type_line(UI_T_BODY) + UI_GAP_XS)
 
 /* ── Glyph rendering ────────────────────────────────────────────── */
 
@@ -146,7 +151,10 @@ static void glyph_symbol(lv_obj_t *parent, const char *symbol, uint32_t color)
     lv_obj_t *lbl = lv_label_create(parent);
     lv_label_set_text(lbl, symbol);
     lv_obj_set_style_text_color(lbl, lv_color_hex(color), 0);
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_36, 0);
+    /* LV_SYMBOL_* glyphs live in the built-in Montserrat private-use
+     * range only — this is an icon, not text, so it sits outside the
+     * ui_type scale. 48 is the largest built-in size. */
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_48, 0);
     lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
 }
 
@@ -282,137 +290,157 @@ static void tick(lv_timer_t *t)
     }
     lv_label_set_text(s_ui.agent_chip, chip);
 
-    /* v2.4.0: decide layout mode for this frame + compute the dynamic
-     * vertical-center offset so the core group sits balanced regardless
-     * of how many options / context lines are visible. The available
-     * vertical real estate is from EYEBROW_Y+12 to FOOTER_Y-12. We sum
-     * the visible content height (glyph + headline + agent + summary?
-     * + N_options × row_h | + N_ctx × ctx_h), compute remaining
-     * whitespace, and split it half-above the group. */
+    /* Decide layout mode for this frame + compute the dynamic
+     * vertical-center offset so the visible stack sits balanced
+     * regardless of how many options / context lines exist. */
     bool has_summary = (anchor->awaiting_summary[0] != '\0');
     bool has_options = (anchor->awaiting_options_count > 0);
     int n_opts = anchor->awaiting_options_count;
     if (n_opts > AGENT_AWAITING_OPTIONS_MAX) n_opts = AGENT_AWAITING_OPTIONS_MAX;
+    int n_show = (n_opts > AWAIT_OPTS_SHOWN) ? AWAIT_OPTS_SHOWN : n_opts;
+    int n_more = n_opts - n_show;
     int n_ctx = anchor->awaiting_context_count;
     if (n_ctx > AGENT_AWAITING_CONTEXT_LINES) n_ctx = AGENT_AWAITING_CONTEXT_LINES;
 
     bool show_affordance = (kind == AWAITING_APPROVE);
-    /* Drop the decorative glyph when there's real content (summary/options) —
-     * frees ~90px so text isn't cramped against the status bar. The minimal
-     * continue ("your turn") kind keeps its breathing glyph as the focal point. */
-    bool show_glyph = !(has_summary || has_options);
-    int content_h = HEADLINE_H + INTER_GAP + AGENT_H;
-    if (show_glyph)               content_h += GLYPH_H + INTER_GAP;
-    if (show_affordance)          content_h += INTER_GAP + AFFORDANCE_H;
-    if (has_summary)              content_h += INTER_GAP + SUMMARY_H;
-    if (has_options)              content_h += INTER_GAP + n_opts * OPTION_ROW_H;
-    if (!has_options && !has_summary && n_ctx > 0) {
-        content_h += INTER_GAP + n_ctx * CTX_LINE_H;
+    /* Minimal turns ("your turn", nothing else) keep the breathing
+     * glyph + HERO headline readable at 1 m. Any real content drops the
+     * glyph and steps the headline down to TITLE — the content is why
+     * the user leans in. */
+    bool minimal = !has_summary && !has_options && n_ctx == 0;
+    bool show_glyph = minimal;
+    /* 3+ option rows leave room for only one summary line; 0-2 get two. */
+    int summary_lines = (n_show >= 3) ? 1 : 2;
+
+    int head_h = ui_type_line(minimal ? UI_T_HERO : UI_T_TITLE);
+    int chip_h = ui_type_line(UI_T_LABEL);
+    int body_h = ui_type_line(UI_T_BODY);
+    int aff_h  = ui_type_line(UI_T_LABEL);
+    int more_h = ui_type_line(UI_T_CAPTION);
+
+    int big = minimal ? 1 : 0;
+    if (big != s_ui.headline_big) {
+        s_ui.headline_big = big;
+        lv_obj_set_style_text_font(s_ui.headline,
+            ui_type_bold(big ? UI_T_HERO : UI_T_TITLE), 0);
     }
 
-    int avail_top    = 130;   /* below the 48pt status_bar time */
-    int avail_bottom = 408;   /* above the status_bar active/tokens footer */
-    int avail_h      = avail_bottom - avail_top;
-    int top_pad      = (avail_h - content_h) / 2;
-    if (top_pad < 0) top_pad = 0;
-    int y = avail_top + top_pad;
+    int content_h = head_h + UI_GAP_XS + chip_h;
+    if (show_glyph)               content_h += AWAIT_GLYPH_H + UI_GAP_MD;
+    if (show_affordance)          content_h += UI_GAP_SM + aff_h;
+    if (has_summary)              content_h += UI_GAP_SM + summary_lines * body_h;
+    if (has_options) {
+        content_h += UI_GAP_SM + n_show * AWAIT_OPT_ROW_H;
+        if (n_more > 0) content_h += more_h;
+    } else if (!has_summary && n_ctx > 0) {
+        content_h += UI_GAP_SM + n_ctx * body_h;
+    }
 
-    /* Re-align the core group at the new y. */
+    int avail_h = AWAIT_BOT - AWAIT_TOP;
+    int top_pad = (avail_h - content_h) / 2;
+    if (top_pad < 0) top_pad = 0;
+    int y = AWAIT_TOP + top_pad;
+
+    /* Re-align the stack at the new y. */
     if (show_glyph) {
         lv_obj_align(s_ui.glyph, LV_ALIGN_TOP_MID, 0, y);
         lv_obj_clear_flag(s_ui.glyph, LV_OBJ_FLAG_HIDDEN);
-        y += GLYPH_H + INTER_GAP;
+        y += AWAIT_GLYPH_H + UI_GAP_MD;
     } else {
         lv_obj_add_flag(s_ui.glyph, LV_OBJ_FLAG_HIDDEN);
     }
     lv_obj_align(s_ui.headline,   LV_ALIGN_TOP_MID, 0, y);
-    y += HEADLINE_H + INTER_GAP;
+    y += head_h + UI_GAP_XS;
     lv_obj_align(s_ui.agent_chip, LV_ALIGN_TOP_MID, 0, y);
-    y += AGENT_H + INTER_GAP;
+    y += chip_h;
 
     if (show_affordance) {
+        y += UI_GAP_SM;
         lv_obj_align(s_ui.affordance, LV_ALIGN_TOP_MID, 0, y);
         lv_obj_clear_flag(s_ui.affordance, LV_OBJ_FLAG_HIDDEN);
-        y += AFFORDANCE_H + INTER_GAP;
+        y += aff_h;
     } else {
         lv_obj_add_flag(s_ui.affordance, LV_OBJ_FLAG_HIDDEN);
     }
 
     if (has_summary) {
-        lv_obj_align(s_ui.summary_marquee, LV_ALIGN_TOP_MID, 0, y);
-        y += SUMMARY_H + INTER_GAP;
+        y += UI_GAP_SM;
+        lv_obj_set_size(s_ui.summary_lbl, UI_CONTENT_W,
+                        summary_lines * body_h);
+        lv_obj_align(s_ui.summary_lbl, LV_ALIGN_TOP_MID, 0, y);
+        y += summary_lines * body_h;
     }
     if (has_options) {
-        int ox = (SCREEN_W - 380) / 2;
+        y += UI_GAP_SM;
+        int ox = (SCREEN_W - UI_CONTENT_W) / 2;
         for (int i = 0; i < AGENT_AWAITING_OPTIONS_MAX; ++i) {
             lv_obj_align(s_ui.option_rows[i], LV_ALIGN_TOP_LEFT, ox, y);
-            if (i < n_opts) y += OPTION_ROW_H;
+            if (i < n_show) y += AWAIT_OPT_ROW_H;
         }
+        lv_obj_align(s_ui.more_lbl, LV_ALIGN_TOP_MID, 0, y);
     } else if (!has_summary) {
+        y += UI_GAP_SM;
         for (int i = 0; i < AGENT_AWAITING_CONTEXT_LINES; ++i) {
             lv_obj_align(s_ui.ctx_lines[i], LV_ALIGN_TOP_MID, 0, y);
-            if (i < n_ctx) y += CTX_LINE_H;
+            if (i < n_ctx) y += body_h;
         }
     }
 
     if (has_summary) {
-        /* Only (re)apply long-mode + text when they actually change. LVGL's
-         * lv_label_set_long_mode UNCONDITIONALLY deletes the scroll animation
-         * and resets the offset to 0 — calling it every 500 ms tick restarted
-         * the marquee from the start each time, so a long summary never scrolled
-         * more than a few pixels and was effectively unreadable (the whole point
-         * of the v2.4.0 marquee). Cache the last-applied text/mode and leave the
-         * running animation alone when nothing changed. */
+        /* Static wrapped text (v4.4) — the old scroll-circular marquee
+         * re-laid the FULL string out every frame and was the device-
+         * freeze root cause (task-watchdog starvation, bisected
+         * 2026-07-05); it is also poor ergonomics — reading moving text
+         * at 0.6-1 m is ~3x slower than static. Two BODY lines with
+         * DOT truncation show everything a glanceable panel should. */
         static char s_last_summary[AGENT_AWAITING_SUMMARY_MAX];
-        static bool s_last_motion_ok = false;
         static bool s_have_last = false;
-        bool changed = !s_have_last
-                    || s_last_motion_ok != motion_ok
-                    || strncmp(s_last_summary, anchor->awaiting_summary,
-                               sizeof(s_last_summary)) != 0;
-        if (changed) {
-            /* HARD CAP the marquee text. A circular-scroll label lays the
-             * FULL string out at its natural width and redraws every frame
-             * of the scroll — a 208-byte CJK summary is ~1500px of 22px
-             * tiny_ttf glyphs, and iterating all of them per frame (twice,
-             * for the circular seam) pins the swdraw thread at 100%,
-             * starves IDLE1 and trips the task watchdog: the device-freeze
-             * root cause (3 field incidents, bisected 2026-07-05; marquee
-             * off survived the same payload). ~32 hanzi scrolls fine and
-             * is all a glanceable strip can usefully show anyway. */
-            char capped[100];
+        if (!s_have_last
+            || strncmp(s_last_summary, anchor->awaiting_summary,
+                       sizeof(s_last_summary)) != 0) {
+            char capped[120];   /* 2 wrapped lines ≈ 22 hanzi; DOT handles the rest */
             cjk_utf8_lcpy(capped, anchor->awaiting_summary, sizeof(capped));
-            lv_label_set_long_mode(s_ui.summary_marquee,
-                motion_ok ? LV_LABEL_LONG_SCROLL_CIRCULAR : LV_LABEL_LONG_DOT);
-            lv_label_set_text(s_ui.summary_marquee, capped);
+            lv_label_set_text(s_ui.summary_lbl, capped);
             strncpy(s_last_summary, anchor->awaiting_summary,
                     sizeof(s_last_summary) - 1);
             s_last_summary[sizeof(s_last_summary) - 1] = '\0';
-            s_last_motion_ok = motion_ok;
             s_have_last = true;
         }
-        lv_obj_clear_flag(s_ui.summary_marquee, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(s_ui.summary_lbl, LV_OBJ_FLAG_HIDDEN);
     } else {
-        lv_obj_add_flag(s_ui.summary_marquee, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_ui.summary_lbl, LV_OBJ_FLAG_HIDDEN);
     }
 
     if (has_options) {
         for (int i = 0; i < AGENT_AWAITING_OPTIONS_MAX; ++i) {
-            if (i < anchor->awaiting_options_count
-                && anchor->awaiting_options[i][0] != '\0') {
-                char row[64];
-                snprintf(row, sizeof(row), "%d.  %s",
-                         i + 1, anchor->awaiting_options[i]);
+            if (i < n_show && anchor->awaiting_options[i][0] != '\0') {
+                /* Compose with a UTF-8-safe copy — a byte-truncating
+                 * snprintf can split a hanzi and leave garbage bytes. */
+                char row[96];
+                int p = snprintf(row, sizeof(row), "%d  ", i + 1);
+                if (p > 0 && (size_t)p < sizeof(row)) {
+                    cjk_utf8_lcpy(row + p, anchor->awaiting_options[i],
+                                  (unsigned)(sizeof(row) - (size_t)p));
+                }
                 lv_label_set_text(s_ui.option_rows[i], row);
                 lv_obj_clear_flag(s_ui.option_rows[i], LV_OBJ_FLAG_HIDDEN);
             } else {
                 lv_obj_add_flag(s_ui.option_rows[i], LV_OBJ_FLAG_HIDDEN);
             }
         }
+        if (n_more > 0) {
+            char more[24];
+            snprintf(more, sizeof(more), "+%d 更多", n_more);
+            lv_label_set_text(s_ui.more_lbl, more);
+            lv_obj_clear_flag(s_ui.more_lbl, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(s_ui.more_lbl, LV_OBJ_FLAG_HIDDEN);
+        }
     } else {
         for (int i = 0; i < AGENT_AWAITING_OPTIONS_MAX; ++i) {
             lv_obj_add_flag(s_ui.option_rows[i], LV_OBJ_FLAG_HIDDEN);
         }
+        lv_obj_add_flag(s_ui.more_lbl, LV_OBJ_FLAG_HIDDEN);
     }
 
     /* Context lines only when neither summary nor options present —
@@ -444,50 +472,48 @@ static void init(scene_t *s, lv_obj_t *parent)
     s->container = parent;
     memset(&s_ui, 0, sizeof(s_ui));
     s_ui.last_rendered_kind = AWAITING_NONE;
+    s_ui.headline_big = -1;   /* force first tick to apply a headline font */
     lv_obj_t *root = parent;
     /* Background */
     const theme_palette_t *pal = theme_current();
     lv_obj_set_style_bg_color(root, lv_color_hex(pal ? pal->bg : 0x0B0A09), 0);
     lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
 
-    /* Shared status bar — top time + bottom active/tokens (same as every scene) */
+    /* Shared status bar. The top clock is hidden (v4.4): a takeover
+     * asking for input doesn't need the time, and dropping it frees
+     * ~76 px of band for full-size text. Footer + conn pill stay. */
     status_bar_create(root, &s_ui.sb);
+    lv_obj_add_flag(s_ui.sb.time_lbl, LV_OBJ_FLAG_HIDDEN);
 
     /* Glyph container — initial position; tick() re-aligns per-frame. */
     s_ui.glyph = lv_obj_create(root);
-    lv_obj_set_size(s_ui.glyph, 96, 96);
+    lv_obj_set_size(s_ui.glyph, AWAIT_GLYPH_H, AWAIT_GLYPH_H);
     lv_obj_set_style_bg_opa(s_ui.glyph, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_ui.glyph, 0, 0);
     lv_obj_set_style_pad_all(s_ui.glyph, 0, 0);
     lv_obj_clear_flag(s_ui.glyph, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(s_ui.glyph, LV_ALIGN_TOP_MID, 0, EYEBROW_Y + 24);
+    lv_obj_align(s_ui.glyph, LV_ALIGN_TOP_MID, 0, AWAIT_TOP);
 
-    /* Headline — initial position; tick() re-aligns. */
+    /* Headline — tick() picks HERO or TITLE per mode and re-aligns. */
     s_ui.headline = lv_label_create(root);
     lv_obj_set_style_text_color(s_ui.headline, lv_color_hex(0xF3EEE2), 0);
-    lv_obj_set_style_text_font(s_ui.headline,
-                               ui_font_bold_or(48, &lv_font_montserrat_48), 0);
+    lv_obj_set_style_text_font(s_ui.headline, ui_type_bold(UI_T_TITLE), 0);
     lv_label_set_text(s_ui.headline, "");
-    lv_obj_align(s_ui.headline, LV_ALIGN_TOP_MID, 0, EYEBROW_Y + 100);
+    lv_obj_align(s_ui.headline, LV_ALIGN_TOP_MID, 0, AWAIT_TOP + 110);
 
-    /* Agent chip — initial position; tick() re-aligns. */
-    /* v2.7.0 hierarchy fix (Persona C P0): agent chip was 28pt — too
-     * dominant, competed with headline. Drop to 22pt so headline reads
-     * clearly as the focal element. */
+    /* Agent chip (project name) — LABEL tier metadata under the
+     * headline; CJK folder names come via the fallback chain. */
     s_ui.agent_chip = lv_label_create(root);
     lv_obj_set_style_text_color(s_ui.agent_chip, lv_color_hex(0x2BB3B1), 0);
-    { const lv_font_t *cf = ui_font(22);    /* chip shows the cwd basename, which
-        * can be a Chinese project folder — needs CJK glyphs, not Montserrat. */
-      lv_obj_set_style_text_font(s_ui.agent_chip, cf ? cf : &lv_font_montserrat_22, 0); }
+    lv_obj_set_style_text_font(s_ui.agent_chip, ui_type(UI_T_LABEL), 0);
     lv_label_set_text(s_ui.agent_chip, "");
-    lv_obj_align(s_ui.agent_chip, LV_ALIGN_TOP_MID, 0, EYEBROW_Y + 154);
+    lv_obj_align(s_ui.agent_chip, LV_ALIGN_TOP_MID, 0, AWAIT_TOP + 180);
 
     /* Affordance hint for approve kind — tells user which physical
      * buttons map to approve / deny. Hidden until kind == APPROVE. */
     s_ui.affordance = lv_label_create(root);
     lv_obj_set_style_text_color(s_ui.affordance, lv_color_hex(0x8A807A), 0);
-    lv_obj_set_style_text_font(s_ui.affordance,
-                               ui_font_or(14, &lv_font_montserrat_14), 0);
+    lv_obj_set_style_text_font(s_ui.affordance, ui_type(UI_T_LABEL), 0);
     lv_label_set_text(s_ui.affordance, "BOOT approve  \xC2\xB7  USER deny");
     lv_obj_add_flag(s_ui.affordance, LV_OBJ_FLAG_HIDDEN);
     lv_obj_align(s_ui.affordance, LV_ALIGN_TOP_MID, 0, 0);
@@ -495,50 +521,52 @@ static void init(scene_t *s, lv_obj_t *parent)
     /* Context lines (used when no dash-state summary). */
     for (int i = 0; i < AGENT_AWAITING_CONTEXT_LINES; ++i) {
         s_ui.ctx_lines[i] = lv_label_create(root);
-        lv_obj_set_width(s_ui.ctx_lines[i], 370);
+        lv_obj_set_size(s_ui.ctx_lines[i], UI_CONTENT_W,
+                        ui_type_line(UI_T_BODY));
         lv_obj_set_style_text_align(s_ui.ctx_lines[i], LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_long_mode(s_ui.ctx_lines[i], LV_LABEL_LONG_DOT);
         lv_obj_set_style_text_color(s_ui.ctx_lines[i], lv_color_hex(0x8A807A), 0);
-        { const lv_font_t *zf = ui_font(22);    /* CJK via fallback chain */
-          lv_obj_set_style_text_font(s_ui.ctx_lines[i], zf ? zf : &lv_font_montserrat_22, 0); }
+        lv_obj_set_style_text_font(s_ui.ctx_lines[i], ui_type(UI_T_BODY), 0);
         lv_label_set_text(s_ui.ctx_lines[i], "");
         lv_obj_add_flag(s_ui.ctx_lines[i], LV_OBJ_FLAG_HIDDEN);
         /* Initial position; tick() re-aligns. */
-        lv_obj_align(s_ui.ctx_lines[i], LV_ALIGN_TOP_MID, 0, EYEBROW_Y + 220);
+        lv_obj_align(s_ui.ctx_lines[i], LV_ALIGN_TOP_MID, 0, AWAIT_TOP + 220);
     }
 
-    /* v2.4.0: marquee summary — single line, scrolls left if text wider
-     * than container. LV_LABEL_LONG_SCROLL is LVGL's "airport-board"
-     * mode: text moves left at a steady ~30 px/s, wraps after a gap,
-     * loops indefinitely. Width set to inscribed-square so it never
-     * clips the round panel edges. */
-    s_ui.summary_marquee = lv_label_create(root);
-    lv_obj_set_width(s_ui.summary_marquee, 380);
-    lv_label_set_long_mode(s_ui.summary_marquee, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_set_style_text_color(s_ui.summary_marquee, lv_color_hex(0xF3EEE2), 0);
-    { const lv_font_t *zf = ui_font(20);
-      lv_obj_set_style_text_font(s_ui.summary_marquee, zf ? zf : &lv_font_montserrat_20, 0); }
-    lv_obj_set_style_text_align(s_ui.summary_marquee, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_text(s_ui.summary_marquee, "");
-    lv_obj_add_flag(s_ui.summary_marquee, LV_OBJ_FLAG_HIDDEN);
+    /* Summary — static wrapped BODY text, 1-2 lines, DOT-truncated.
+     * (The scroll-circular marquee is gone; see the tick() comment.) */
+    s_ui.summary_lbl = lv_label_create(root);
+    lv_obj_set_size(s_ui.summary_lbl, UI_CONTENT_W,
+                    2 * ui_type_line(UI_T_BODY));
+    lv_label_set_long_mode(s_ui.summary_lbl, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_color(s_ui.summary_lbl, lv_color_hex(0xF3EEE2), 0);
+    lv_obj_set_style_text_font(s_ui.summary_lbl, ui_type(UI_T_BODY), 0);
+    lv_obj_set_style_text_align(s_ui.summary_lbl, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(s_ui.summary_lbl, "");
+    lv_obj_add_flag(s_ui.summary_lbl, LV_OBJ_FLAG_HIDDEN);
     /* Initial position; tick() re-aligns. */
-    lv_obj_align(s_ui.summary_marquee, LV_ALIGN_TOP_MID, 0, EYEBROW_Y + 220);
+    lv_obj_align(s_ui.summary_lbl, LV_ALIGN_TOP_MID, 0, AWAIT_TOP + 220);
 
-    /* Numbered options 1..4 — each row "N.  <option text>". The number
-     * is in accent color, the text in TEXT_DIM. User reads, switches
-     * to terminal, types the digit (CC accepts the verbatim option as
-     * the next prompt). */
+    /* Numbered options — up to AWAIT_OPTS_SHOWN rows "N  <option>";
+     * the remainder folds into the "+N 更多" caption. User reads,
+     * switches to terminal, types the digit. */
     for (int i = 0; i < AGENT_AWAITING_OPTIONS_MAX; ++i) {
         s_ui.option_rows[i] = lv_label_create(root);
-        lv_obj_set_width(s_ui.option_rows[i], 380);
+        lv_obj_set_size(s_ui.option_rows[i], UI_CONTENT_W,
+                        ui_type_line(UI_T_BODY));
         lv_label_set_long_mode(s_ui.option_rows[i], LV_LABEL_LONG_DOT);
         lv_obj_set_style_text_color(s_ui.option_rows[i], lv_color_hex(0xF3EEE2), 0);
-        { const lv_font_t *zf = ui_font(22);
-          lv_obj_set_style_text_font(s_ui.option_rows[i], zf ? zf : &lv_font_montserrat_22, 0); }
+        lv_obj_set_style_text_font(s_ui.option_rows[i], ui_type(UI_T_BODY), 0);
         lv_obj_set_style_text_align(s_ui.option_rows[i], LV_TEXT_ALIGN_LEFT, 0);
         lv_label_set_text(s_ui.option_rows[i], "");
         lv_obj_add_flag(s_ui.option_rows[i], LV_OBJ_FLAG_HIDDEN);
     }
+
+    s_ui.more_lbl = lv_label_create(root);
+    lv_obj_set_style_text_color(s_ui.more_lbl, lv_color_hex(0x8A807A), 0);
+    lv_obj_set_style_text_font(s_ui.more_lbl, ui_type(UI_T_CAPTION), 0);
+    lv_label_set_text(s_ui.more_lbl, "");
+    lv_obj_add_flag(s_ui.more_lbl, LV_OBJ_FLAG_HIDDEN);
 
     /* Don't run tick yet — wait for on_show. */
 }

@@ -25,7 +25,8 @@
 #include "agent_state.h"
 #include "theme.h"
 #include "status_bar.h"
-#include "cjk_font.h"
+#include "cjk_font.h"   /* cjk_utf8_lcpy */
+#include "ui_type.h"
 #include "pet.h"
 #include "anim/apple_ease.h"
 
@@ -45,30 +46,38 @@
 #define COL_GOLD       0xB89020
 #define COL_GOLD_HI    0xE0B43C   /* urgent (approve/clarify) accent */
 
-/* Fleet rows live between the 48pt clock and the footer. Width 380 matches
- * scene_awaiting's content width — verified safe against the panel edges. */
-#define ROW_W        380
+/* Fleet rows live in the shared safe band between the 48-px clock and
+ * the footer numbers (ui_type.h anchors). */
+#define ROW_W        UI_CONTENT_W
 #define ROW_X        ((SCREEN_W - ROW_W) / 2)
-#define ROW_AREA_TOP 128
-#define ROW_AREA_BOT 396
-#define ROW_GAP       10
-#define ROW_H_MAX    104
+#define ROW_AREA_TOP UI_BAND_TOP
+#define ROW_AREA_BOT UI_BAND_BOT
+#define ROW_GAP       12
+#define ROW_H_MAX    126
+/* Rows tall enough get a second line (activity); short rows show only
+ * name + meta so the name stays at full BODY size instead of shrinking. */
+#define ROW_TWOLINE_MIN_H 100
 
-/* Ambient cluster vertical anchors. The usable band runs from the clock's
- * bottom (~112) to the footer numbers (~408). Cluster = ring(96) + status
- * word(≈34+gap) ≈ 152 px; with the project + activity lines the content
- * grows to ≈ 218 px. Centering each case in the band gives:
- *   no info   → y 184 (ring center ≈ 232 ≈ panel center)
- *   with info → y 151 (cluster slides UP to make room below)
+/* Ambient cluster vertical anchors inside the 124..386 band. Cluster =
+ * pet(96) + status word(TITLE, 62) ≈ 170 px; with the project + activity
+ * lines it grows to ≈ 258 px. Centering each case in the band:
+ *   no info   → y 170
+ *   with info → y 126 (cluster slides UP to make room below)
  * The transition animates with Apple's standard ease (apple_ease_out). */
-#define AMBIENT_Y_CENTERED 184
-#define AMBIENT_Y_INFO     151
+#define AMBIENT_Y_CENTERED 170
+#define AMBIENT_Y_INFO     126
 #define AMBIENT_SLIDE_MS   450
+/* y offsets inside the ambient group (stacked: pet → word → proj → act) */
+#define AMBIENT_WORD_Y  108
+#define AMBIENT_PROJ_Y  178
+#define AMBIENT_ACT_Y   227
 
+/* v4.4: the 12-px kind chip ("cc") is gone — unreadable at desk
+ * distance and redundant (dot color + meta already differentiate; the
+ * focus/ambient view still names the kind in its project line). */
 typedef struct {
     lv_obj_t *card;
     lv_obj_t *dot;
-    lv_obj_t *kind_lbl;
     lv_obj_t *name_lbl;
     lv_obj_t *meta_lbl;
     lv_obj_t *act_lbl;
@@ -86,6 +95,7 @@ typedef struct {
     /* fleet (multi-agent) rows */
     fleet_row_t rows[AGENT_SLOT_MAX];
     int       last_layout_n;     /* row count last laid out; -1 forces layout */
+    bool      rows_twoline;      /* current layout mode (set by layout_rows) */
     lv_timer_t *timer;
 } dash_t;
 
@@ -104,14 +114,18 @@ static const char *short_kind(const char *kind)
     return "ag";
 }
 
+/* Chinese primary words (v4.4): 3 hanzi at HERO/TITLE tier subtend 22'
+ * at 1 m — readable across the desk, where the 9-char English originals
+ * at any feasible size were not. All chars verified in the GB2312 font
+ * subset. */
 static const char *awaiting_headline(awaiting_kind_t k)
 {
     switch (k) {
-        case AWAITING_CONTINUE: return "your turn";
-        case AWAITING_APPROVE:  return "approve?";
-        case AWAITING_PICK:     return "pick one";
-        case AWAITING_TYPE:     return "type a reply";
-        case AWAITING_CLARIFY:  return "clarify";
+        case AWAITING_CONTINUE: return "该你了";
+        case AWAITING_APPROVE:  return "请批准";
+        case AWAITING_PICK:     return "请选择";
+        case AWAITING_TYPE:     return "请输入";
+        case AWAITING_CLARIFY:  return "需澄清";
         default:                return "";
     }
 }
@@ -190,7 +204,7 @@ static void compose_activity(const agent_slot_t *s, char *buf, size_t cap)
         return;
     }
     if (s->msg[0]) { cjk_utf8_lcpy(buf, s->msg, (unsigned)cap); return; }
-    snprintf(buf, cap, "%s", s->status == AGENT_STATUS_RUNNING ? "working" : "-");
+    snprintf(buf, cap, "%s", s->status == AGENT_STATUS_RUNNING ? "运行中" : "-");
 }
 
 /* ── ambient (single-agent) mode ─────────────────────────────────── */
@@ -284,7 +298,7 @@ static void render_single(dash_t *d, const agent_state_t *st,
         /* v4 manual switching: snapshots no longer yank a 0-agent
          * dashboard over to idle, so it must rest here presentably —
          * name the emptiness instead of showing a bare "idle" pet. */
-        lv_label_set_text(d->ambient_proj, "no agents");
+        lv_label_set_text(d->ambient_proj, "暂无 agent");
         lv_label_set_text(d->ambient_act, "");
     }
 }
@@ -292,8 +306,8 @@ static void render_single(dash_t *d, const agent_state_t *st,
 static void render_ambient(dash_t *d, const agent_state_t *st)
 {
     int active_now = st->running + st->waiting;
-    const char *verb = (st->running > 0) ? "thinking" :
-                       (active_now > 0)  ? "your turn" : "idle";
+    const char *verb = (st->running > 0) ? "思考中" :
+                       (active_now > 0)  ? "该你了" : "空闲";
 
     /* Find the (single) live slot for project + activity detail. */
     const agent_slot_t *one = NULL;
@@ -311,9 +325,9 @@ static void render_focus(dash_t *d, const agent_state_t *st,
     const char *verb =
         (one->awaiting_kind != AWAITING_NONE)
             ? awaiting_headline(one->awaiting_kind)
-        : (one->status == AGENT_STATUS_RUNNING) ? "thinking"
-        : (one->status == AGENT_STATUS_WAITING) ? "your turn"
-        : "idle";
+        : (one->status == AGENT_STATUS_RUNNING) ? "思考中"
+        : (one->status == AGENT_STATUS_WAITING) ? "该你了"
+        : "空闲";
 
     int pos = 0, live = 0;
     for (int i = 0; i < AGENT_SLOT_MAX; ++i) {
@@ -333,23 +347,32 @@ static void layout_rows(dash_t *d, int n)
     int total = n * h + (n - 1) * ROW_GAP;
     int y = ROW_AREA_TOP + (ROW_AREA_BOT - ROW_AREA_TOP - total) / 2;
 
-    int line1_y = h * 30 / 100;    /* centerline of name row */
-    int line2_y = h * 68 / 100;    /* centerline of activity row */
+    /* Two-line rows (name + activity) only when the row is tall enough
+     * to keep both at their full tier size; otherwise a single BODY
+     * name line vertically centered. Never shrink the font to fit. */
+    d->rows_twoline = (h >= ROW_TWOLINE_MIN_H);
+    int name_h = ui_type_line(UI_T_BODY);    /* 44 */
+    int act_h  = ui_type_line(UI_T_LABEL);   /* 32 */
+    int meta_h = ui_type_line(UI_T_LABEL);
+    int name_y = d->rows_twoline
+               ? (h - name_h - UI_GAP_SM - act_h) / 2
+               : (h - name_h) / 2;
+    int act_y  = name_y + name_h + UI_GAP_SM;
+    int meta_y = name_y + (name_h - meta_h) / 2 + 2;  /* optically on the name line */
 
     for (int i = 0; i < n; ++i) {
         fleet_row_t *r = &d->rows[i];
         lv_obj_set_pos(r->card, ROW_X, y);
         lv_obj_set_size(r->card, ROW_W, h);
-        lv_obj_set_pos(r->dot, 18, line1_y - 7);
-        lv_obj_set_pos(r->kind_lbl, 42, line1_y - 7);
-        lv_obj_set_pos(r->name_lbl, 68, line1_y - 13);
+        lv_obj_set_pos(r->dot, 20, name_y + (name_h - 16) / 2);
+        lv_obj_set_pos(r->name_lbl, 50, name_y);
         /* Fixed height = one line: LONG_DOT only ellipsizes when the label
          * can't grow — width alone lets long names wrap onto the activity
          * line (seen on-device with "esp32-agent-dashboard"). */
-        lv_obj_set_size(r->name_lbl, ROW_W - 68 - 16 - 72, 28);
-        lv_obj_align(r->meta_lbl, LV_ALIGN_TOP_RIGHT, -16, line1_y - 9);
-        lv_obj_set_pos(r->act_lbl, 22, line2_y - 11);
-        lv_obj_set_size(r->act_lbl, ROW_W - 44, 24);
+        lv_obj_set_size(r->name_lbl, ROW_W - 50 - 16 - 96, name_h);
+        lv_obj_align(r->meta_lbl, LV_ALIGN_TOP_RIGHT, -18, meta_y);
+        lv_obj_set_pos(r->act_lbl, 50, act_y);
+        lv_obj_set_size(r->act_lbl, ROW_W - 50 - 20, act_h);
         y += h + ROW_GAP;
     }
 }
@@ -392,8 +415,6 @@ static void render_fleet(dash_t *d, const agent_state_t *st)
 
         lv_obj_set_style_bg_color(r->dot, lv_color_hex(accent), 0);
 
-        lv_label_set_text(r->kind_lbl, short_kind(s->kind));
-
         const char *base = cwd_basename(s->cwd);
         char name[40];
         if (base) cjk_utf8_lcpy(name, base, sizeof(name));
@@ -419,11 +440,18 @@ static void render_fleet(dash_t *d, const agent_state_t *st)
         lv_obj_set_style_text_color(r->meta_lbl,
             lv_color_hex(waiting ? accent : COL_TEXT_DIM), 0);
 
-        char act[112];
-        compose_activity(s, act, sizeof(act));
-        lv_label_set_text(r->act_lbl, act);
-        lv_obj_set_style_text_color(r->act_lbl,
-            lv_color_hex(waiting ? accent : COL_TEXT_DIM), 0);
+        /* Activity line only exists in two-line layouts; hidden rows
+         * would otherwise paint over the next card. */
+        if (d->rows_twoline) {
+            char act[112];
+            compose_activity(s, act, sizeof(act));
+            lv_label_set_text(r->act_lbl, act);
+            lv_obj_set_style_text_color(r->act_lbl,
+                lv_color_hex(waiting ? accent : COL_TEXT_DIM), 0);
+            lv_obj_clear_flag(r->act_lbl, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(r->act_lbl, LV_OBJ_FLAG_HIDDEN);
+        }
     }
 }
 
@@ -476,29 +504,32 @@ static void init(scene_t *s, lv_obj_t *parent)
     d->pet = pet_create(d->ambient_grp);
     lv_obj_align(pet_obj(d->pet), LV_ALIGN_TOP_MID, 0, 0);
 
+    /* Status word — the scene's primary fact after the pet: TITLE tier
+     * (52 px ≈ 22' of visual angle at 0.6 m). */
     d->ambient_lbl = lv_label_create(d->ambient_grp);
     lv_obj_set_style_text_color(d->ambient_lbl, lv_color_hex(COL_TEXT), 0);
-    lv_obj_set_style_text_font(d->ambient_lbl,
-                               ui_font_bold_or(28, &lv_font_montserrat_28), 0);
-    lv_label_set_text(d->ambient_lbl, "idle");
-    lv_obj_align(d->ambient_lbl, LV_ALIGN_TOP_MID, 0, 118);
+    lv_obj_set_style_text_font(d->ambient_lbl, ui_type_bold(UI_T_TITLE), 0);
+    lv_label_set_text(d->ambient_lbl, "空闲");
+    lv_obj_align(d->ambient_lbl, LV_ALIGN_TOP_MID, 0, AMBIENT_WORD_Y);
 
+    /* Project line ("cc  esp32-agent-dashboard") — BODY, DOT-truncated. */
     d->ambient_proj = lv_label_create(d->ambient_grp);
+    lv_obj_set_size(d->ambient_proj, UI_CONTENT_W, ui_type_line(UI_T_BODY));
+    lv_obj_set_style_text_align(d->ambient_proj, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(d->ambient_proj, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_color(d->ambient_proj, lv_color_hex(COL_TEXT_DIM), 0);
-    lv_obj_set_style_text_font(d->ambient_proj,
-                               ui_font_or(18, &lv_font_montserrat_16), 0);
+    lv_obj_set_style_text_font(d->ambient_proj, ui_type(UI_T_BODY), 0);
     lv_label_set_text(d->ambient_proj, "");
-    lv_obj_align(d->ambient_proj, LV_ALIGN_TOP_MID, 0, 164);
+    lv_obj_align(d->ambient_proj, LV_ALIGN_TOP_MID, 0, AMBIENT_PROJ_Y);
 
     d->ambient_act = lv_label_create(d->ambient_grp);
-    lv_obj_set_size(d->ambient_act, 340, 24);   /* one line; DOT-truncate */
+    lv_obj_set_size(d->ambient_act, UI_CONTENT_W, ui_type_line(UI_T_LABEL));
     lv_obj_set_style_text_align(d->ambient_act, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(d->ambient_act, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_color(d->ambient_act, lv_color_hex(COL_MUTE), 0);
-    lv_obj_set_style_text_font(d->ambient_act,
-                               ui_font_or(18, &lv_font_montserrat_16), 0);
+    lv_obj_set_style_text_font(d->ambient_act, ui_type(UI_T_LABEL), 0);
     lv_label_set_text(d->ambient_act, "");
-    lv_obj_align(d->ambient_act, LV_ALIGN_TOP_MID, 0, 194);
+    lv_obj_align(d->ambient_act, LV_ALIGN_TOP_MID, 0, AMBIENT_ACT_Y);
 
     /* fleet rows (multi-agent mode) — created hidden */
     for (int i = 0; i < AGENT_SLOT_MAX; ++i) {
@@ -513,34 +544,25 @@ static void init(scene_t *s, lv_obj_t *parent)
 
         r->dot = lv_obj_create(r->card);
         lv_obj_remove_style_all(r->dot);
-        lv_obj_set_size(r->dot, 14, 14);
+        lv_obj_set_size(r->dot, 16, 16);
         lv_obj_set_style_radius(r->dot, LV_RADIUS_CIRCLE, 0);
         lv_obj_set_style_bg_color(r->dot, lv_color_hex(COL_TEAL), 0);
         lv_obj_set_style_bg_opa(r->dot, LV_OPA_COVER, 0);
 
-        r->kind_lbl = lv_label_create(r->card);
-        lv_obj_set_style_text_color(r->kind_lbl, lv_color_hex(COL_MUTE), 0);
-        lv_obj_set_style_text_font(r->kind_lbl,
-                                   ui_font_or(12, &lv_font_montserrat_12), 0);
-        lv_label_set_text(r->kind_lbl, "");
-
         r->name_lbl = lv_label_create(r->card);
         lv_obj_set_style_text_color(r->name_lbl, lv_color_hex(COL_TEXT), 0);
-        lv_obj_set_style_text_font(r->name_lbl,
-                                   ui_font_bold_or(22, &lv_font_montserrat_22), 0);
+        lv_obj_set_style_text_font(r->name_lbl, ui_type_bold(UI_T_BODY), 0);
         lv_label_set_long_mode(r->name_lbl, LV_LABEL_LONG_DOT);
         lv_label_set_text(r->name_lbl, "");
 
         r->meta_lbl = lv_label_create(r->card);
         lv_obj_set_style_text_color(r->meta_lbl, lv_color_hex(COL_TEXT_DIM), 0);
-        lv_obj_set_style_text_font(r->meta_lbl,
-                                   ui_font_or(16, &lv_font_montserrat_16), 0);
+        lv_obj_set_style_text_font(r->meta_lbl, ui_type(UI_T_LABEL), 0);
         lv_label_set_text(r->meta_lbl, "");
 
         r->act_lbl = lv_label_create(r->card);
         lv_obj_set_style_text_color(r->act_lbl, lv_color_hex(COL_TEXT_DIM), 0);
-        lv_obj_set_style_text_font(r->act_lbl,
-                                   ui_font_or(18, &lv_font_montserrat_16), 0);
+        lv_obj_set_style_text_font(r->act_lbl, ui_type(UI_T_LABEL), 0);
         lv_label_set_long_mode(r->act_lbl, LV_LABEL_LONG_DOT);
         lv_label_set_text(r->act_lbl, "");
     }
