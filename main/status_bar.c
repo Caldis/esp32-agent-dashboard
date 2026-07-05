@@ -67,27 +67,31 @@ static lv_obj_t *mk(lv_obj_t *parent, const lv_font_t *font, uint32_t color,
 
 void status_bar_create(lv_obj_t *parent, status_bar_t *sb)
 {
+    /* Top clock: the rounded digits font (same family as scene_clock's
+     * big face — "the small clock becomes the big clock"). */
     sb->time_lbl = lv_label_create(parent);
     lv_obj_set_style_text_color(sb->time_lbl, lv_color_hex(COL_TEXT), 0);
-    lv_obj_set_style_text_font(sb->time_lbl, &lv_font_montserrat_48, 0);
+    { const lv_font_t *tf = clock_font(48);
+      lv_obj_set_style_text_font(sb->time_lbl,
+                                 tf ? tf : &lv_font_montserrat_48, 0); }
     lv_label_set_text(sb->time_lbl, "--:--");
     lv_obj_align(sb->time_lbl, LV_ALIGN_TOP_MID, 0, HEADER_Y);
 
-    sb->active_num = mk(parent, &lv_font_montserrat_28, COL_TEAL,
-                        FOOTER_LEFT_X, FOOTER_Y - 12, "0");
-    sb->active_cap = mk(parent, &lv_font_montserrat_12, COL_TEXT_DIM,
-                        FOOTER_LEFT_X, FOOTER_CAP_Y, "active");
-    sb->token_num  = mk(parent, &lv_font_montserrat_28, COL_TEXT,
-                        FOOTER_RIGHT_X, FOOTER_Y - 12, "0");
-    sb->token_cap  = mk(parent, &lv_font_montserrat_12, COL_TEXT_DIM,
-                        FOOTER_RIGHT_X, FOOTER_CAP_Y, "tokens today");
+    sb->active_num = mk(parent, ui_font_bold_or(28, &lv_font_montserrat_28),
+                        COL_TEAL, FOOTER_LEFT_X, FOOTER_Y - 12, "0");
+    sb->active_cap = mk(parent, ui_font_or(12, &lv_font_montserrat_12),
+                        COL_TEXT_DIM, FOOTER_LEFT_X, FOOTER_CAP_Y, "active");
+    sb->token_num  = mk(parent, ui_font_bold_or(28, &lv_font_montserrat_28),
+                        COL_TEXT, FOOTER_RIGHT_X, FOOTER_Y - 12, "0");
+    sb->token_cap  = mk(parent, ui_font_or(12, &lv_font_montserrat_12),
+                        COL_TEXT_DIM, FOOTER_RIGHT_X, FOOTER_CAP_Y, "tokens today");
 
-    /* Connection-health pill, top-center under the clock. CJK font so the
-     * Chinese status text renders (Montserrat has no CJK glyphs); falls back to
-     * Latin if tiny_ttf is unavailable. Hidden while healthy. */
-    const lv_font_t *cf = cjk_font(18);
+    /* Connection-health pill, top-center under the clock. ui_font falls
+     * back to CJK for the Chinese status text; Latin if tiny_ttf is
+     * unavailable. Hidden while healthy. */
     sb->conn_lbl = lv_label_create(parent);
-    lv_obj_set_style_text_font(sb->conn_lbl, cf ? cf : &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(sb->conn_lbl,
+                               ui_font_or(18, &lv_font_montserrat_14), 0);
     lv_obj_set_style_text_align(sb->conn_lbl, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(sb->conn_lbl, "");
     lv_obj_align(sb->conn_lbl, LV_ALIGN_TOP_MID, 0, 20);

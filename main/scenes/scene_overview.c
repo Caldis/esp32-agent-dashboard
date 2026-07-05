@@ -36,6 +36,7 @@
 #define COL_TEXT       0xF3EEE2
 #define COL_TEXT_DIM   0x8A807A
 #define COL_MUTE       0x5A514A
+#define COL_TEAL       0x2BB3B1   /* the v2 breathing-ring teal */
 #define COL_GOLD       0xB89020
 
 /* Rollup cluster anchors: the band between the 48pt clock (~112) and
@@ -50,7 +51,9 @@ typedef struct {
     status_bar_t sb;              /* shared top time + bottom active/tokens */
     /* rollup group (agents present) */
     lv_obj_t   *roll_grp;
-    lv_obj_t   *roll_num;         /* big live-agent count */
+    lv_obj_t   *roll_ring_out;    /* outer teal ring, breathing */
+    lv_obj_t   *roll_ring_in;     /* inner teal ring, breathing */
+    lv_obj_t   *roll_num;         /* big live-agent count — the "core" */
     lv_obj_t   *roll_state;       /* "N running · M waiting" */
     lv_obj_t   *roll_tokens;      /* "today 12.3k · total 4.5M" */
     lv_obj_t   *roll_kinds;       /* "cc x2 · cx x1" */
@@ -60,17 +63,65 @@ typedef struct {
     char        cached_state[80];
     char        cached_tokens[80];
     char        cached_kinds[80];
-    /* zZz group (empty state) */
-    lv_obj_t   *zzz_grp;
+    /* zZz group (empty state) — teal ring + breathing dot, the original
+     * v2 ambient design (recovered from pre-v3 scene_dashboard). */
+    lv_obj_t   *ring;
     lv_obj_t   *dot;
     lv_obj_t   *zzz_a;
     lv_obj_t   *zzz_b;
     lv_obj_t   *zzz_c;
     lv_obj_t   *sub;
+    lv_obj_t   *zzz_grp;
     lv_timer_t *timer;
     uint32_t    t0_ms;
     int         last_sub_state;   /* 0 = "no agents", 1 = "just stopped" */
 } overview_state_t;
+
+/* ── the recovered v2 breathing (teal ring + nested dot) ─────────────
+ * Verbatim pattern from pre-v3 scene_dashboard (git 42af936^): a 96px
+ * teal outline ring with a solid teal dot inside animating 16↔34 px,
+ * 1.5s ease-in-out, infinite playback. The rollup variant breathes its
+ * two rings around the big count instead. Armed once at init; LVGL
+ * skips rendering while the owning group is hidden. */
+
+static void anim_breath_size(void *obj, int32_t v)
+{
+    lv_obj_set_size((lv_obj_t *)obj, v, v);
+    lv_obj_center((lv_obj_t *)obj);
+}
+
+static void arm_breath_size(lv_obj_t *obj, int32_t from, int32_t to,
+                            uint32_t ms)
+{
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, obj);
+    lv_anim_set_values(&a, from, to);
+    lv_anim_set_time(&a, ms);
+    lv_anim_set_playback_time(&a, ms);
+    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+    lv_anim_set_exec_cb(&a, anim_breath_size);
+    lv_anim_start(&a);
+}
+
+/* Ring sizes must re-center around a fixed point: keep them children of
+ * a fixed-size wrapper and lv_obj_center in the exec cb (as above). */
+static lv_obj_t *mk_teal_ring(lv_obj_t *parent, int size, lv_opa_t opa)
+{
+    lv_obj_t *r = lv_obj_create(parent);
+    lv_obj_remove_style_all(r);
+    lv_obj_set_size(r, size, size);
+    lv_obj_center(r);
+    lv_obj_set_style_radius(r, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(r, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_color(r, lv_color_hex(COL_TEAL), 0);
+    lv_obj_set_style_border_width(r, 2, 0);
+    lv_obj_set_style_border_opa(r, opa, 0);
+    lv_obj_clear_flag(r, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(r, LV_OBJ_FLAG_CLICKABLE);
+    return r;
+}
 
 /* Same table as scene_dashboard's short_kind (static there). */
 static const char *short_kind(const char *kind)
@@ -169,15 +220,8 @@ static void render_zzz(overview_state_t *st, uint32_t phase)
 {
     const theme_palette_t *pal = theme_current();
 
-    /* Breathe the dot with a triangle wave for a soft pulse. */
-    uint32_t p = phase % PERIOD_MS;
-    uint32_t half = PERIOD_MS / 2;
-    uint32_t bright = (p < half) ? (p * 200) / half
-                                 : ((PERIOD_MS - p) * 200) / half;
-    if (bright < 50) bright = 50;
-    lv_obj_set_style_bg_opa(st->dot, bright, 0);
-    lv_obj_set_style_bg_color(st->dot, lv_color_hex(pal->text_dim), 0);
-
+    /* The teal ring + dot breathe on their own lv_anim (armed at init);
+     * only the letters and subtitle are driven from the tick. */
     lv_obj_set_style_text_opa(st->zzz_a, letter_opa(phase, 0), 0);
     lv_obj_set_style_text_opa(st->zzz_b, letter_opa(phase, 1), 0);
     lv_obj_set_style_text_opa(st->zzz_c, letter_opa(phase, 2), 0);
@@ -309,64 +353,84 @@ static void overview_init(scene_t *s, lv_obj_t *parent)
     /* rollup group */
     st->roll_grp = mk_group(parent, ROLL_Y, 240);
 
+    /* Nested teal rings around the big count (created first: z-under).
+     * The count is the "core"; the rings breathe in size like the v2
+     * dot did. A fixed wrapper keeps them centred while resizing. */
+    lv_obj_t *ringbox = lv_obj_create(st->roll_grp);
+    lv_obj_remove_style_all(ringbox);
+    lv_obj_set_size(ringbox, 200, 200);
+    lv_obj_align(ringbox, LV_ALIGN_TOP_MID, 0, ROLL_NUM_Y - 40);
+    lv_obj_clear_flag(ringbox, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(ringbox, LV_OBJ_FLAG_CLICKABLE);
+    st->roll_ring_out = mk_teal_ring(ringbox, 178, LV_OPA_20);
+    st->roll_ring_in  = mk_teal_ring(ringbox, 148, LV_OPA_40);
+    arm_breath_size(st->roll_ring_in,  144, 158, 1500);
+    arm_breath_size(st->roll_ring_out, 172, 186, 1500);
+
     st->roll_num = lv_label_create(st->roll_grp);
-    { const lv_font_t *bf = cjk_font(96);
-      lv_obj_set_style_text_font(st->roll_num, bf ? bf : &lv_font_montserrat_48, 0); }
+    lv_obj_set_style_text_font(st->roll_num,
+                               ui_font_bold_or(96, &lv_font_montserrat_48), 0);
     lv_obj_set_style_text_color(st->roll_num, lv_color_hex(COL_TEXT), 0);
     lv_label_set_text(st->roll_num, "0");
     lv_obj_align(st->roll_num, LV_ALIGN_TOP_MID, 0, ROLL_NUM_Y);
 
-    const lv_font_t *cf = cjk_font(18);
+    const lv_font_t *cf = ui_font_or(18, &lv_font_montserrat_16);
     st->roll_state = lv_label_create(st->roll_grp);
-    lv_obj_set_style_text_font(st->roll_state, cf ? cf : &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(st->roll_state, cf, 0);
     lv_obj_set_style_text_color(st->roll_state, lv_color_hex(COL_TEXT_DIM), 0);
     lv_label_set_text(st->roll_state, "");
     lv_obj_align(st->roll_state, LV_ALIGN_TOP_MID, 0, ROLL_STATE_Y);
 
     st->roll_tokens = lv_label_create(st->roll_grp);
-    lv_obj_set_style_text_font(st->roll_tokens, cf ? cf : &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(st->roll_tokens, cf, 0);
     lv_obj_set_style_text_color(st->roll_tokens, lv_color_hex(COL_TEXT_DIM), 0);
     lv_label_set_text(st->roll_tokens, "");
     lv_obj_align(st->roll_tokens, LV_ALIGN_TOP_MID, 0, ROLL_TOKENS_Y);
 
     st->roll_kinds = lv_label_create(st->roll_grp);
-    lv_obj_set_style_text_font(st->roll_kinds, cf ? cf : &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(st->roll_kinds, cf, 0);
     lv_obj_set_style_text_color(st->roll_kinds, lv_color_hex(COL_MUTE), 0);
     lv_label_set_text(st->roll_kinds, "");
     lv_obj_align(st->roll_kinds, LV_ALIGN_TOP_MID, 0, ROLL_KINDS_Y);
 
     lv_obj_add_flag(st->roll_grp, LV_OBJ_FLAG_HIDDEN);
 
-    /* zZz group (empty state) — geometry preserved from scene_idle:
-     * the group is full-screen so the old CENTER offsets carry over. */
+    /* zZz group (empty state) — the recovered v2 ambient: 96px teal
+     * outline ring + solid teal dot breathing 16↔34 inside it. */
     st->zzz_grp = mk_group(parent, 0, 466);
 
-    st->dot = lv_obj_create(st->zzz_grp);
+    st->ring = mk_teal_ring(st->zzz_grp, 96, LV_OPA_40);
+    lv_obj_align(st->ring, LV_ALIGN_CENTER, 0, -24);
+
+    st->dot = lv_obj_create(st->ring);
     lv_obj_remove_style_all(st->dot);
-    lv_obj_set_size(st->dot, 140, 140);
+    lv_obj_set_size(st->dot, 18, 18);
     lv_obj_center(st->dot);
-    lv_obj_set_style_radius(st->dot, 70, 0);
-    lv_obj_set_style_bg_color(st->dot, lv_color_hex(theme_current()->text_dim), 0);
-    lv_obj_set_style_bg_opa(st->dot, LV_OPA_30, 0);
+    lv_obj_set_style_bg_color(st->dot, lv_color_hex(COL_TEAL), 0);
+    lv_obj_set_style_bg_opa(st->dot, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(st->dot, LV_RADIUS_CIRCLE, 0);
     lv_obj_clear_flag(st->dot, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_clear_flag(st->dot, LV_OBJ_FLAG_CLICKABLE);
+    arm_breath_size(st->dot, 16, 34, 1500);
 
-    /* Three independent z letters so we can opa them separately. */
+    /* Three independent z letters so we can opa them separately —
+     * moved below the ring (they used to sit on the old grey disc). */
     st->zzz_a = lv_label_create(st->zzz_grp);
     st->zzz_b = lv_label_create(st->zzz_grp);
     st->zzz_c = lv_label_create(st->zzz_grp);
-    lv_obj_set_style_text_font(st->zzz_a, &lv_font_montserrat_22, 0);
-    lv_obj_set_style_text_font(st->zzz_b, &lv_font_montserrat_22, 0);
-    lv_obj_set_style_text_font(st->zzz_c, &lv_font_montserrat_22, 0);
+    { const lv_font_t *zf = ui_font_or(22, &lv_font_montserrat_22);
+      lv_obj_set_style_text_font(st->zzz_a, zf, 0);
+      lv_obj_set_style_text_font(st->zzz_b, zf, 0);
+      lv_obj_set_style_text_font(st->zzz_c, zf, 0); }
     lv_label_set_text(st->zzz_a, "z");
     lv_label_set_text(st->zzz_b, "Z");
     lv_label_set_text(st->zzz_c, "z");
-    lv_obj_align(st->zzz_a, LV_ALIGN_CENTER, -22, 0);
-    lv_obj_align(st->zzz_b, LV_ALIGN_CENTER,   0, 0);
-    lv_obj_align(st->zzz_c, LV_ALIGN_CENTER,  22, 0);
+    lv_obj_align(st->zzz_a, LV_ALIGN_CENTER, -22, 62);
+    lv_obj_align(st->zzz_b, LV_ALIGN_CENTER,   0, 62);
+    lv_obj_align(st->zzz_c, LV_ALIGN_CENTER,  22, 62);
 
     st->sub = lv_label_create(st->zzz_grp);
-    lv_obj_set_style_text_font(st->sub, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(st->sub, ui_font_or(14, &lv_font_montserrat_14), 0);
     lv_obj_set_style_text_opa(st->sub, LV_OPA_70, 0);
     lv_label_set_text(st->sub, "no agents");
     lv_obj_align(st->sub, LV_ALIGN_CENTER, 0, 120);

@@ -478,14 +478,15 @@ static void init(scene_t *s, lv_obj_t *parent)
 
     d->ambient_lbl = lv_label_create(d->ambient_grp);
     lv_obj_set_style_text_color(d->ambient_lbl, lv_color_hex(COL_TEXT), 0);
-    lv_obj_set_style_text_font(d->ambient_lbl, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(d->ambient_lbl,
+                               ui_font_bold_or(28, &lv_font_montserrat_28), 0);
     lv_label_set_text(d->ambient_lbl, "idle");
     lv_obj_align(d->ambient_lbl, LV_ALIGN_TOP_MID, 0, 118);
 
     d->ambient_proj = lv_label_create(d->ambient_grp);
     lv_obj_set_style_text_color(d->ambient_proj, lv_color_hex(COL_TEXT_DIM), 0);
-    { const lv_font_t *zf = cjk_font(18);
-      lv_obj_set_style_text_font(d->ambient_proj, zf ? zf : &lv_font_montserrat_16, 0); }
+    lv_obj_set_style_text_font(d->ambient_proj,
+                               ui_font_or(18, &lv_font_montserrat_16), 0);
     lv_label_set_text(d->ambient_proj, "");
     lv_obj_align(d->ambient_proj, LV_ALIGN_TOP_MID, 0, 164);
 
@@ -494,8 +495,8 @@ static void init(scene_t *s, lv_obj_t *parent)
     lv_obj_set_style_text_align(d->ambient_act, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(d->ambient_act, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_color(d->ambient_act, lv_color_hex(COL_MUTE), 0);
-    { const lv_font_t *zf = cjk_font(18);
-      lv_obj_set_style_text_font(d->ambient_act, zf ? zf : &lv_font_montserrat_16, 0); }
+    lv_obj_set_style_text_font(d->ambient_act,
+                               ui_font_or(18, &lv_font_montserrat_16), 0);
     lv_label_set_text(d->ambient_act, "");
     lv_obj_align(d->ambient_act, LV_ALIGN_TOP_MID, 0, 194);
 
@@ -519,25 +520,27 @@ static void init(scene_t *s, lv_obj_t *parent)
 
         r->kind_lbl = lv_label_create(r->card);
         lv_obj_set_style_text_color(r->kind_lbl, lv_color_hex(COL_MUTE), 0);
-        lv_obj_set_style_text_font(r->kind_lbl, &lv_font_montserrat_12, 0);
+        lv_obj_set_style_text_font(r->kind_lbl,
+                                   ui_font_or(12, &lv_font_montserrat_12), 0);
         lv_label_set_text(r->kind_lbl, "");
 
         r->name_lbl = lv_label_create(r->card);
         lv_obj_set_style_text_color(r->name_lbl, lv_color_hex(COL_TEXT), 0);
-        { const lv_font_t *zf = cjk_font(22);
-          lv_obj_set_style_text_font(r->name_lbl, zf ? zf : &lv_font_montserrat_22, 0); }
+        lv_obj_set_style_text_font(r->name_lbl,
+                                   ui_font_bold_or(22, &lv_font_montserrat_22), 0);
         lv_label_set_long_mode(r->name_lbl, LV_LABEL_LONG_DOT);
         lv_label_set_text(r->name_lbl, "");
 
         r->meta_lbl = lv_label_create(r->card);
         lv_obj_set_style_text_color(r->meta_lbl, lv_color_hex(COL_TEXT_DIM), 0);
-        lv_obj_set_style_text_font(r->meta_lbl, &lv_font_montserrat_16, 0);
+        lv_obj_set_style_text_font(r->meta_lbl,
+                                   ui_font_or(16, &lv_font_montserrat_16), 0);
         lv_label_set_text(r->meta_lbl, "");
 
         r->act_lbl = lv_label_create(r->card);
         lv_obj_set_style_text_color(r->act_lbl, lv_color_hex(COL_TEXT_DIM), 0);
-        { const lv_font_t *zf = cjk_font(18);
-          lv_obj_set_style_text_font(r->act_lbl, zf ? zf : &lv_font_montserrat_16, 0); }
+        lv_obj_set_style_text_font(r->act_lbl,
+                                   ui_font_or(18, &lv_font_montserrat_16), 0);
         lv_label_set_long_mode(r->act_lbl, LV_LABEL_LONG_DOT);
         lv_label_set_text(r->act_lbl, "");
     }

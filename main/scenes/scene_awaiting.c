@@ -465,7 +465,8 @@ static void init(scene_t *s, lv_obj_t *parent)
     /* Headline — initial position; tick() re-aligns. */
     s_ui.headline = lv_label_create(root);
     lv_obj_set_style_text_color(s_ui.headline, lv_color_hex(0xF3EEE2), 0);
-    lv_obj_set_style_text_font(s_ui.headline, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(s_ui.headline,
+                               ui_font_bold_or(48, &lv_font_montserrat_48), 0);
     lv_label_set_text(s_ui.headline, "");
     lv_obj_align(s_ui.headline, LV_ALIGN_TOP_MID, 0, EYEBROW_Y + 100);
 
@@ -475,7 +476,7 @@ static void init(scene_t *s, lv_obj_t *parent)
      * clearly as the focal element. */
     s_ui.agent_chip = lv_label_create(root);
     lv_obj_set_style_text_color(s_ui.agent_chip, lv_color_hex(0x2BB3B1), 0);
-    { const lv_font_t *cf = cjk_font(22);   /* chip shows the cwd basename, which
+    { const lv_font_t *cf = ui_font(22);    /* chip shows the cwd basename, which
         * can be a Chinese project folder — needs CJK glyphs, not Montserrat. */
       lv_obj_set_style_text_font(s_ui.agent_chip, cf ? cf : &lv_font_montserrat_22, 0); }
     lv_label_set_text(s_ui.agent_chip, "");
@@ -485,7 +486,8 @@ static void init(scene_t *s, lv_obj_t *parent)
      * buttons map to approve / deny. Hidden until kind == APPROVE. */
     s_ui.affordance = lv_label_create(root);
     lv_obj_set_style_text_color(s_ui.affordance, lv_color_hex(0x8A807A), 0);
-    lv_obj_set_style_text_font(s_ui.affordance, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(s_ui.affordance,
+                               ui_font_or(14, &lv_font_montserrat_14), 0);
     lv_label_set_text(s_ui.affordance, "BOOT approve  \xC2\xB7  USER deny");
     lv_obj_add_flag(s_ui.affordance, LV_OBJ_FLAG_HIDDEN);
     lv_obj_align(s_ui.affordance, LV_ALIGN_TOP_MID, 0, 0);
@@ -497,7 +499,7 @@ static void init(scene_t *s, lv_obj_t *parent)
         lv_obj_set_style_text_align(s_ui.ctx_lines[i], LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_long_mode(s_ui.ctx_lines[i], LV_LABEL_LONG_DOT);
         lv_obj_set_style_text_color(s_ui.ctx_lines[i], lv_color_hex(0x8A807A), 0);
-        { const lv_font_t *zf = cjk_font(22);   /* CJK-capable; falls back to Latin */
+        { const lv_font_t *zf = ui_font(22);    /* CJK via fallback chain */
           lv_obj_set_style_text_font(s_ui.ctx_lines[i], zf ? zf : &lv_font_montserrat_22, 0); }
         lv_label_set_text(s_ui.ctx_lines[i], "");
         lv_obj_add_flag(s_ui.ctx_lines[i], LV_OBJ_FLAG_HIDDEN);
@@ -514,7 +516,7 @@ static void init(scene_t *s, lv_obj_t *parent)
     lv_obj_set_width(s_ui.summary_marquee, 380);
     lv_label_set_long_mode(s_ui.summary_marquee, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_set_style_text_color(s_ui.summary_marquee, lv_color_hex(0xF3EEE2), 0);
-    { const lv_font_t *zf = cjk_font(20);
+    { const lv_font_t *zf = ui_font(20);
       lv_obj_set_style_text_font(s_ui.summary_marquee, zf ? zf : &lv_font_montserrat_20, 0); }
     lv_obj_set_style_text_align(s_ui.summary_marquee, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(s_ui.summary_marquee, "");
@@ -531,7 +533,7 @@ static void init(scene_t *s, lv_obj_t *parent)
         lv_obj_set_width(s_ui.option_rows[i], 380);
         lv_label_set_long_mode(s_ui.option_rows[i], LV_LABEL_LONG_DOT);
         lv_obj_set_style_text_color(s_ui.option_rows[i], lv_color_hex(0xF3EEE2), 0);
-        { const lv_font_t *zf = cjk_font(22);
+        { const lv_font_t *zf = ui_font(22);
           lv_obj_set_style_text_font(s_ui.option_rows[i], zf ? zf : &lv_font_montserrat_22, 0); }
         lv_obj_set_style_text_align(s_ui.option_rows[i], LV_TEXT_ALIGN_LEFT, 0);
         lv_label_set_text(s_ui.option_rows[i], "");

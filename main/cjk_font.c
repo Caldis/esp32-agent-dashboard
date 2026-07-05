@@ -56,6 +56,55 @@ const lv_font_t *cjk_font(int px)
     return f;   /* cache full (won't happen with so few sizes) — leak-free enough */
 }
 
+/* UI fonts: Consolas subsets (see header). Same pipeline; each font
+ * instance gets the same-size CJK font wired as its LVGL fallback so
+ * mixed Latin/Chinese labels render both. */
+extern const uint8_t ui_ttf_start[]      asm("_binary_ui_ttf_start");
+extern const uint8_t ui_ttf_end[]        asm("_binary_ui_ttf_end");
+extern const uint8_t ui_bold_ttf_start[] asm("_binary_ui_bold_ttf_start");
+extern const uint8_t ui_bold_ttf_end[]   asm("_binary_ui_bold_ttf_end");
+
+#define UI_CACHE_MAX 12
+
+static const lv_font_t *ui_font_cached(const uint8_t *data, size_t sz,
+                                       lv_font_t **cache, int *cache_px,
+                                       int px)
+{
+    if (px <= 0) return NULL;
+    for (int i = 0; i < UI_CACHE_MAX; ++i)
+        if (cache[i] && cache_px[i] == px) return cache[i];
+
+    lv_font_t *f = lv_tiny_ttf_create_data((const void *)data, sz, px);
+    if (!f) {
+        ESP_LOGE("cjk", "ui tiny_ttf create FAILED px=%d", px);
+        return NULL;
+    }
+    /* CJK fallback: anything Consolas lacks (hanzi) falls through to the
+     * SimHei subset at the same size. */
+    f->fallback = cjk_font(px);
+    for (int i = 0; i < UI_CACHE_MAX; ++i)
+        if (!cache[i]) { cache[i] = f; cache_px[i] = px; return f; }
+    return f;
+}
+
+const lv_font_t *ui_font(int px)
+{
+    static lv_font_t *s_cache[UI_CACHE_MAX];
+    static int        s_px[UI_CACHE_MAX];
+    return ui_font_cached(ui_ttf_start,
+                          (size_t)(ui_ttf_end - ui_ttf_start),
+                          s_cache, s_px, px);
+}
+
+const lv_font_t *ui_font_bold(int px)
+{
+    static lv_font_t *s_cache[UI_CACHE_MAX];
+    static int        s_px[UI_CACHE_MAX];
+    return ui_font_cached(ui_bold_ttf_start,
+                          (size_t)(ui_bold_ttf_end - ui_bold_ttf_start),
+                          s_cache, s_px, px);
+}
+
 /* Clock digits: rounded subset for scene_clock (see header). Same
  * tiny_ttf pipeline, its own tiny cache — the face wants one size but a
  * follow-up (e.g. seconds readout) may add another. */
@@ -88,5 +137,7 @@ const lv_font_t *clock_font(int px)
 
 const lv_font_t *cjk_font(int px) { (void)px; return NULL; }
 const lv_font_t *clock_font(int px) { (void)px; return NULL; }
+const lv_font_t *ui_font(int px) { (void)px; return NULL; }
+const lv_font_t *ui_font_bold(int px) { (void)px; return NULL; }
 
 #endif

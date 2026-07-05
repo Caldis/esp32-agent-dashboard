@@ -27,6 +27,10 @@ idf_component_register(
         # Clock face digits (M PLUS Rounded 1c Black subset "0-9:-", ~2.4KB,
         # OFL — committed). Regenerate with tools/make_clock_font.py.
         "clock_digits.ttf"
+        # Consolas UI subsets (ASCII+symbols, ~10KB each). Gitignored
+        # (system-font derivative); regenerate with tools/make_ui_font.py.
+        "ui.ttf"
+        "ui_bold.ttf"
     INCLUDE_DIRS
         "."
         "scenes"

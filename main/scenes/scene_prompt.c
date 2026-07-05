@@ -60,7 +60,7 @@ static lv_obj_t *make_chip(lv_obj_t *parent, const char *label,
     lv_obj_clear_flag(c, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *l = lv_label_create(c);
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(l, ui_font_or(14, &lv_font_montserrat_14), 0);
     lv_obj_set_style_text_color(l, lv_color_white(), 0);
     lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(l, label);
@@ -289,7 +289,7 @@ static void prompt_init(scene_t *s, lv_obj_t *parent)
     const theme_palette_t *pal = theme_current();
 
     st->title = lv_label_create(parent);
-    lv_obj_set_style_text_font(st->title, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(st->title, ui_font_bold_or(14, &lv_font_montserrat_14), 0);
     lv_obj_set_style_text_letter_space(st->title, 4, 0);
     lv_obj_set_style_text_color(st->title, lv_color_hex(pal->warning), 0);
     lv_obj_set_style_text_opa(st->title, LV_OPA_80, 0);
@@ -298,25 +298,23 @@ static void prompt_init(scene_t *s, lv_obj_t *parent)
 
     /* Agent badge below title. */
     st->badge = lv_label_create(parent);
-    lv_obj_set_style_text_font(st->badge, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_font(st->badge, ui_font_or(12, &lv_font_montserrat_12), 0);
     lv_obj_set_style_text_letter_space(st->badge, 1, 0);
     lv_label_set_text(st->badge, "");
     lv_obj_align(st->badge, LV_ALIGN_CENTER, 0, -130);
 
     /* tool + hint carry host-supplied text (tool name, command preview, and in
-     * reply mode the chosen option strings) that can be Chinese — use the CJK
-     * font so it isn't rendered as garbage boxes. */
-    const lv_font_t *fp22 = cjk_font(22);
-    const lv_font_t *fp14 = cjk_font(14);
+     * reply mode the chosen option strings) that can be Chinese — ui_font
+     * chains to the CJK font so it isn't rendered as garbage boxes. */
     st->tool = lv_label_create(parent);
-    lv_obj_set_style_text_font(st->tool, fp22 ? fp22 : &lv_font_montserrat_22, 0);
+    lv_obj_set_style_text_font(st->tool, ui_font_bold_or(22, &lv_font_montserrat_22), 0);
     lv_obj_set_style_text_color(st->tool, lv_color_white(), 0);
     lv_obj_set_style_text_align(st->tool, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(st->tool, "?");
     lv_obj_align(st->tool, LV_ALIGN_CENTER, 0, -80);
 
     st->hint = lv_label_create(parent);
-    lv_obj_set_style_text_font(st->hint, fp14 ? fp14 : &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(st->hint, ui_font_or(14, &lv_font_montserrat_14), 0);
     lv_obj_set_style_text_align(st->hint, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(st->hint, 360);
     lv_label_set_long_mode(st->hint, LV_LABEL_LONG_WRAP);
@@ -329,7 +327,7 @@ static void prompt_init(scene_t *s, lv_obj_t *parent)
                               LV_ALIGN_CENTER, 100, 110, pal->danger);
 
     st->timer_lbl = lv_label_create(parent);
-    lv_obj_set_style_text_font(st->timer_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(st->timer_lbl, ui_font_or(14, &lv_font_montserrat_14), 0);
     lv_obj_set_style_text_color(st->timer_lbl, lv_color_hex(pal->warning), 0);
     lv_label_set_text(st->timer_lbl, "60s");
     lv_obj_align(st->timer_lbl, LV_ALIGN_CENTER, 0, 60);
