@@ -15,59 +15,155 @@
  * The face is rendered by tiny_ttf at CLOCK_PX from the embedded
  * M PLUS Rounded 1c Black digit subset (clock_font() — rounded, heavy,
  * colon side bearings pre-tightened; the SF-Rounded look StandBy has).
- * Falls back to the SimHei subset, then Montserrat.
+ * Falls back to Montserrat when tiny_ttf is unavailable.
  *
- * Entrance (v4 M4, plan B): on every show the face starts at the top
+ * v4.5: the colon BLINKS ~1 Hz like a standard digital clock. The font
+ * has no space glyph and tabular digits (adv 660), so the face is three
+ * separate labels — hours / colon / minutes — inside a container. Only
+ * the colon's text_opa toggles (from the scene tick, deduped — never a
+ * per-frame anim over a big tiny_ttf label, per CLAUDE.md). Because the
+ * digits are tabular, the three fixed-offset label boxes sit edge-to-
+ * edge exactly like the old single "HH:MM" string and never shift.
+ *
+ * Entrance (v4 M4, plan B): on every show the group starts at the top
  * small-clock position, fully transparent, and glides down to center
  * while fading in — apple_ease_out on both tracks. Plan A additionally
- * animated transform_scale (small→full size), but scaling a 150px
+ * animated transform_scale (small→full size), but scaling a 135px
  * tiny_ttf label re-renders it through an intermediate layer every
  * frame and measured 12.5-13.4 fps against the panel's 30 (visible
  * stutter); y+fade keeps the "top clock becomes the big clock" story
  * at full frame rate. motion_reduced skips straight to the resting
- * pose.
+ * pose (and holds the colon solid — a blink is motion).
  */
 
 #include "scenes.h"
 #include "agent_state.h"
 #include "status_bar.h"
 #include "cjk_font.h"
+#include "ui_type.h"
 #include "anim/apple_ease.h"
 
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
 #include "lvgl.h"
 
+#define SCREEN_W    466
 #define CLOCK_PX    135   /* was 150; pulled to ~90% on user feedback */
 #define COL_TEXT    0xF3EEE2
 
-/* Entrance geometry. The face label is CENTER-aligned, so y is an
- * offset from the vertical middle (233 on this 466px panel). The top
- * clock renders at TOP_MID y=56 with a 48pt font — its visual center
- * sits at ≈56+29=85, i.e. offset 85-233 = -148 from screen center. */
+/* Horizontal offset of the hours / minutes labels from the centred
+ * colon: half the sum of a two-digit advance (2×660) and the colon
+ * advance (286), scaled from the font's 1000 units/em. This places the
+ * three label boxes edge-to-edge, reproducing the old single-string
+ * layout pixel-for-pixel; tabular digits keep it stable as time
+ * changes. = 803*135/1000 = 108 px. */
+#define COLON_DX    (((1320 + 286) / 2 * CLOCK_PX) / 1000)
+
+/* Face group is tall enough to hold the 135px glyphs without clipping,
+ * full-width so the ±108 labels never clip horizontally. */
+#define FACE_GRP_H  200
+
+/* Colon blink: half-period decoupled from the tick rate. 1000 ms half
+ * = 1 s on / 1 s off = 0.5 Hz — a calm pulse (1 Hz read as too fast).
+ * The tick stays quicker so the minute rollover and connection pill
+ * update promptly; the blink phase is derived from elapsed time, so it
+ * toggles exactly on the half-period regardless of tick rate. */
+#define CLOCK_TICK_MS  500
+#define BLINK_MS      1000
+
+/* Entrance geometry. The group is CENTER-aligned, so y is an offset
+ * from the vertical middle (233 on this 466px panel). The top clock
+ * renders at TOP_MID y=56 with a 48pt font — its visual center sits at
+ * ≈56+29=85, i.e. offset 85-233 = -148 from screen center. */
 #define ENTRY_Y      (-148)
 #define ENTRY_MS     550
 
+/* ── push subsystem: agent start/end notifications ──────────────────
+ * While the clock is the visible scene, an agent entering RUN (task
+ * start) or leaving RUN to idle/removed (task end) briefly "pushes" a
+ * card in the centre. The big face retreats to the top-clock slot via
+ * the plan-B morph — slide up (ENTRY_Y) + text_opa fade while the status
+ * bar's own 48pt top clock fades IN at exactly that spot; the two never
+ * scale, so the "big clock shrank to the corner" reads at full frame
+ * rate (scaling the 135px tiny_ttf face measured 12-13 fps — the retired
+ * clock plan A). A running/finished glyph + headline + project chip then
+ * appear; after PUSH_HOLD_MS everything reverses back to the pure face.
+ * Coalesces: a fresh event inside the window swaps the card content and
+ * restarts the countdown rather than re-morphing. */
+#define PUSH_START        0
+#define PUSH_END          1
+#define PUSH_HOLD_MS   3000     /* dwell before auto-restore to the face */
+#define PUSH_MORPH_MS   440     /* face → top-clock retreat (restore = ENTRY_MS) */
+#define PUSH_CARD_MS    360     /* card enter / exit */
+#define PUSH_CARD_DELAY 120     /* card lags the retreat so the face clears first */
+#define PUSH_ENTER_DY    24     /* card rises this many px as it fades in */
+#define PUSH_GLYPH       92     /* glyph zone (orbit ring+dot, or the √) */
+#define PUSH_RING_SZ     76
+#define PUSH_DOT_SZ      14
+#define PUSH_ORBIT_R     30     /* dot orbit radius about the glyph centre */
+#define PUSH_ORBIT_MS  1200     /* one revolution */
+#define PUSH_LABEL_MAX   28     /* UTF-8-safe project name, like scene_awaiting */
+#define COL_TEAL     0x2BB3B1   /* running accent (palette.md) */
+#define COL_TRACK    0x2A4A49   /* faint orbit ring */
+
 typedef struct {
     status_bar_t sb;          /* footer + conn pill; top clock hidden */
-    lv_obj_t   *face;         /* big centered HH:MM */
+    lv_obj_t   *face_grp;     /* container: entrance animates THIS */
+    lv_obj_t   *hh;           /* hours "HH" */
+    lv_obj_t   *colon;        /* ":" — only its text_opa toggles */
+    lv_obj_t   *mm;           /* minutes "MM" */
     lv_timer_t *timer;
     char        cached[16];   /* last rendered time string */
+    uint32_t    show_ms;      /* on_show tick — blink phase + entrance gate */
+    bool        motion_ok;    /* mirror of !motion_reduced from on_show */
+    int         colon_on;     /* last applied colon state; -1 forces apply */
+
+    /* ── push subsystem ── */
+    lv_obj_t   *push_grp;     /* centre card container (fade/slide as one) */
+    lv_obj_t   *push_glyph;   /* 92×92 zone holding the ring/dot/√ */
+    lv_obj_t   *push_ring;    /* faint orbit track (START) / settle ring (END) */
+    lv_obj_t   *push_dot;     /* bright dot orbiting the ring (START) */
+    lv_obj_t   *push_check;   /* LV_SYMBOL_OK (END) */
+    lv_obj_t   *push_head;    /* headline: 开始运行 / 运行结束 */
+    lv_obj_t   *push_chip;    /* "cc  <project>" */
+    lv_timer_t *push_hold;    /* one-shot dwell timer (paused between pushes) */
+    bool        push_active;  /* a card is currently up */
+    int         push_kind;    /* PUSH_START / PUSH_END of the current card */
+
+    /* running-set edge detection: the set of (kind, sid) that were
+     * RUNNING at the previous tick, with each one's project label cached
+     * so an END push can still name an agent whose slot was pruned. */
+    struct {
+        char kind[AGENT_KIND_MAX];
+        char sid[AGENT_SESSION_ID_MAX];
+        char label[PUSH_LABEL_MAX];
+    } run_prev[AGENT_SLOT_MAX];
+    int  run_prev_n;
+    bool run_seeded;          /* false on show → first tick only seeds */
 } clock_state_t;
 
-static void anim_face_y(void *obj, int32_t v)
+/* Apply one text_opa to every child of the group (hh/colon/mm). Used by
+ * the entrance fade — text_opa does NOT inherit from a container, and
+ * the code deliberately avoids widget/style opa (it composites through
+ * an intermediate layer at 9-15 fps; text_opa is a plain per-pixel
+ * alpha applied while blitting the glyphs — no layer). */
+static void set_group_text_opa(lv_obj_t *grp, lv_opa_t opa)
+{
+    uint32_t n = lv_obj_get_child_count(grp);
+    for (uint32_t i = 0; i < n; ++i)
+        lv_obj_set_style_text_opa(lv_obj_get_child(grp, i), opa, 0);
+}
+
+static void anim_grp_y(void *obj, int32_t v)
 {
     lv_obj_set_y((lv_obj_t *)obj, v);
 }
 
-/* text_opa, NOT style_opa: widget-level opa (like transform_scale)
- * composites the label through an intermediate layer every frame —
- * measured as bad as the scale plan (9-15 fps). text_opa is a plain
- * per-pixel alpha applied while blitting the glyphs; no layer. */
-static void anim_face_opa(void *obj, int32_t v)
+static void anim_grp_opa(void *obj, int32_t v)
 {
-    lv_obj_set_style_text_opa((lv_obj_t *)obj, (lv_opa_t)v, 0);
+    set_group_text_opa((lv_obj_t *)obj, (lv_opa_t)v);
 }
 
 /* Play (or skip) the top-to-center entrance. Called from on_show on the
@@ -75,31 +171,304 @@ static void anim_face_opa(void *obj, int32_t v)
  * re-entry mid-animation can't compound. */
 static void clock_entrance(clock_state_t *st, bool motion_ok)
 {
-    lv_anim_delete(st->face, anim_face_y);
-    lv_anim_delete(st->face, anim_face_opa);
+    lv_anim_delete(st->face_grp, anim_grp_y);
+    lv_anim_delete(st->face_grp, anim_grp_opa);
 
     if (!motion_ok) {
-        lv_obj_set_y(st->face, 0);
-        lv_obj_set_style_text_opa(st->face, LV_OPA_COVER, 0);
+        lv_obj_set_y(st->face_grp, 0);
+        set_group_text_opa(st->face_grp, LV_OPA_COVER);
         return;
     }
 
-    lv_obj_set_y(st->face, ENTRY_Y);
-    lv_obj_set_style_text_opa(st->face, LV_OPA_TRANSP, 0);
+    lv_obj_set_y(st->face_grp, ENTRY_Y);
+    set_group_text_opa(st->face_grp, LV_OPA_TRANSP);
 
     lv_anim_t a;
     lv_anim_init(&a);
-    lv_anim_set_var(&a, st->face);
+    lv_anim_set_var(&a, st->face_grp);
     lv_anim_set_time(&a, ENTRY_MS);
     lv_anim_set_path_cb(&a, apple_ease_out);
 
     lv_anim_set_values(&a, ENTRY_Y, 0);
-    lv_anim_set_exec_cb(&a, anim_face_y);
+    lv_anim_set_exec_cb(&a, anim_grp_y);
     lv_anim_start(&a);
 
     lv_anim_set_values(&a, LV_OPA_TRANSP, LV_OPA_COVER);
-    lv_anim_set_exec_cb(&a, anim_face_opa);
+    lv_anim_set_exec_cb(&a, anim_grp_opa);
     lv_anim_start(&a);
+}
+
+/* ── push subsystem helpers ─────────────────────────────────────────
+ * Everything below drives the transient agent start/end card. All
+ * fades use per-object opa the same way the entrance does: text_opa on
+ * labels, border/bg_opa on the shapes — never widget/style opa on a
+ * text-bearing container (that composites through a layer). */
+
+/* Same kind → 2-letter abbreviation table as scene_awaiting's chip. */
+static const char *short_kind_of(const char *kind)
+{
+    if (strcmp(kind, "claude-code") == 0) return "cc";
+    if (strcmp(kind, "codex") == 0)       return "cx";
+    if (strcmp(kind, "cursor") == 0)      return "cu";
+    if (strcmp(kind, "aider") == 0)       return "ai";
+    if (strcmp(kind, "windsurf") == 0)    return "ws";
+    if (strcmp(kind, "copilot") == 0)     return "cp";
+    if (strcmp(kind, "qwen-code") == 0)   return "qw";
+    return "ag";
+}
+
+/* Project = last path segment of cwd (UTF-8-safe trunc; never splits a
+ * hanzi). Empty string when cwd is unknown. */
+static void project_label(const char *cwd, char *out, size_t cap)
+{
+    if (!cap) return;
+    const char *base = cwd;
+    for (const char *p = cwd; *p; ++p)
+        if (*p == '/' || *p == '\\') base = p + 1;
+    if (base && base[0]) cjk_utf8_lcpy(out, base, cap);
+    else                 out[0] = '\0';
+}
+
+/* Snapshot the current RUNNING set into run_prev. Caller holds the
+ * agent_state lock (reads slots). */
+static void snapshot_running(clock_state_t *st, agent_state_t *s)
+{
+    st->run_prev_n = 0;
+    for (int i = 0; i < AGENT_SLOT_MAX && st->run_prev_n < AGENT_SLOT_MAX; ++i) {
+        agent_slot_t *sl = &s->slots[i];
+        if (!sl->in_use || sl->status != AGENT_STATUS_RUNNING) continue;
+        int k = st->run_prev_n++;
+        strncpy(st->run_prev[k].kind, sl->kind, AGENT_KIND_MAX - 1);
+        st->run_prev[k].kind[AGENT_KIND_MAX - 1] = '\0';
+        strncpy(st->run_prev[k].sid, sl->session_id, AGENT_SESSION_ID_MAX - 1);
+        st->run_prev[k].sid[AGENT_SESSION_ID_MAX - 1] = '\0';
+        project_label(sl->cwd, st->run_prev[k].label, PUSH_LABEL_MAX);
+    }
+}
+
+/* Fade helper: one alpha applied across every visible piece of the card. */
+static void push_set_opa(clock_state_t *st, lv_opa_t v)
+{
+    lv_obj_set_style_text_opa(st->push_head, v, 0);
+    lv_obj_set_style_text_opa(st->push_chip, v, 0);
+    lv_obj_set_style_text_opa(st->push_check, v, 0);
+    lv_obj_set_style_border_opa(st->push_ring, v, 0);
+    lv_obj_set_style_bg_opa(st->push_dot, v, 0);
+}
+
+static void anim_push_y(void *obj, int32_t v) { lv_obj_set_y((lv_obj_t *)obj, v); }
+
+static void anim_push_opa(void *obj, int32_t v)
+{
+    clock_state_t *st = lv_obj_get_user_data((lv_obj_t *)obj);
+    if (st) push_set_opa(st, (lv_opa_t)v);
+}
+/* Exit variant: hides the card once fully faded — same trick the scene
+ * framework uses (hide inside the exec at 0) instead of a completed_cb. */
+static void anim_push_opa_out(void *obj, int32_t v)
+{
+    clock_state_t *st = lv_obj_get_user_data((lv_obj_t *)obj);
+    if (st) push_set_opa(st, (lv_opa_t)v);
+    if (v == 0) lv_obj_add_flag((lv_obj_t *)obj, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void anim_topclock_in(void *obj, int32_t v)
+{
+    lv_obj_set_style_text_opa((lv_obj_t *)obj, (lv_opa_t)v, 0);
+}
+static void anim_topclock_out(void *obj, int32_t v)
+{
+    lv_obj_set_style_text_opa((lv_obj_t *)obj, (lv_opa_t)v, 0);
+    if (v == 0) lv_obj_add_flag((lv_obj_t *)obj, LV_OBJ_FLAG_HIDDEN);
+}
+
+/* Orbit: the dot walks a circle about the glyph-zone centre. deg10 is
+ * tenths of a degree; −90° start puts it at 12 o'clock. A single small
+ * lv_obj position update per frame — no layer, no big-label re-raster. */
+static void anim_orbit(void *obj, int32_t deg10)
+{
+    float a = ((float)deg10 / 10.0f - 90.0f) * 3.14159265f / 180.0f;
+    int c = PUSH_GLYPH / 2;
+    int x = c + (int)lroundf(PUSH_ORBIT_R * cosf(a)) - PUSH_DOT_SZ / 2;
+    int y = c + (int)lroundf(PUSH_ORBIT_R * sinf(a)) - PUSH_DOT_SZ / 2;
+    lv_obj_set_pos((lv_obj_t *)obj, x, y);
+}
+
+static void start_orbit(clock_state_t *st)
+{
+    lv_anim_delete(st->push_dot, anim_orbit);
+    if (!st->motion_ok) { anim_orbit(st->push_dot, 0); return; }
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, st->push_dot);
+    lv_anim_set_time(&a, PUSH_ORBIT_MS);
+    lv_anim_set_values(&a, 0, 3600);
+    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_path_cb(&a, lv_anim_path_linear);
+    lv_anim_set_exec_cb(&a, anim_orbit);
+    lv_anim_start(&a);
+}
+
+/* Big face → top-clock slot: slide up + text_opa fade, the 48pt top
+ * clock fading in at the same centre. Zero scaling. */
+static void retreat_clock(clock_state_t *st)
+{
+    lv_anim_delete(st->face_grp, anim_grp_y);
+    lv_anim_delete(st->face_grp, anim_grp_opa);
+    lv_obj_clear_flag(st->sb.time_lbl, LV_OBJ_FLAG_HIDDEN);
+    lv_anim_delete(st->sb.time_lbl, anim_topclock_in);
+    lv_anim_delete(st->sb.time_lbl, anim_topclock_out);
+
+    if (!st->motion_ok) {
+        lv_obj_set_y(st->face_grp, ENTRY_Y);
+        set_group_text_opa(st->face_grp, LV_OPA_TRANSP);
+        lv_obj_set_style_text_opa(st->sb.time_lbl, LV_OPA_COVER, 0);
+        return;
+    }
+
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, st->face_grp);
+    lv_anim_set_time(&a, PUSH_MORPH_MS);
+    lv_anim_set_path_cb(&a, apple_ease_out);
+    lv_anim_set_values(&a, lv_obj_get_y(st->face_grp), ENTRY_Y);
+    lv_anim_set_exec_cb(&a, anim_grp_y);
+    lv_anim_start(&a);
+    lv_anim_set_values(&a, LV_OPA_COVER, LV_OPA_TRANSP);
+    lv_anim_set_exec_cb(&a, anim_grp_opa);
+    lv_anim_start(&a);
+
+    lv_anim_t b;
+    lv_anim_init(&b);
+    lv_anim_set_var(&b, st->sb.time_lbl);
+    lv_anim_set_time(&b, PUSH_MORPH_MS);
+    lv_anim_set_path_cb(&b, apple_ease_out);
+    lv_anim_set_values(&b, LV_OPA_TRANSP, LV_OPA_COVER);
+    lv_anim_set_exec_cb(&b, anim_topclock_in);
+    lv_anim_start(&b);
+}
+
+static void enter_push(clock_state_t *st)
+{
+    lv_anim_delete(st->push_grp, anim_push_y);
+    lv_anim_delete(st->push_grp, anim_push_opa);
+    lv_anim_delete(st->push_grp, anim_push_opa_out);
+    lv_obj_clear_flag(st->push_grp, LV_OBJ_FLAG_HIDDEN);
+
+    if (!st->motion_ok) {
+        lv_obj_set_y(st->push_grp, 0);
+        push_set_opa(st, LV_OPA_COVER);
+        return;
+    }
+
+    lv_obj_set_y(st->push_grp, PUSH_ENTER_DY);
+    push_set_opa(st, LV_OPA_TRANSP);
+
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, st->push_grp);
+    lv_anim_set_time(&a, PUSH_CARD_MS);
+    lv_anim_set_delay(&a, PUSH_CARD_DELAY);
+    lv_anim_set_path_cb(&a, apple_ease_out);
+    lv_anim_set_values(&a, PUSH_ENTER_DY, 0);
+    lv_anim_set_exec_cb(&a, anim_push_y);
+    lv_anim_start(&a);
+    lv_anim_set_values(&a, LV_OPA_TRANSP, LV_OPA_COVER);
+    lv_anim_set_exec_cb(&a, anim_push_opa);
+    lv_anim_start(&a);
+}
+
+/* Reverse the whole thing: card fades/slides out, the face glides back
+ * down + in (reusing clock_entrance), the top clock fades away. */
+static void clock_push_dismiss(clock_state_t *st)
+{
+    if (!st->push_active) return;
+    st->push_active = false;
+    if (st->push_hold) lv_timer_pause(st->push_hold);
+    lv_anim_delete(st->push_dot, anim_orbit);
+
+    lv_anim_delete(st->push_grp, anim_push_y);
+    lv_anim_delete(st->push_grp, anim_push_opa);
+    lv_anim_delete(st->push_grp, anim_push_opa_out);
+    if (!st->motion_ok) {
+        push_set_opa(st, LV_OPA_TRANSP);
+        lv_obj_add_flag(st->push_grp, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_anim_t a;
+        lv_anim_init(&a);
+        lv_anim_set_var(&a, st->push_grp);
+        lv_anim_set_time(&a, PUSH_CARD_MS);
+        lv_anim_set_path_cb(&a, apple_ease_in);
+        lv_anim_set_values(&a, 0, PUSH_ENTER_DY);
+        lv_anim_set_exec_cb(&a, anim_push_y);
+        lv_anim_start(&a);
+        lv_anim_set_values(&a, LV_OPA_COVER, LV_OPA_TRANSP);
+        lv_anim_set_exec_cb(&a, anim_push_opa_out);
+        lv_anim_start(&a);
+    }
+
+    /* Face back in; re-sync the colon blink from now. */
+    st->show_ms = lv_tick_get();
+    st->colon_on = -1;
+    clock_entrance(st, st->motion_ok);
+
+    lv_anim_delete(st->sb.time_lbl, anim_topclock_in);
+    lv_anim_delete(st->sb.time_lbl, anim_topclock_out);
+    if (!st->motion_ok) {
+        lv_obj_set_style_text_opa(st->sb.time_lbl, LV_OPA_TRANSP, 0);
+        lv_obj_add_flag(st->sb.time_lbl, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_anim_t b;
+        lv_anim_init(&b);
+        lv_anim_set_var(&b, st->sb.time_lbl);
+        lv_anim_set_time(&b, ENTRY_MS);
+        lv_anim_set_path_cb(&b, apple_ease_in);
+        lv_anim_set_values(&b, LV_OPA_COVER, LV_OPA_TRANSP);
+        lv_anim_set_exec_cb(&b, anim_topclock_out);
+        lv_anim_start(&b);
+    }
+}
+
+static void push_hold_cb(lv_timer_t *t)
+{
+    clock_state_t *st = (clock_state_t *)lv_timer_get_user_data(t);
+    if (st) clock_push_dismiss(st);
+}
+
+/* Fire (or coalesce into) a card. kind = PUSH_START / PUSH_END. */
+static void clock_push_trigger(clock_state_t *st, int kind,
+                               const char *agent_kind, const char *label)
+{
+    lv_label_set_text(st->push_head, kind == PUSH_END ? "运行结束" : "开始运行");
+    char chip[64];
+    const char *sk = short_kind_of(agent_kind);
+    if (label && label[0]) snprintf(chip, sizeof chip, "%s  %s", sk, label);
+    else                   snprintf(chip, sizeof chip, "%s", sk);
+    lv_label_set_text(st->push_chip, chip);
+
+    if (kind == PUSH_END) {
+        lv_anim_delete(st->push_dot, anim_orbit);
+        lv_obj_add_flag(st->push_dot, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(st->push_check, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(st->push_check, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(st->push_dot, LV_OBJ_FLAG_HIDDEN);
+    }
+    st->push_kind = kind;
+
+    if (st->push_active) {
+        /* Coalesce: content already swapped above — just refresh the
+         * running motion and restart the dwell countdown. */
+        if (kind == PUSH_START) start_orbit(st);
+        if (st->push_hold) lv_timer_reset(st->push_hold);
+        return;
+    }
+
+    st->push_active = true;
+    retreat_clock(st);
+    enter_push(st);
+    if (kind == PUSH_START) start_orbit(st);
+    if (st->push_hold) { lv_timer_reset(st->push_hold); lv_timer_resume(st->push_hold); }
 }
 
 static void clock_tick(lv_timer_t *t)
@@ -108,17 +477,90 @@ static void clock_tick(lv_timer_t *t)
     if (!st) return;
 
     char buf[16];
+    int  event = 0;                    /* 0 none, PUSH_START+1, PUSH_END+1 */
+    char ev_kind[AGENT_KIND_MAX] = "";
+    char ev_label[PUSH_LABEL_MAX] = "";
+
     agent_state_lock();
     agent_state_t *s = agent_state_get();
     status_bar_update(&st->sb, s);
     status_bar_format_time(buf, sizeof(buf), s);
+
+    /* Running-set edge detection (data-driven; only ever runs while the
+     * clock is the visible scene, so a push means the event happened
+     * WHILE the user was watching). The first tick after a show merely
+     * seeds — agents already running when we arrive don't push. */
+    if (!st->run_seeded) {
+        snapshot_running(st, s);
+        st->run_seeded = true;
+    } else {
+        /* END: a previously-running (kind,sid) that is no longer running,
+         * UNLESS it went to WAITING — that's an awaiting hand-off, not a
+         * finished task (scene_awaiting / the fleet row own that). */
+        for (int i = 0; i < st->run_prev_n; ++i) {
+            agent_slot_t *sl = agent_state_find_slot(st->run_prev[i].kind,
+                                                     st->run_prev[i].sid);
+            bool running = sl && sl->in_use && sl->status == AGENT_STATUS_RUNNING;
+            bool waiting = sl && sl->in_use && sl->status == AGENT_STATUS_WAITING;
+            if (!running && !waiting) {
+                event = PUSH_END + 1;
+                strncpy(ev_kind, st->run_prev[i].kind, sizeof ev_kind - 1);
+                ev_kind[sizeof ev_kind - 1] = '\0';
+                strncpy(ev_label, st->run_prev[i].label, sizeof ev_label - 1);
+                ev_label[sizeof ev_label - 1] = '\0';
+            }
+        }
+        /* START: a running (kind,sid) absent from the previous set.
+         * Detected after END so a simultaneous start+end shows the more
+         * salient "new activity". */
+        for (int i = 0; i < AGENT_SLOT_MAX; ++i) {
+            agent_slot_t *sl = &s->slots[i];
+            if (!sl->in_use || sl->status != AGENT_STATUS_RUNNING) continue;
+            bool known = false;
+            for (int j = 0; j < st->run_prev_n; ++j) {
+                if (strcmp(st->run_prev[j].kind, sl->kind) == 0 &&
+                    strcmp(st->run_prev[j].sid, sl->session_id) == 0) {
+                    known = true; break;
+                }
+            }
+            if (!known) {
+                event = PUSH_START + 1;
+                strncpy(ev_kind, sl->kind, sizeof ev_kind - 1);
+                ev_kind[sizeof ev_kind - 1] = '\0';
+                project_label(sl->cwd, ev_label, sizeof ev_label);
+            }
+        }
+        snapshot_running(st, s);       /* run_prev := current running set */
+    }
     agent_state_unlock();
 
-    /* Rewrite the 150px face only on minute change — every set_text
-     * re-rasterises five big tiny_ttf glyphs. */
+    /* LVGL mutations happen OUTSIDE the agent_state lock. */
+    if (event) clock_push_trigger(st, event - 1, ev_kind, ev_label);
+
+    /* Rewrite hours/minutes only on minute change — every set_text
+     * re-rasterises the big tiny_ttf glyphs. buf is always 5 chars
+     * ("HH:MM" / "--:--"): [0..1]=hh, [2]=':', [3..4]=mm. */
     if (strcmp(buf, st->cached) != 0) {
         snprintf(st->cached, sizeof(st->cached), "%s", buf);
-        lv_label_set_text(st->face, buf);
+        char hh[3] = { buf[0], buf[1], '\0' };
+        char mm[3] = { buf[3], buf[4], '\0' };
+        lv_label_set_text(st->hh, hh);
+        lv_label_set_text(st->mm, mm);
+    }
+
+    /* Colon blink. Leave the colon to the entrance fade until it
+     * finishes; then toggle it 1 Hz. Hold it solid when motion is
+     * reduced or before the host time syncs (buf[0]=='-'). Deduped so
+     * we only invalidate the tiny colon region on an actual change. */
+    uint32_t elapsed = lv_tick_get() - st->show_ms;
+    if (!st->push_active && elapsed >= ENTRY_MS) {
+        bool blink = st->motion_ok && (buf[0] != '-');
+        int want = (!blink || ((elapsed / BLINK_MS) % 2 == 0)) ? 1 : 0;
+        if (want != st->colon_on) {
+            st->colon_on = want;
+            lv_obj_set_style_text_opa(st->colon,
+                want ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+        }
     }
 }
 
@@ -126,20 +568,112 @@ static void clock_init(scene_t *s, lv_obj_t *parent)
 {
     clock_state_t *st = lv_malloc_zeroed(sizeof(*st));
     s->user_data = st;
+    st->colon_on = -1;
 
     status_bar_create(parent, &st->sb);
     /* The big face replaces the 48pt top clock. status_bar_update keeps
      * set_text-ing the hidden label; harmless. */
     lv_obj_add_flag(st->sb.time_lbl, LV_OBJ_FLAG_HIDDEN);
 
-    st->face = lv_label_create(parent);
-    { const lv_font_t *bf = clock_font(CLOCK_PX);
-      lv_obj_set_style_text_font(st->face, bf ? bf : &lv_font_montserrat_48, 0); }
-    lv_obj_set_style_text_color(st->face, lv_color_hex(COL_TEXT), 0);
-    lv_label_set_text(st->face, "--:--");
-    lv_obj_align(st->face, LV_ALIGN_CENTER, 0, 0);
+    /* Container the entrance animates as one unit. */
+    st->face_grp = lv_obj_create(parent);
+    lv_obj_remove_style_all(st->face_grp);
+    lv_obj_set_size(st->face_grp, SCREEN_W, FACE_GRP_H);
+    lv_obj_align(st->face_grp, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_clear_flag(st->face_grp, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(st->face_grp, LV_OBJ_FLAG_CLICKABLE);
 
-    st->timer = lv_timer_create(clock_tick, 1000, st);
+    const lv_font_t *bf = clock_font(CLOCK_PX);
+    if (!bf) bf = &lv_font_montserrat_48;
+
+    st->hh = lv_label_create(st->face_grp);
+    lv_obj_set_style_text_font(st->hh, bf, 0);
+    lv_obj_set_style_text_color(st->hh, lv_color_hex(COL_TEXT), 0);
+    lv_label_set_text(st->hh, "--");
+    lv_obj_align(st->hh, LV_ALIGN_CENTER, -COLON_DX, 0);
+
+    st->colon = lv_label_create(st->face_grp);
+    lv_obj_set_style_text_font(st->colon, bf, 0);
+    lv_obj_set_style_text_color(st->colon, lv_color_hex(COL_TEXT), 0);
+    lv_label_set_text(st->colon, ":");
+    lv_obj_align(st->colon, LV_ALIGN_CENTER, 0, 0);
+
+    st->mm = lv_label_create(st->face_grp);
+    lv_obj_set_style_text_font(st->mm, bf, 0);
+    lv_obj_set_style_text_color(st->mm, lv_color_hex(COL_TEXT), 0);
+    lv_label_set_text(st->mm, "--");
+    lv_obj_align(st->mm, LV_ALIGN_CENTER, COLON_DX, 0);
+
+    /* ── push card (agent start/end), on top of the face, hidden until
+     * clock_push_trigger fires. Sized to its exact content height so the
+     * stack sits centred; user_data carries st for the opa exec_cbs. */
+    int glyph_zone = PUSH_GLYPH;
+    int head_line  = ui_type_line(UI_T_TITLE);
+    int chip_line  = ui_type_line(UI_T_LABEL);
+    int card_h = glyph_zone + UI_GAP_MD + head_line + UI_GAP_SM + chip_line;
+
+    st->push_grp = lv_obj_create(parent);
+    lv_obj_remove_style_all(st->push_grp);
+    lv_obj_set_size(st->push_grp, SCREEN_W, card_h);
+    lv_obj_align(st->push_grp, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_clear_flag(st->push_grp, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(st->push_grp, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(st->push_grp, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_user_data(st->push_grp, st);
+
+    st->push_glyph = lv_obj_create(st->push_grp);
+    lv_obj_remove_style_all(st->push_glyph);
+    lv_obj_set_size(st->push_glyph, PUSH_GLYPH, PUSH_GLYPH);
+    lv_obj_align(st->push_glyph, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_clear_flag(st->push_glyph, LV_OBJ_FLAG_SCROLLABLE);
+
+    st->push_ring = lv_obj_create(st->push_glyph);
+    lv_obj_remove_style_all(st->push_ring);
+    lv_obj_set_size(st->push_ring, PUSH_RING_SZ, PUSH_RING_SZ);
+    lv_obj_align(st->push_ring, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_radius(st->push_ring, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(st->push_ring, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_color(st->push_ring, lv_color_hex(COL_TRACK), 0);
+    lv_obj_set_style_border_width(st->push_ring, 3, 0);
+    lv_obj_clear_flag(st->push_ring, LV_OBJ_FLAG_SCROLLABLE);
+
+    st->push_dot = lv_obj_create(st->push_glyph);
+    lv_obj_remove_style_all(st->push_dot);
+    lv_obj_set_size(st->push_dot, PUSH_DOT_SZ, PUSH_DOT_SZ);
+    lv_obj_set_style_radius(st->push_dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(st->push_dot, lv_color_hex(COL_TEAL), 0);
+    lv_obj_set_style_bg_opa(st->push_dot, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(st->push_dot, LV_OBJ_FLAG_SCROLLABLE);
+    anim_orbit(st->push_dot, 0);            /* park at 12 o'clock */
+
+    st->push_check = lv_label_create(st->push_glyph);
+    lv_label_set_text(st->push_check, LV_SYMBOL_OK);
+    lv_obj_set_style_text_font(st->push_check, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_color(st->push_check, lv_color_hex(COL_TEAL), 0);
+    lv_obj_align(st->push_check, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_add_flag(st->push_check, LV_OBJ_FLAG_HIDDEN);
+
+    st->push_head = lv_label_create(st->push_grp);
+    lv_obj_set_style_text_font(st->push_head, ui_type_bold(UI_T_TITLE), 0);
+    lv_obj_set_style_text_color(st->push_head, lv_color_hex(COL_TEXT), 0);
+    lv_label_set_text(st->push_head, "开始运行");
+    lv_obj_align(st->push_head, LV_ALIGN_TOP_MID, 0, glyph_zone + UI_GAP_MD);
+
+    st->push_chip = lv_label_create(st->push_grp);
+    lv_obj_set_style_text_font(st->push_chip, ui_type(UI_T_LABEL), 0);
+    lv_obj_set_style_text_color(st->push_chip, lv_color_hex(COL_TEAL), 0);
+    lv_label_set_text(st->push_chip, "");
+    lv_obj_align(st->push_chip, LV_ALIGN_TOP_MID, 0,
+                 glyph_zone + UI_GAP_MD + head_line + UI_GAP_SM);
+
+    /* One-shot dwell timer: paused between pushes, reset+resumed on
+     * trigger, paused again by push_hold_cb after it fires once. */
+    st->push_hold = lv_timer_create(push_hold_cb, PUSH_HOLD_MS, st);
+    lv_timer_pause(st->push_hold);
+
+    /* Tick drives the minute dirty-check + conn pill; the colon blink
+     * phase is time-derived (BLINK_MS), independent of this rate. */
+    st->timer = lv_timer_create(clock_tick, CLOCK_TICK_MS, st);
     lv_timer_pause(st->timer);
     clock_tick(st->timer);
 }
@@ -153,7 +687,21 @@ static void clock_on_show(scene_t *s)
     agent_state_lock();
     motion_reduced = agent_state_get()->motion_reduced;
     agent_state_unlock();
-    clock_entrance(st, !motion_reduced);
+    st->motion_ok = !motion_reduced;
+    st->show_ms = lv_tick_get();
+    st->colon_on = -1;   /* re-apply on the first post-entrance tick */
+
+    /* No stale card from a prior show; re-seed the running set so agents
+     * already running when we arrive don't fire a spurious push. */
+    st->push_active = false;
+    st->run_seeded = false;
+    if (st->push_hold) lv_timer_pause(st->push_hold);
+    lv_anim_delete(st->push_dot, anim_orbit);
+    lv_obj_add_flag(st->push_grp, LV_OBJ_FLAG_HIDDEN);
+    push_set_opa(st, LV_OPA_TRANSP);
+    lv_obj_add_flag(st->sb.time_lbl, LV_OBJ_FLAG_HIDDEN);  /* face owns the time */
+
+    clock_entrance(st, st->motion_ok);
 
     if (st->timer) {
         lv_timer_resume(st->timer);
@@ -165,12 +713,29 @@ static void clock_on_hide(scene_t *s)
 {
     clock_state_t *st = (clock_state_t *)s->user_data;
     if (!st) return;
+    /* Tear down any in-flight push first: stop the dwell timer + orbit,
+     * kill the card/top-clock anims, hide the card, and put the top
+     * clock back to its hidden resting state. */
+    st->push_active = false;
+    if (st->push_hold) lv_timer_pause(st->push_hold);
+    lv_anim_delete(st->push_dot, anim_orbit);
+    lv_anim_delete(st->push_grp, anim_push_y);
+    lv_anim_delete(st->push_grp, anim_push_opa);
+    lv_anim_delete(st->push_grp, anim_push_opa_out);
+    push_set_opa(st, LV_OPA_TRANSP);
+    lv_obj_add_flag(st->push_grp, LV_OBJ_FLAG_HIDDEN);
+    lv_anim_delete(st->sb.time_lbl, anim_topclock_in);
+    lv_anim_delete(st->sb.time_lbl, anim_topclock_out);
+    lv_obj_set_style_text_opa(st->sb.time_lbl, LV_OPA_COVER, 0);
+    lv_obj_add_flag(st->sb.time_lbl, LV_OBJ_FLAG_HIDDEN);
+
     /* Kill an in-flight entrance and park at the resting pose so the
      * scene-framework crossfade never snapshots a mid-flight face. */
-    lv_anim_delete(st->face, anim_face_y);
-    lv_anim_delete(st->face, anim_face_opa);
-    lv_obj_set_y(st->face, 0);
-    lv_obj_set_style_text_opa(st->face, LV_OPA_COVER, 0);
+    lv_anim_delete(st->face_grp, anim_grp_y);
+    lv_anim_delete(st->face_grp, anim_grp_opa);
+    lv_obj_set_y(st->face_grp, 0);
+    set_group_text_opa(st->face_grp, LV_OPA_COVER);
+    st->colon_on = -1;
     if (st->timer) lv_timer_pause(st->timer);
 }
 

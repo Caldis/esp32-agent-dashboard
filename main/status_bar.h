@@ -12,10 +12,11 @@ typedef struct {
     lv_obj_t *active_cap;   /* "active" caption */
     lv_obj_t *token_num;    /* tokens today, footer-right, 28pt */
     lv_obj_t *token_cap;    /* "tokens today" caption */
-    lv_obj_t *conn_lbl;     /* connection health: hidden when healthy, shows
-                             * "waiting for host" / "host disconnected" when the
-                             * snapshot stream (incl. 10s keepalive) goes stale */
-    int       conn_state;   /* cached CONN_* to avoid re-setting text each tick */
+    lv_obj_t *conn_dot;     /* connection health: hidden when healthy; a small
+                             * dot (amber = waiting for host, red = host
+                             * disconnected) when the snapshot stream (incl.
+                             * 10s keepalive) goes stale */
+    int       conn_state;   /* cached CONN_* to avoid re-styling each tick */
 } status_bar_t;
 
 void status_bar_create(lv_obj_t *parent, status_bar_t *sb);

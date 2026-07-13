@@ -56,9 +56,13 @@ device never waits for the next keepalive to resync. Firmware side, app_main
 registers ALL console commands BEFORE console_protocol_init() starts listening
 (register-then-listen), so a mid-boot push buffered in USB-CDC applies once the
 console starts instead of bouncing "unknown command: dash" — that bounce was
-the permanent-"--:--"-clock bug. The device shows "· 等待主机连接 ·" /
-"· 主机已断开 ·" within 12s (CONN_STALE_MS) when the snapshot stream goes
-stale rather than freezing.
+the permanent-"--:--"-clock bug. When the snapshot stream goes stale the
+device shows a small top-center dot within 12s (CONN_STALE_MS) — amber =
+never connected, red = host lost — instead of freezing silently (v4.7:
+the old "· 等待主机连接 ·"/"· 主机已断开 ·" text pill was demoted to this
+dot). After `offline_clock_min` minutes of silence (config, default 5,
+0 disables) the device retreats to the clock scene, suppressing any
+stale awaiting takeover; reconnect re-fires it from the fresh snapshot.
 
 ### Flashing (COM9 contention with autostart)
 `idf.py flash` needs exclusive COM9, but stopping the bridge makes the next

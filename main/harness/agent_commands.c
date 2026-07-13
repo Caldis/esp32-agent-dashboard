@@ -386,6 +386,10 @@ void agent_commands_load_config(void)
     if (nvs_get_u8(h, "saver_min", &sv) == ESP_OK) {
         s->screensaver_min = sv;
     }
+    uint8_t om = 0;
+    if (nvs_get_u8(h, "offline_min", &om) == ESP_OK) {
+        s->offline_clock_min = om;
+    }
     agent_state_unlock();
     nvs_close(h);
 }
@@ -402,17 +406,24 @@ static int cmd_config(const console_args_t *a)
     char default_scene[AGENT_DEFAULT_SCENE_MAX] = {0};
     char motion_buf[8] = {0};
     double saver_min = 0;
+    double offline_min = 0;
     bool has_dev   = tj_object_get_string(json, end, "device_name",     device_name,   sizeof(device_name));
     bool has_own   = tj_object_get_string(json, end, "owner",           owner,         sizeof(owner));
     bool has_theme = tj_object_get_string(json, end, "theme",           theme_buf,     sizeof(theme_buf));
     bool has_def   = tj_object_get_string(json, end, "default_scene",   default_scene, sizeof(default_scene));
     bool has_mr    = tj_object_get_string(json, end, "motion_reduced",  motion_buf,    sizeof(motion_buf));
     bool has_saver = tj_object_get_double(json, end, "screensaver_min", &saver_min);
+    bool has_offl  = tj_object_get_double(json, end, "offline_clock_min", &offline_min);
     bool motion_reduced_value = false;
     /* minutes, clamped to the u8 NVS slot; 0 disables the screensaver */
     if (has_saver) {
         if (saver_min < 0)   saver_min = 0;
         if (saver_min > 255) saver_min = 255;
+    }
+    /* minutes, same u8 clamp; 0 disables the offline→clock fallback */
+    if (has_offl) {
+        if (offline_min < 0)   offline_min = 0;
+        if (offline_min > 255) offline_min = 255;
     }
 
     agent_state_lock();
@@ -425,6 +436,7 @@ static int cmd_config(const console_args_t *a)
         s->motion_reduced = motion_reduced_value;
     }
     if (has_saver) s->screensaver_min = (int32_t)saver_min;
+    if (has_offl)  s->offline_clock_min = (int32_t)offline_min;
     bool theme_ok = true;
     if (has_theme) theme_ok = theme_set_by_name(theme_buf);
     agent_state_unlock();
@@ -435,6 +447,7 @@ static int cmd_config(const console_args_t *a)
     if (has_def)   persist_string("default_scene", default_scene);
     if (has_mr)    persist_u8("motion_red", motion_reduced_value ? 1 : 0);
     if (has_saver) persist_u8("saver_min", (uint8_t)saver_min);
+    if (has_offl)  persist_u8("offline_min", (uint8_t)offline_min);
 
     console_reply_ok("{\"config\":\"applied\",\"theme\":\"%s\"}", theme_current_name());
     return 0;

@@ -58,19 +58,23 @@
  * name + meta so the name stays at full BODY size instead of shrinking. */
 #define ROW_TWOLINE_MIN_H 100
 
-/* Ambient cluster vertical anchors inside the 124..386 band. Cluster =
- * pet(96) + status word(TITLE, 62) ≈ 170 px; with the project + activity
- * lines it grows to ≈ 258 px. Centering each case in the band:
- *   no info   → y 170
- *   with info → y 126 (cluster slides UP to make room below)
+/* Ambient cluster group-top anchors, centring the stack in the safe
+ * band [UI_SAFE_TOP..UI_SAFE_BOT] (134..360). The stack is compact —
+ * the word/proj/act sit right under the pet's *visual* bottom (~84),
+ * reclaiming the 96-px pet box's empty lower padding — so the whole
+ * cluster clears the top clock and the footer by ~24 px each (the pet
+ * box's own top padding adds a little more air at the top).
+ *   with info (pet+word+proj+act) → group y 124
+ *   no info   (pet+word+proj)     → group y 142 (shorter → sits lower)
  * The transition animates with Apple's standard ease (apple_ease_out). */
-#define AMBIENT_Y_CENTERED 170
-#define AMBIENT_Y_INFO     126
+#define AMBIENT_Y_CENTERED 142
+#define AMBIENT_Y_INFO     124
 #define AMBIENT_SLIDE_MS   450
-/* y offsets inside the ambient group (stacked: pet → word → proj → act) */
-#define AMBIENT_WORD_Y  108
-#define AMBIENT_PROJ_Y  178
-#define AMBIENT_ACT_Y   227
+/* y offsets inside the ambient group (stacked: pet box 0..96 → word →
+ * proj → act), tightened so the text tucks under the pet's ink. */
+#define AMBIENT_WORD_Y   90
+#define AMBIENT_PROJ_Y  154
+#define AMBIENT_ACT_Y   202
 
 /* v4.4: the 12-px kind chip ("cc") is gone — unreadable at desk
  * distance and redundant (dot color + meta already differentiate; the
@@ -498,10 +502,12 @@ static void init(scene_t *s, lv_obj_t *parent)
 
     status_bar_create(parent, &d->sb);
 
-    /* ambient group (single-agent mode) */
+    /* ambient group (single-agent mode). 236 tall = pet box (96) + the
+     * tucked word/proj/act stack (to ~233); kept inside the safe band so
+     * the transparent container never reaches the footer. */
     d->ambient_grp = lv_obj_create(parent);
     lv_obj_remove_style_all(d->ambient_grp);
-    lv_obj_set_size(d->ambient_grp, SCREEN_W, 260);
+    lv_obj_set_size(d->ambient_grp, SCREEN_W, 236);
     lv_obj_align(d->ambient_grp, LV_ALIGN_TOP_MID, 0, AMBIENT_Y_CENTERED);
     lv_obj_clear_flag(d->ambient_grp, LV_OBJ_FLAG_SCROLLABLE);
 

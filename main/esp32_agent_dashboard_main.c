@@ -92,13 +92,24 @@ static int s_pre_awaiting_scene_idx = -1;
 
 /* v4.2 clock screensaver: after screensaver_min minutes with no
  * activity (key press / dash prompt / dash event / a snapshot that
- * actually changed state), glide to the clock scene. Fresh activity
- * while saving restores the covered view; a key press exits via
- * cycle_view (which skips clock). Manual `dash scene clock` visits are
- * NOT screensaver entries — no flag, so nothing yanks the user away. */
+ * actually changed state), glide to the clock scene.
+ *
+ * v4.6: agent activity while saving NO LONGER yanks the user back to the
+ * covered view. The clock now reacts to task start/end in place — a
+ * transient push card (scene_clock's push subsystem) surfaces the event
+ * for a few seconds, then the pure face returns. The saver clock only
+ * leaves on a real interrupt: a key press (exits via cycle_view, which
+ * skips clock) or an AWAITING takeover (handled above, higher priority).
+ * Manual `dash scene clock` visits are NOT screensaver entries — no
+ * flag, so nothing yanks the user away.
+ *
+ * v4.7: a second, faster road into the same saver state — when the host
+ * link is lost for offline_clock_min minutes (see host_lost below), the
+ * device retreats to the clock instead of parading stale agent data.
+ * The status bar's red dot stays visible on the clock face as the quiet
+ * disconnect hint. */
 static bool     s_saver_active = false;
 static int      s_pre_saver_scene_idx = -1;
-static uint32_t s_saver_enter_activity_ms = 0;
 
 int scene_saver_consume(void)
 {
@@ -124,14 +135,31 @@ void scene_auto_switch_cb(lv_timer_t *t)
     bool prompt_active = false;
     int  slot_count = 0;
     int32_t  saver_min = 0;
+    int32_t  offline_min = 0;
     uint32_t last_activity_ms = 0;
+    uint32_t last_snapshot_ms = 0;
+    bool     ever_received = false;
     agent_state_lock();
     if (agent_state_most_recent_awaiting() != NULL) any_awaiting = true;
     prompt_active = agent_state_get()->prompt_active;
     slot_count = agent_state_get()->slot_count;
     saver_min = agent_state_get()->screensaver_min;
+    offline_min = agent_state_get()->offline_clock_min;
     last_activity_ms = agent_state_get()->last_activity_ms;
+    last_snapshot_ms = agent_state_get()->last_snapshot_ms;
+    ever_received = agent_state_get()->ever_received;
     agent_state_unlock();
+
+    /* v4.7 offline fallback: the bridge keepalives every 10 s, so a
+     * snapshot stream silent for offline_min minutes means the host is
+     * genuinely gone (status_bar's red dot fired long ago at 12 s).
+     * Once lost, every agent slot is frozen history — treat the device
+     * as idle and let the clock take over below. Requires ever_received:
+     * a cold boot with no host yet keeps the configured default scene
+     * (the clock would be a useless "--:--" without host time anyway). */
+    uint32_t now = lv_tick_get();
+    bool host_lost = ever_received && offline_min > 0
+                  && (now - last_snapshot_ms) >= (uint32_t)offline_min * 60000u;
 
     /* An active permission prompt is the higher-priority interactive scene: it
      * owns the physical BOOT/USER buttons. If we let the AWAITING takeover grab
@@ -147,7 +175,12 @@ void scene_auto_switch_cb(lv_timer_t *t)
     }
 
     bool on_awaiting = (current_idx == awaiting_idx);
-    bool want_takeover = any_awaiting && (slot_count <= 1);
+    /* !host_lost: an AWAITING takeover shouts "needs your input" with
+     * BOOT/USER hints, but with the host gone the decision has nowhere
+     * to go — a lie on screen. Suppressing it also lets an in-progress
+     * takeover yield (branch below) so the clock fallback can engage;
+     * on reconnect the refreshed snapshot re-fires it if still true. */
+    bool want_takeover = any_awaiting && (slot_count <= 1) && !host_lost;
     if (want_takeover && !on_awaiting && !prompt_active) {
         s_pre_awaiting_scene_idx = current_idx;
         bsp_display_lock(-1);
@@ -165,44 +198,39 @@ void scene_auto_switch_cb(lv_timer_t *t)
         return;
     }
 
-    /* ── clock screensaver ─────────────────────────────────────────── */
+    /* ── clock screensaver + offline fallback ──────────────────────── */
     int clock_idx = scene_fw_find_by_id("clock");
     if (clock_idx < 0) return;
     bool on_clock = (current_idx == clock_idx);
-    uint32_t now = lv_tick_get();
 
+    /* Two roads into the saver clock, same machinery once inside:
+     *  - idle:    saver_min of no activity while everything is healthy;
+     *  - offline: host_lost AND offline_min of no activity. The second
+     *    activity clause keeps a key press meaningful while offline —
+     *    the user gets offline_min to poke at the (stale, red-dotted)
+     *    views before the clock reclaims the screen. Unlike the idle
+     *    road it ignores any_awaiting: those slots are frozen history. */
     if (s_saver_active && !on_clock) {
         /* A key press / takeover already moved us off the clock. */
         s_saver_active = false;
         s_pre_saver_scene_idx = -1;
-    } else if (s_saver_active && on_clock
-               && last_activity_ms != s_saver_enter_activity_ms) {
-        /* New activity while saving — bring back what the clock
-         * covered. Re-check the flag UNDER the display lock: a key
-         * press may have consumed the saver (scene_saver_consume, also
-         * under the lock) between our unlocked read above and here —
-         * acting on the stale read would evict a freshly PWR-locked
-         * clock. */
-        bsp_display_lock(-1);
-        if (s_saver_active && scene_fw_current_index() == clock_idx) {
-            int back = (s_pre_saver_scene_idx >= 0) ? s_pre_saver_scene_idx : 0;
-            s_saver_active = false;
-            s_pre_saver_scene_idx = -1;
-            scene_fw_show(back);
-        }
-        bsp_display_unlock();
     } else if (!s_saver_active && !on_clock
-               && !any_awaiting && !prompt_active
+               && !prompt_active
                && !button_router_screen_is_off()
-               && saver_min > 0
-               && (now - last_activity_ms) >= (uint32_t)saver_min * 60000u) {
+               && ((!any_awaiting && saver_min > 0
+                    && (now - last_activity_ms) >= (uint32_t)saver_min * 60000u)
+                   || (host_lost
+                    && (now - last_activity_ms) >= (uint32_t)offline_min * 60000u))) {
         bsp_display_lock(-1);
         s_pre_saver_scene_idx = scene_fw_current_index();
-        s_saver_enter_activity_ms = last_activity_ms;
         s_saver_active = true;
         scene_fw_show(clock_idx);
         bsp_display_unlock();
     }
+    /* NB: while s_saver_active && on_clock we intentionally do nothing on
+     * fresh activity — scene_clock's push subsystem surfaces task
+     * start/end in place and returns to the face. The saver only ends
+     * via the !on_clock branch above (key press / takeover moved us). */
 }
 
 void app_main(void)

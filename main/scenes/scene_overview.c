@@ -4,8 +4,7 @@
  * The middle stop of the BOOT view cycle (dashboard → overview → clock).
  * Where the dashboard renders each agent, this scene aggregates them:
  *
- *   agents present → big live-agent count, "N 运行 · M 等待",
- *                    token totals (today + cumulative).
+ *   agents present → big live-agent count + "N 运行 · M 等待".
  *   no agents      → the original zZz breathing empty state.
  *
  * The wire id stays "idle" — `dash idle`, stress/profile tooling and
@@ -22,6 +21,7 @@
 #include "theme.h"
 #include "status_bar.h"
 #include "ui_type.h"
+#include "cjk_font.h"   /* clock_font — the count uses the rounded clock face */
 
 #include <stdio.h>
 #include <string.h>
@@ -39,16 +39,23 @@
 
 /* Rollup cluster anchors (v4.4): the whole cluster lives inside the
  * shared safe band; every child keeps y >= 0 so nothing depends on
- * parent-overflow rendering. Count HERO(88) centered in the breathing
- * rings, then state BODY(36), then tokens LABEL(26). The old kind-mix
- * line ("cc x2 · cx x1") is gone — CAPTION-tier trivia that cost a
- * whole line of the band. */
-#define ROLL_Y        UI_BAND_TOP
-#define ROLL_H        (UI_BAND_BOT - UI_BAND_TOP)
+ * parent-overflow rendering. Count centered in the breathing rings,
+ * then state BODY(36), then tokens LABEL(26). The old kind-mix line
+ * ("cc x2 · cx x1") is gone — CAPTION-tier trivia that cost a whole
+ * line of the band. */
+/* v4.6: the cluster is just the count-in-rings + the "N 运行 · M 等待"
+ * line (the old "今日 · 累计" token line was removed — unused, and it
+ * crowded the footer). The pair is centred in the safe band. */
+#define ROLL_Y        (UI_SAFE_TOP + 2)   /* centres ringbox(164)+gap+state in the band */
+#define ROLL_H        UI_SAFE_H
 #define ROLL_RINGBOX  164   /* ring wrapper; outer ring breathes 150..162 */
-#define ROLL_NUM_Y     29   /* HERO line (106) centered in the ringbox */
-#define ROLL_STATE_Y  174
-#define ROLL_TOKENS_Y 226
+/* v4.5: the count is the rounded clock face (matches scene_clock), a
+ * child of the ringbox and optically CENTER-aligned in it. Count is
+ * 0..AGENT_SLOT_MAX (single digit, all in the "0-9" subset). NUDGE
+ * lifts it for the tiny_ttf ascent padding (tuned by screenshot). */
+#define ROLL_NUM_PX     96
+#define ROLL_NUM_NUDGE   (3)   /* +down: clock-font ink centres ~7px above the ring at -4 */
+#define ROLL_STATE_Y  (ROLL_RINGBOX + UI_GAP_MD)   /* state line just below the rings */
 
 typedef struct {
     status_bar_t sb;              /* shared top time + bottom active/tokens */
@@ -58,12 +65,10 @@ typedef struct {
     lv_obj_t   *roll_ring_in;     /* inner teal ring, breathing */
     lv_obj_t   *roll_num;         /* big live-agent count — the "core" */
     lv_obj_t   *roll_state;       /* "N 运行 · M 等待" */
-    lv_obj_t   *roll_tokens;      /* "今日 12.3k · 累计 4.5M" */
     /* Caches mirror the 80-byte compose buffer 1:1 so snprintf can never
      * truncate (format-truncation is -Werror on this toolchain). */
     char        cached_num[80];
     char        cached_state[80];
-    char        cached_tokens[80];
     /* zZz group (empty state) — teal ring + breathing dot, the original
      * v2 ambient design (recovered from pre-v3 scene_dashboard). */
     lv_obj_t   *ring;
@@ -125,16 +130,8 @@ static lv_obj_t *mk_teal_ring(lv_obj_t *parent, int size, lv_opa_t opa)
     return r;
 }
 
-/* k/M formatting lifted from the old scene_sessions rollup. */
-static void fmt_tokens(char *buf, size_t cap, uint64_t v)
-{
-    if (v < 1000)            snprintf(buf, cap, "%u", (unsigned)v);
-    else if (v < 1000000ULL) snprintf(buf, cap, "%.1fk", (double)v / 1000.0);
-    else                     snprintf(buf, cap, "%.1fM", (double)v / 1000000.0);
-}
-
-/* Update a label only when its text changed — keeps the 60ms tick from
- * invalidating four static labels every frame. */
+/* Update a label only when its text changed — keeps the tick from
+ * invalidating the static labels every frame. */
 static void set_if_changed(lv_obj_t *lbl, char *cache, size_t cap,
                            const char *text)
 {
@@ -228,8 +225,7 @@ static void render_zzz(overview_state_t *st, uint32_t phase)
 /* ── rollup ──────────────────────────────────────────────────────── */
 
 static void render_rollup(overview_state_t *st, int slot_count,
-                          int running, int waiting,
-                          uint64_t tok_today, uint64_t tok_cum)
+                          int running, int waiting)
 {
     char buf[80];
 
@@ -243,13 +239,6 @@ static void render_rollup(overview_state_t *st, int slot_count,
     /* Gold when someone needs the user, calm dim otherwise. */
     lv_obj_set_style_text_color(st->roll_state,
         lv_color_hex(waiting > 0 ? COL_GOLD : COL_TEXT_DIM), 0);
-
-    char today[16], cum[16];
-    fmt_tokens(today, sizeof(today), tok_today);
-    fmt_tokens(cum, sizeof(cum), tok_cum);
-    snprintf(buf, sizeof(buf), "今日 %s \xC2\xB7 累计 %s", today, cum);
-    set_if_changed(st->roll_tokens, st->cached_tokens,
-                   sizeof(st->cached_tokens), buf);
 }
 
 /* ── tick ────────────────────────────────────────────────────────── */
@@ -260,7 +249,6 @@ static void overview_tick(lv_timer_t *t)
     if (!st) return;
 
     int slot_count, running, waiting;
-    uint64_t tok_today, tok_cum;
 
     agent_state_lock();
     agent_state_t *s = agent_state_get();
@@ -268,15 +256,12 @@ static void overview_tick(lv_timer_t *t)
     slot_count = s->slot_count;
     running    = s->running;
     waiting    = s->waiting;
-    tok_today  = s->tokens_today;
-    tok_cum    = s->tokens_cumulative;
     agent_state_unlock();
 
     if (slot_count > 0) {
         lv_obj_add_flag(st->zzz_grp, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(st->roll_grp, LV_OBJ_FLAG_HIDDEN);
-        render_rollup(st, slot_count, running, waiting,
-                      tok_today, tok_cum);
+        render_rollup(st, slot_count, running, waiting);
         /* Low-frequency ring breath: 16-step triangle over 3 s applied
          * to border opacity — see the init() comment for why this must
          * not be a per-frame lv_anim. */
@@ -342,23 +327,23 @@ static void overview_init(scene_t *s, lv_obj_t *parent)
     st->roll_ring_out = mk_teal_ring(ringbox, 156, LV_OPA_20);
     st->roll_ring_in  = mk_teal_ring(ringbox, 128, LV_OPA_40);
 
-    st->roll_num = lv_label_create(st->roll_grp);
-    lv_obj_set_style_text_font(st->roll_num, ui_type_bold(UI_T_HERO), 0);
+    /* Count sits INSIDE the ringbox (created after the rings → drawn on
+     * top) and centres in it — so it tracks the ring centre exactly.
+     * No perf change: it already overlapped the ring region and is
+     * repainted ~5x/s by the border-opa breath. */
+    { const lv_font_t *nf = clock_font(ROLL_NUM_PX);
+      st->roll_num = lv_label_create(ringbox);
+      lv_obj_set_style_text_font(st->roll_num,
+                                 nf ? nf : &lv_font_montserrat_48, 0); }
     lv_obj_set_style_text_color(st->roll_num, lv_color_hex(COL_TEXT), 0);
     lv_label_set_text(st->roll_num, "0");
-    lv_obj_align(st->roll_num, LV_ALIGN_TOP_MID, 0, ROLL_NUM_Y);
+    lv_obj_align(st->roll_num, LV_ALIGN_CENTER, 0, ROLL_NUM_NUDGE);
 
     st->roll_state = lv_label_create(st->roll_grp);
     lv_obj_set_style_text_font(st->roll_state, ui_type(UI_T_BODY), 0);
     lv_obj_set_style_text_color(st->roll_state, lv_color_hex(COL_TEXT_DIM), 0);
     lv_label_set_text(st->roll_state, "");
     lv_obj_align(st->roll_state, LV_ALIGN_TOP_MID, 0, ROLL_STATE_Y);
-
-    st->roll_tokens = lv_label_create(st->roll_grp);
-    lv_obj_set_style_text_font(st->roll_tokens, ui_type(UI_T_LABEL), 0);
-    lv_obj_set_style_text_color(st->roll_tokens, lv_color_hex(COL_TEXT_DIM), 0);
-    lv_label_set_text(st->roll_tokens, "");
-    lv_obj_align(st->roll_tokens, LV_ALIGN_TOP_MID, 0, ROLL_TOKENS_Y);
 
     lv_obj_add_flag(st->roll_grp, LV_OBJ_FLAG_HIDDEN);
 

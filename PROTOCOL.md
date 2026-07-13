@@ -144,7 +144,10 @@ exclusive ambient views — the device BOOT key toggles between them
 (`dash scene` / `dash idle` can still reach anything). Snapshots never
 move them (the pre-v4 0-agents→idle / N-agents→dashboard auto-switch is
 gone). clock is the screensaver: it enters on its own after
-`screensaver_min` minutes of no activity, leaves on new activity or any
+`screensaver_min` minutes of no activity — or, v4.7, after the host
+link has been silent for `offline_clock_min` minutes (stale agent data
+is history, so the device retreats to being a clock; a small red dot
+marks the lost link) — leaves on new activity or any
 key, and stays reachable manually via `dash scene clock`. The two
 takeovers stay state-driven: a prompt (or `agents[].awaiting`) enters
 its scene and, on clear, restores whatever the user was viewing.
@@ -159,7 +162,8 @@ Set device-side parameters. Persisted to NVS so they survive reboot.
   "owner": "Felix",
   "theme": "noir",
   "default_scene": "dashboard",
-  "screensaver_min": 10
+  "screensaver_min": 10,
+  "offline_clock_min": 5
 }
 ```
 
@@ -172,6 +176,13 @@ prompt`/`dash event`, or a snapshot that actually changes agent state —
 keepalives don't count) before the clock scene takes over as a
 screensaver. New activity restores the covered view; any key exits.
 0 disables. Default 10, clamped to 0-255, persisted to NVS.
+
+`offline_clock_min` (v4.7): minutes without ANY snapshot (keepalives
+included) before the device treats the host as gone and retreats to the
+clock scene, suppressing a stale awaiting takeover if one is up. The
+connection dot (red) stays visible on the clock. Any key exits and buys
+another `offline_clock_min` of browsing the stale views. 0 disables.
+Default 5, clamped to 0-255, persisted to NVS.
 
 ### `dash time` (new in v1)
 

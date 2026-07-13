@@ -26,12 +26,21 @@ enum { CONN_OK = 0, CONN_WAITING, CONN_STALE };
 /* Geometry (v4.4 type-scale pass): footer numbers moved to BODY(36)
  * and captions to CAPTION(20) — the 28/12 originals measured 9'/4' of
  * visual angle at 0.6 m, below every legibility floor. The columns sit
- * lower and wider apart to make room. */
+ * lower and wider apart to make room.
+ *
+ * v4.5: numbers now align TOP_MID over their caption (a number and its
+ * caption share the column's dx, so the number centres over the
+ * caption instead of left-hanging off it). Columns keep their left /
+ * right placement; dx = offset from screen mid (233), tuned so the
+ * captions don't visibly move. */
 #define HEADER_Y        56   /* time, top-center */
+#define CONN_DOT_D      16   /* connection dot diameter (~1.3 mm @305 ppi) */
+#define CONN_DOT_Y      24   /* sits in the band the old text pill used,
+                              * clear of the 48 px clock at HEADER_Y */
 #define FOOTER_Y       392   /* numbers row (36 px line ends ≈435) */
 #define FOOTER_CAP_Y   438   /* captions row (20 px line ends ≈462) */
-#define FOOTER_LEFT_X  108
-#define FOOTER_RIGHT_X 262
+#define FOOTER_LEFT_DX  (-92)   /* active column centre (≈ x141) */
+#define FOOTER_RIGHT_DX  (62)   /* tokens column centre (≈ x295) */
 
 void status_bar_format_time(char *buf, size_t cap, const agent_state_t *st)
 {
@@ -59,14 +68,17 @@ static void fmt_tokens(char *buf, size_t cap, uint64_t tok)
     }
 }
 
+/* dx = horizontal offset from screen mid. TOP_MID alignment persists
+ * across lv_label_set_text, so a number stays centred over its caption
+ * as its digit count changes (same idiom as the top clock). */
 static lv_obj_t *mk(lv_obj_t *parent, const lv_font_t *font, uint32_t color,
-                    int x, int y, const char *init)
+                    int dx, int y, const char *init)
 {
     lv_obj_t *l = lv_label_create(parent);
     lv_obj_set_style_text_color(l, lv_color_hex(color), 0);
     lv_obj_set_style_text_font(l, font, 0);
     lv_label_set_text(l, init);
-    lv_obj_set_pos(l, x, y);
+    lv_obj_align(l, LV_ALIGN_TOP_MID, dx, y);
     return l;
 }
 
@@ -83,24 +95,28 @@ void status_bar_create(lv_obj_t *parent, status_bar_t *sb)
     lv_obj_align(sb->time_lbl, LV_ALIGN_TOP_MID, 0, HEADER_Y);
 
     sb->active_num = mk(parent, ui_type_bold(UI_T_BODY),
-                        COL_TEAL, FOOTER_LEFT_X, FOOTER_Y, "0");
+                        COL_TEAL, FOOTER_LEFT_DX, FOOTER_Y, "0");
     sb->active_cap = mk(parent, ui_type(UI_T_CAPTION),
-                        COL_TEXT_DIM, FOOTER_LEFT_X, FOOTER_CAP_Y, "active");
+                        COL_TEXT_DIM, FOOTER_LEFT_DX, FOOTER_CAP_Y, "active");
     sb->token_num  = mk(parent, ui_type_bold(UI_T_BODY),
-                        COL_TEXT, FOOTER_RIGHT_X, FOOTER_Y, "0");
+                        COL_TEXT, FOOTER_RIGHT_DX, FOOTER_Y, "0");
     sb->token_cap  = mk(parent, ui_type(UI_T_CAPTION),
-                        COL_TEXT_DIM, FOOTER_RIGHT_X, FOOTER_CAP_Y, "tokens today");
+                        COL_TEXT_DIM, FOOTER_RIGHT_DX, FOOTER_CAP_Y, "tokens");
 
-    /* Connection-health pill, top-center above the clock. LABEL tier —
-     * it must be readable at desk distance when the link drops, but it
-     * is transient/secondary. ui_type chains to CJK for the Chinese
-     * status text. Hidden while healthy. */
-    sb->conn_lbl = lv_label_create(parent);
-    lv_obj_set_style_text_font(sb->conn_lbl, ui_type(UI_T_LABEL), 0);
-    lv_obj_set_style_text_align(sb->conn_lbl, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_text(sb->conn_lbl, "");
-    lv_obj_align(sb->conn_lbl, LV_ALIGN_TOP_MID, 0, 16);
-    lv_obj_add_flag(sb->conn_lbl, LV_OBJ_FLAG_HIDDEN);
+    /* Connection-health dot, top-center above the clock. Deliberately
+     * quiet — the link state is secondary info; the CONN_DOT_D disc
+     * (≈1.3 mm at 305 ppi) reads as a status LED at desk distance
+     * without shouting text at the user. Amber = waiting for host,
+     * red = host disconnected. Hidden while healthy. */
+    sb->conn_dot = lv_obj_create(parent);
+    lv_obj_remove_style_all(sb->conn_dot);
+    lv_obj_set_size(sb->conn_dot, CONN_DOT_D, CONN_DOT_D);
+    lv_obj_set_style_radius(sb->conn_dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(sb->conn_dot, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(sb->conn_dot, lv_color_hex(COL_DANGER), 0);
+    lv_obj_clear_flag(sb->conn_dot, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_align(sb->conn_dot, LV_ALIGN_TOP_MID, 0, CONN_DOT_Y);
+    lv_obj_add_flag(sb->conn_dot, LV_OBJ_FLAG_HIDDEN);
     sb->conn_state = -1;   /* force first update to apply */
 }
 
@@ -130,13 +146,11 @@ void status_bar_update(status_bar_t *sb, const agent_state_t *st)
     if (conn != sb->conn_state) {
         sb->conn_state = conn;
         if (conn == CONN_OK) {
-            lv_obj_add_flag(sb->conn_lbl, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(sb->conn_dot, LV_OBJ_FLAG_HIDDEN);
         } else {
-            lv_label_set_text(sb->conn_lbl,
-                conn == CONN_WAITING ? "· 等待主机连接 ·" : "· 主机已断开 ·");
-            lv_obj_set_style_text_color(sb->conn_lbl,
+            lv_obj_set_style_bg_color(sb->conn_dot,
                 lv_color_hex(conn == CONN_WAITING ? COL_WARN : COL_DANGER), 0);
-            lv_obj_clear_flag(sb->conn_lbl, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(sb->conn_dot, LV_OBJ_FLAG_HIDDEN);
         }
     }
 }

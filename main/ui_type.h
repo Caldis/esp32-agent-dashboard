@@ -62,8 +62,41 @@ int ui_type_line(ui_tier_t t);
 #define UI_CONTENT_W   410
 #define UI_MARGIN       28
 
-/* ── shared vertical anchors (the scene "safe band") ─────────────────
- * Scenes that show the status bar lay their content between these:
- * below the 48-px top clock, above the footer numbers. */
-#define UI_BAND_TOP    124
-#define UI_BAND_BOT    386
+/* ── vertical layout model (v4.6): the safe band ────────────────────
+ * Every scene shares two fixed status-bar "chrome" zones it must never
+ * crowd: the top clock (+ conn pill) above, and the active/tokens
+ * footer below. Measured ink bounds on this panel — the 48-px top clock
+ * ends at ~112, the footer numbers begin at ~382.
+ *
+ * ALL scene content lives in the SAFE BAND between them and keeps
+ * UI_SAFE_MARGIN of clear whitespace off each chrome zone. This is the
+ * one rule that stops the UI crowding its edges: size and CENTRE every
+ * row block / cluster inside [UI_SAFE_TOP, UI_SAFE_BOT]; never push
+ * content past them "to fit one more line" — drop a line or step a tier
+ * down instead. Generous edges are what make the layout read as calm.
+ *
+ *      0 ┌───────────────────────────────┐
+ *        │   conn pill · top clock       │ ── UI_CHROME_TOP (112)
+ *        │        · margin ·             │
+ *        ├───────────────────────────────┤ ── UI_SAFE_TOP  (134)
+ *        │                               │
+ *        │         SCENE CONTENT         │
+ *        │                               │
+ *        ├───────────────────────────────┤ ── UI_SAFE_BOT  (360)
+ *        │        · margin ·             │
+ *        │   active / tokens footer      │ ── UI_CHROME_BOT (382)
+ *    466 └───────────────────────────────┘
+ */
+#define UI_CHROME_TOP   112   /* bottom of the top-clock chrome zone */
+#define UI_CHROME_BOT   382   /* top of the footer chrome zone */
+#define UI_SAFE_MARGIN   22   /* mandated whitespace: content ↔ chrome */
+#define UI_SAFE_TOP     (UI_CHROME_TOP + UI_SAFE_MARGIN)   /* 134 */
+#define UI_SAFE_BOT     (UI_CHROME_BOT - UI_SAFE_MARGIN)   /* 360 */
+#define UI_SAFE_H       (UI_SAFE_BOT - UI_SAFE_TOP)        /* 226 */
+
+/* Back-compat aliases (older scenes reference these). They now resolve
+ * to the safe band, so the old UI_BAND_BOT=386 — which sat BELOW the
+ * footer's 382 and let the last fleet card touch it — is gone. Prefer
+ * UI_SAFE_* in new code. */
+#define UI_BAND_TOP    UI_SAFE_TOP
+#define UI_BAND_BOT    UI_SAFE_BOT

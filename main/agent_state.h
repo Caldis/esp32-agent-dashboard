@@ -180,6 +180,12 @@ typedef struct {
      * scene takes over. 0 disables. Set via `dash config`
      * {"screensaver_min":N}, persisted to NVS. */
     int32_t       screensaver_min;
+    /* v4.7 offline fallback: minutes after the snapshot stream (incl.
+     * keepalives) goes silent before the device gives up on the host and
+     * retreats to the clock scene — much sooner than the idle
+     * screensaver. 0 disables. Set via `dash config`
+     * {"offline_clock_min":N}, persisted to NVS. */
+    int32_t       offline_clock_min;
 
     /* v4.2: lv_tick of the last "activity" — any key press, any dash
      * prompt/event, or a snapshot that actually changed agent state

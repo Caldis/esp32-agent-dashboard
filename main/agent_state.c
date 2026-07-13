@@ -41,6 +41,7 @@ void agent_state_init(void)
     memset(&s_state, 0, sizeof(s_state));
     s_state.focused_slot = -1;
     s_state.screensaver_min = 10;   /* default; NVS may override */
+    s_state.offline_clock_min = 5;  /* host lost → clock after 5 min */
     s_state.last_activity_ms = lv_tick_get();
 }
 
