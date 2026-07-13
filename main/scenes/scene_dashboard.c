@@ -178,16 +178,22 @@ static uint32_t awaiting_elapsed_s(const agent_state_t *st, const agent_slot_t *
 static void compose_activity(const agent_slot_t *s, char *buf, size_t cap)
 {
     if (s->awaiting_kind != AWAITING_NONE) {
+        /* CONTINUE shows the rotating greeting (the same index the takeover
+         * uses, so device + detail agree); other kinds keep the fixed
+         * instructional headline. */
+        const char *head = (s->awaiting_kind == AWAITING_CONTINUE)
+            ? agent_awaiting_greeting(s->awaiting_greeting_idx)
+            : awaiting_headline(s->awaiting_kind);
         if (s->awaiting_summary[0]) {
             /* "·" (U+00B7) — proven renderable in the device font subset
              * (status_bar uses it); em dash is NOT in the subset. */
-            snprintf(buf, cap, "%s \xC2\xB7 ", awaiting_headline(s->awaiting_kind));
+            snprintf(buf, cap, "%s \xC2\xB7 ", head);
             size_t used = strlen(buf);
             if (used < cap) {
                 cjk_utf8_lcpy(buf + used, s->awaiting_summary, (unsigned)(cap - used));
             }
         } else {
-            snprintf(buf, cap, "%s", awaiting_headline(s->awaiting_kind));
+            snprintf(buf, cap, "%s", head);
         }
         return;
     }

@@ -72,10 +72,12 @@ static await_ui_t s_ui;
  * 1 m — the takeover signal must read across the desk, which no
  * 9-12-char English headline can do on a 38.8 mm panel. All chars are
  * in the GB2312 subset. */
-static const char *headline_for(awaiting_kind_t k)
+static const char *headline_for(const agent_slot_t *a)
 {
-    switch (k) {
-        case AWAITING_CONTINUE: return "该你了";
+    switch (a->awaiting_kind) {
+        /* CONTINUE rotates through the "your turn" greetings; the index was
+         * rolled in agent_state_set_awaiting, so it's stable per takeover. */
+        case AWAITING_CONTINUE: return agent_awaiting_greeting(a->awaiting_greeting_idx);
         case AWAITING_APPROVE:  return "请批准";
         case AWAITING_PICK:     return "请选择";
         case AWAITING_TYPE:     return "请输入";
@@ -241,7 +243,7 @@ static void tick(lv_timer_t *t)
         } else {
             s_ui.breath_anim_armed = 0;
         }
-        lv_label_set_text(s_ui.headline, headline_for(kind));
+        lv_label_set_text(s_ui.headline, headline_for(anchor));
         s_ui.last_rendered_kind = kind;
         strncpy(s_ui.last_session_id, anchor->session_id, AGENT_SESSION_ID_MAX - 1);
         s_ui.last_session_id[AGENT_SESSION_ID_MAX - 1] = '\0';

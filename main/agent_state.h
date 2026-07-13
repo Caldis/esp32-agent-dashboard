@@ -52,6 +52,9 @@ extern "C" {
 #define AGENT_AWAITING_SUMMARY_MAX   208   /* one-line marquee */
 #define AGENT_AWAITING_OPTIONS_MAX     4
 #define AGENT_AWAITING_OPTION_MAX     36   /* per option */
+/* v4.8: number of rotating "your turn" greetings for the CONTINUE
+ * takeover headline (see agent_awaiting_greeting). */
+#define AGENT_AWAITING_GREETING_COUNT  8
 
 typedef enum {
     AWAITING_NONE     = 0,   /* not blocked on user */
@@ -118,6 +121,12 @@ typedef struct {
     char            awaiting_options[AGENT_AWAITING_OPTIONS_MAX]
                                     [AGENT_AWAITING_OPTION_MAX];
     int             awaiting_options_count;
+    /* v4.8: which greeting the CONTINUE takeover shows. Rolled once when
+     * the slot enters AWAITING_CONTINUE (agent_state_set_awaiting), so
+     * every scene reads the same word and it never flickers per frame;
+     * re-rolled each time the agent hands the turn back. Index into the
+     * table behind agent_awaiting_greeting(). */
+    uint8_t         awaiting_greeting_idx;
 } agent_slot_t;
 
 typedef struct {
@@ -238,6 +247,12 @@ int agent_state_other_awaiting_count(const agent_slot_t *anchor);
 /* v2.3.0: parse a kind string from the wire snapshot (`"approve"`,
  * `"pick"`, etc.) into the enum. Returns AWAITING_NONE on unknown. */
 awaiting_kind_t agent_state_parse_awaiting_kind(const char *s);
+
+/* v4.8: the rotating "your turn" greeting for the CONTINUE takeover.
+ * `idx` is a slot's awaiting_greeting_idx (out-of-range → first word).
+ * Every word is GB2312 (in the device font subset) and ≤4 hanzi so it
+ * fits the HERO-88 headline at 1 m. */
+const char *agent_awaiting_greeting(uint8_t idx);
 
 /* v2.3.0: clear AWAITING state on a slot. Lock held. */
 void agent_state_clear_awaiting(agent_slot_t *slot);

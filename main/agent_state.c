@@ -204,6 +204,36 @@ void agent_state_set_awaiting_options(agent_slot_t *slot,
     slot->awaiting_options_count = n;
 }
 
+/* v4.8: rotating "your turn" greetings for the CONTINUE takeover. All
+ * GB2312 (device font subset), each ≤4 hanzi for the HERO-88 headline.
+ * Matches the user-picked "精选混合" set. */
+static const char *const k_awaiting_greetings[AGENT_AWAITING_GREETING_COUNT] = {
+    "该你了", "到你啦", "你来吧", "欢迎回来",
+    "该你发挥", "接着来", "交给你", "该你出手",
+};
+
+const char *agent_awaiting_greeting(uint8_t idx)
+{
+    if (idx >= AGENT_AWAITING_GREETING_COUNT) idx = 0;
+    return k_awaiting_greetings[idx];
+}
+
+/* Pick a greeting index different from `prev` so the word visibly changes
+ * every time the turn comes back. lv_tick seeds it (this file also builds
+ * for the wasm data-layer, whose shim provides lv_tick_get but not
+ * esp_random); a running counter guarantees rotation even if two picks
+ * land on the same tick. */
+static uint8_t pick_awaiting_greeting(uint8_t prev)
+{
+    static uint32_t rot;
+    uint8_t idx = (uint8_t)((lv_tick_get() + rot++ * 7u)
+                            % AGENT_AWAITING_GREETING_COUNT);
+    if (idx == prev) {
+        idx = (uint8_t)((idx + 1u) % AGENT_AWAITING_GREETING_COUNT);
+    }
+    return idx;
+}
+
 void agent_state_set_awaiting(agent_slot_t *slot, awaiting_kind_t kind,
                               const char *const *context_lines,
                               int line_count, uint32_t since_unix)
@@ -217,6 +247,13 @@ void agent_state_set_awaiting(agent_slot_t *slot, awaiting_kind_t kind,
     slot->awaiting_kind = kind;
     if (transitioning) {
         slot->awaiting_entered_ms = lv_tick_get();
+        /* v4.8: a fresh entry into "your turn" rolls a new greeting so the
+         * CONTINUE headline rotates each time the agent hands back. Other
+         * kinds keep their fixed instructional headline. */
+        if (kind == AWAITING_CONTINUE) {
+            slot->awaiting_greeting_idx =
+                pick_awaiting_greeting(slot->awaiting_greeting_idx);
+        }
     }
     slot->awaiting_since_unix = since_unix ? since_unix : slot->awaiting_since_unix;
     if (slot->awaiting_since_unix == 0) {
