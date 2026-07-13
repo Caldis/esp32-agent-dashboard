@@ -17,6 +17,16 @@ Run `esp-harness cycle` after code changes (build + flash + verify).
 - `esp-harness verify` -- screenshot + visual regression
 - `esp-harness console --cmd "?stat" --json` -- device health
 
+## Screenshots (keep them out of the repo)
+Device captures are throwaway test artifacts, NOT source. `esp-harness
+screenshot`/`verify` default to writing PNGs into the repo root or `.harness/`.
+- Always pass `--out` to a scratch/temp path, or let captures land in
+  `.harness/` -- both root `*.png` and `.harness/` are gitignored.
+- NEVER `git add` a device screenshot. The only committed images are the
+  curated scene captures under `docs/img/`.
+- Don't scatter `*.png` in the repo root; the ignore rule hides them, but a
+  tidy tree matters.
+
 ## Key Files
 - `harness.json` -- project config (board=esp32_s3_touch_amoled_2_16, port=COM9, modules)
 - `main/esp32_agent_dashboard_main.c` -- entry point

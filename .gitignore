@@ -47,3 +47,11 @@ main/ui_bold.ttf
 # clock_digits.ttf source (3.6MB OFL original; the committed 2.4KB subset
 # is regenerated from it via tools/make_clock_font.py)
 fonts/MPLUSRounded1c-Black.ttf
+
+# Device screenshots — throwaway esp-harness screenshot/verify captures. They
+# pile up in the repo root (default --out) and under .harness/; neither is
+# source. Canonical, curated scene images are committed under docs/img/ (NOT
+# ignored). See AGENTS.md "Screenshots". Route new captures to a scratch path
+# or into .harness/ — never commit them.
+.harness/
+/*.png
