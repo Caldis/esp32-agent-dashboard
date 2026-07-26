@@ -57,11 +57,13 @@ typedef struct {
     lv_obj_t *summary_lbl;
     lv_obj_t *option_rows[AGENT_AWAITING_OPTIONS_MAX];
     lv_obj_t *more_lbl;
-    lv_obj_t *affordance;
-    awaiting_kind_t last_rendered_kind;
-    int         headline_big;   /* -1 = unset; 1 = HERO, 0 = TITLE */
-    char        last_session_id[AGENT_SESSION_ID_MAX];
+    int         headline_big;   /* 1 = HERO applied */
     uint32_t    breath_anim_armed;
+    /* v5.6 dirty-check caches — the tick re-applies EVERYTHING every
+     * 500 ms (unconditional convergence); these only suppress redundant
+     * invalidations, they never gate whether a field gets corrected. */
+    char        cached_headline[64];
+    char        cached_chip[64];
 } await_ui_t;
 
 static await_ui_t s_ui;
@@ -86,20 +88,24 @@ static const char *headline_for(const agent_slot_t *a)
     }
 }
 
-static bool is_urgent(awaiting_kind_t k)
-{
-    return (k == AWAITING_APPROVE) || (k == AWAITING_CLARIFY);
-}
+/* (v5.4: the per-kind "urgency" colour split is gone — it made the
+ * takeover show a TEAL ring for "your turn" while the dashboard showed
+ * the same waiting agent in GOLD, so keying between the two pages
+ * looked like a state change that never happened. Colour now follows
+ * STATE device-wide: gold = your move, teal = thinking, dim = idle.
+ * A takeover on screen is by definition "your move" → always gold.) */
 
 /* ── Layout constants ────────────────────────────────────────────── */
 
 #define SCREEN_W  466
 #define SCREEN_H  466
 
-/* v4.4 layout. The scene hides the status bar's top clock (a takeover
- * asking for input doesn't need the time — scene_clock owns that), so
- * content owns the band from AWAIT_TOP (below the conn pill) to
- * UI_BAND_BOT (above the footer numbers). Two presentation modes:
+/* v4.4 layout, v5.1 revision: the top clock is BACK — the v5.0
+ * transition contract makes the time a fixed anchor that never leaves
+ * the screen, and this takeover was the one scene without it. Content
+ * owns the band from AWAIT_TOP (below the top-clock chrome, ink ends
+ * ~112) to UI_BAND_BOT (above the footer numbers). Two presentation
+ * modes:
  *
  *   minimal (no summary/options/ctx) → glyph + HERO headline + chip;
  *   content                          → TITLE headline + chip + wrapped
@@ -108,10 +114,24 @@ static bool is_urgent(awaiting_kind_t k)
  *
  * The visible stack is vertically centered per-frame, same as v2.4.0.
  * All heights come from ui_type_line() — no free-hand pixel sizes. */
-#define AWAIT_TOP         48
-#define AWAIT_BOT         UI_BAND_BOT
-#define AWAIT_GLYPH_H     96
-#define AWAIT_OPTS_SHOWN   3   /* option rows on screen; rest fold into "+N" */
+#define AWAIT_TOP         116
+/* v5.9: the shared footer (active/tokens) is BACK — parity with
+ * dashboard (user call): every scene wears the same chrome, so the
+ * takeover can't read as a stripped-down different device state (v5.7
+ * had hidden it for breathing room). The band ends 4px above the
+ * footer chrome zone, mirroring the 4px top margin under the clock
+ * ink (112→116). The stack pays: glyph container 96→80 (ring ink is
+ * 72, still 4px slack) and tighter gaps — the HERO headline is
+ * untouchable (v5.5 pose contract).
+ * Stack 80+24+106+14+32 = 256 ≤ band 262 → top_pad 3. */
+#define AWAIT_BOT         (UI_CHROME_BOT - 4)   /* 378 */
+#define AWAIT_GAP_GLYPH   24   /* ring → headline */
+#define AWAIT_GAP_CHIP    14   /* headline → chip */
+#define AWAIT_GLYPH_H     80   /* container; ring ink is 72 */
+/* v5.2: 2 rows (was 3) — the top clock reclaimed 68px of the band, and
+ * three option rows + summary now overflow into the footer. The panel
+ * is a glanceable pager; full option lists live in the terminal. */
+#define AWAIT_OPTS_SHOWN   2   /* option rows on screen; rest fold into "+N" */
 #define AWAIT_OPT_ROW_H   (ui_type_line(UI_T_BODY) + UI_GAP_XS)
 
 /* ── Glyph rendering ────────────────────────────────────────────── */
@@ -147,43 +167,17 @@ static void glyph_pulse(lv_obj_t *parent, uint32_t color)
     s_ui.glyph_inner_dot = dot;
 }
 
-/* Generic symbol glyph: uses LV_SYMBOL_* with a big font. */
-static void glyph_symbol(lv_obj_t *parent, const char *symbol, uint32_t color)
-{
-    lv_obj_t *lbl = lv_label_create(parent);
-    lv_label_set_text(lbl, symbol);
-    lv_obj_set_style_text_color(lbl, lv_color_hex(color), 0);
-    /* LV_SYMBOL_* glyphs live in the built-in Montserrat private-use
-     * range only — this is an icon, not text, so it sits outside the
-     * ui_type scale. 48 is the largest built-in size. */
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_48, 0);
-    lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
-}
-
+/* v5.2 单一视觉语言：所有 awaiting kind 共用同一个呼吸圆环 glyph
+ * （用户反馈：警告三角/列表/编辑/铃铛五种 Montserrat 图标变体 + 双布局
+ * 让人分不清自己在看什么）。差异只留两个低噪声通道：headline 文字
+ * （该你发挥/请选择/请输入/需澄清）和紧急度颜色（gold/teal）。 */
 static void render_glyph(awaiting_kind_t k, uint32_t color)
 {
+    (void)k;
     if (s_ui.glyph == NULL) return;
     clear_children(s_ui.glyph);
     s_ui.glyph_inner_dot = NULL;
-    switch (k) {
-        case AWAITING_CONTINUE:
-            glyph_pulse(s_ui.glyph, color);
-            break;
-        case AWAITING_APPROVE:
-            glyph_symbol(s_ui.glyph, LV_SYMBOL_WARNING, color);
-            break;
-        case AWAITING_PICK:
-            glyph_symbol(s_ui.glyph, LV_SYMBOL_LIST, color);
-            break;
-        case AWAITING_TYPE:
-            glyph_symbol(s_ui.glyph, LV_SYMBOL_EDIT, color);
-            break;
-        case AWAITING_CLARIFY:
-            glyph_symbol(s_ui.glyph, LV_SYMBOL_BELL, color);
-            break;
-        default:
-            break;
-    }
+    glyph_pulse(s_ui.glyph, color);
 }
 
 /* Breathing animation for the continue kind's inner dot.
@@ -226,30 +220,34 @@ static void tick(lv_timer_t *t)
         return;
     }
     awaiting_kind_t kind = anchor->awaiting_kind;
-    /* Urgency-coded accent: gold for blocks that need attention,
-     * teal-bright for "your turn but no rush" continuations. Both pull
-     * from palette.md (gold = #B89020, teal-bright = #2BB3B1). */
-    uint32_t color = is_urgent(kind) ? 0xB89020 : 0x2BB3B1;
-
-    /* Has the kind or session changed since last render? Rebuild glyph + header. */
-    bool sess_changed = strncmp(anchor->session_id, s_ui.last_session_id,
-                                AGENT_SESSION_ID_MAX) != 0;
-    bool kind_changed = (kind != s_ui.last_rendered_kind);
+    /* v5.4 device-wide state colour: a visible takeover IS "your move"
+     * — always gold (#B89020), matching the dashboard's pulse ring for
+     * the same waiting agent. */
+    uint32_t color = 0xB89020;
     bool motion_ok = !st->motion_reduced;
-    if (kind_changed || sess_changed) {
+
+    /* v5.6 UNCONDITIONAL CONVERGENCE. The old "rebuild only when kind or
+     * session changed" incremental path let historical widget states
+     * leak through as phantom looks (the user's "gold text, no ring":
+     * a same-kind same-session re-takeover skipped render_glyph AND the
+     * headline refresh, so whatever the widgets last held stayed up).
+     * Now every tick drives every element to the ONE canonical pose —
+     * ring present, gold, breathing; current greeting; gold chip —
+     * dirty-checked only to avoid redundant redraws, never to skip a
+     * correction. Whatever state history left behind, the page self-
+     * heals within 500 ms. */
+    if (lv_obj_get_child_count(s_ui.glyph) == 0) {
         render_glyph(kind, color);
-        if (kind == AWAITING_CONTINUE && motion_ok) {
-            arm_breath();
-        } else {
-            s_ui.breath_anim_armed = 0;
-        }
-        lv_label_set_text(s_ui.headline, headline_for(anchor));
-        s_ui.last_rendered_kind = kind;
-        strncpy(s_ui.last_session_id, anchor->session_id, AGENT_SESSION_ID_MAX - 1);
-        s_ui.last_session_id[AGENT_SESSION_ID_MAX - 1] = '\0';
-        /* Agent color follows urgency */
-        lv_obj_set_style_text_color(s_ui.agent_chip, lv_color_hex(color), 0);
+        s_ui.breath_anim_armed = 0;
     }
+    if (motion_ok && !s_ui.breath_anim_armed) arm_breath();
+
+    const char *head = headline_for(anchor);
+    if (strncmp(head, s_ui.cached_headline, sizeof(s_ui.cached_headline)) != 0) {
+        snprintf(s_ui.cached_headline, sizeof(s_ui.cached_headline), "%s", head);
+        lv_label_set_text(s_ui.headline, head);
+    }
+    lv_obj_set_style_text_color(s_ui.agent_chip, lv_color_hex(color), 0);
 
     /* Agent chip — "cc abc4:6f" (kind + first 4 + ':' + last 2). v2.7.0
      * fix per Persona C: long session_ids (full UUIDs) trimmed to last-6
@@ -290,173 +288,51 @@ static void tick(lv_timer_t *t)
         }
         snprintf(chip, sizeof(chip), "%s  %s", short_kind, sid_display);
     }
-    lv_label_set_text(s_ui.agent_chip, chip);
+    if (strncmp(chip, s_ui.cached_chip, sizeof(s_ui.cached_chip)) != 0) {
+        snprintf(s_ui.cached_chip, sizeof(s_ui.cached_chip), "%s", chip);
+        lv_label_set_text(s_ui.agent_chip, chip);
+    }
 
     /* Decide layout mode for this frame + compute the dynamic
      * vertical-center offset so the visible stack sits balanced
      * regardless of how many options / context lines exist. */
-    bool has_summary = (anchor->awaiting_summary[0] != '\0');
-    bool has_options = (anchor->awaiting_options_count > 0);
-    int n_opts = anchor->awaiting_options_count;
-    if (n_opts > AGENT_AWAITING_OPTIONS_MAX) n_opts = AGENT_AWAITING_OPTIONS_MAX;
-    int n_show = (n_opts > AWAIT_OPTS_SHOWN) ? AWAIT_OPTS_SHOWN : n_opts;
-    int n_more = n_opts - n_show;
-    int n_ctx = anchor->awaiting_context_count;
-    if (n_ctx > AGENT_AWAITING_CONTEXT_LINES) n_ctx = AGENT_AWAITING_CONTEXT_LINES;
-
-    bool show_affordance = (kind == AWAITING_APPROVE);
-    /* Minimal turns ("your turn", nothing else) keep the breathing
-     * glyph + HERO headline readable at 1 m. Any real content drops the
-     * glyph and steps the headline down to TITLE — the content is why
-     * the user leans in. */
-    bool minimal = !has_summary && !has_options && n_ctx == 0;
-    bool show_glyph = minimal;
-    /* 3+ option rows leave room for only one summary line; 0-2 get two. */
-    int summary_lines = (n_show >= 3) ? 1 : 2;
-
-    int head_h = ui_type_line(minimal ? UI_T_HERO : UI_T_TITLE);
+    /* v5.5: ONE pose, always — glyph + headline + chip. The panel's
+     * single job is "your move"; summaries / option lists / context
+     * lines live in the terminal. The old content mode (no glyph,
+     * TITLE headline, teal-initialised chip, body text) also read as a
+     * SECOND look — the user saw "a blue no-dot awaiting" and took it
+     * for a different state. It is gone. */
+    int head_h = ui_type_line(UI_T_HERO);
     int chip_h = ui_type_line(UI_T_LABEL);
-    int body_h = ui_type_line(UI_T_BODY);
-    int aff_h  = ui_type_line(UI_T_LABEL);
-    int more_h = ui_type_line(UI_T_CAPTION);
 
-    int big = minimal ? 1 : 0;
-    if (big != s_ui.headline_big) {
-        s_ui.headline_big = big;
-        lv_obj_set_style_text_font(s_ui.headline,
-            ui_type_bold(big ? UI_T_HERO : UI_T_TITLE), 0);
+    if (s_ui.headline_big != 1) {
+        s_ui.headline_big = 1;
+        lv_obj_set_style_text_font(s_ui.headline, ui_type_bold(UI_T_HERO), 0);
     }
 
-    int content_h = head_h + UI_GAP_XS + chip_h;
-    if (show_glyph)               content_h += AWAIT_GLYPH_H + UI_GAP_MD;
-    if (show_affordance)          content_h += UI_GAP_SM + aff_h;
-    if (has_summary)              content_h += UI_GAP_SM + summary_lines * body_h;
-    if (has_options) {
-        content_h += UI_GAP_SM + n_show * AWAIT_OPT_ROW_H;
-        if (n_more > 0) content_h += more_h;
-    } else if (!has_summary && n_ctx > 0) {
-        content_h += UI_GAP_SM + n_ctx * body_h;
-    }
-
+    int content_h = AWAIT_GLYPH_H + AWAIT_GAP_GLYPH + head_h
+                  + AWAIT_GAP_CHIP + chip_h;
     int avail_h = AWAIT_BOT - AWAIT_TOP;
     int top_pad = (avail_h - content_h) / 2;
     if (top_pad < 0) top_pad = 0;
     int y = AWAIT_TOP + top_pad;
 
-    /* Re-align the stack at the new y. */
-    if (show_glyph) {
-        lv_obj_align(s_ui.glyph, LV_ALIGN_TOP_MID, 0, y);
-        lv_obj_clear_flag(s_ui.glyph, LV_OBJ_FLAG_HIDDEN);
-        y += AWAIT_GLYPH_H + UI_GAP_MD;
-    } else {
-        lv_obj_add_flag(s_ui.glyph, LV_OBJ_FLAG_HIDDEN);
-    }
+    /* Re-align the fixed three-piece stack at the new y. */
+    lv_obj_align(s_ui.glyph, LV_ALIGN_TOP_MID, 0, y);
+    lv_obj_clear_flag(s_ui.glyph, LV_OBJ_FLAG_HIDDEN);
+    y += AWAIT_GLYPH_H + AWAIT_GAP_GLYPH;
     lv_obj_align(s_ui.headline,   LV_ALIGN_TOP_MID, 0, y);
-    y += head_h + UI_GAP_XS;
+    y += head_h + AWAIT_GAP_CHIP;
     lv_obj_align(s_ui.agent_chip, LV_ALIGN_TOP_MID, 0, y);
-    y += chip_h;
 
-    if (show_affordance) {
-        y += UI_GAP_SM;
-        lv_obj_align(s_ui.affordance, LV_ALIGN_TOP_MID, 0, y);
-        lv_obj_clear_flag(s_ui.affordance, LV_OBJ_FLAG_HIDDEN);
-        y += aff_h;
-    } else {
-        lv_obj_add_flag(s_ui.affordance, LV_OBJ_FLAG_HIDDEN);
-    }
-
-    if (has_summary) {
-        y += UI_GAP_SM;
-        lv_obj_set_size(s_ui.summary_lbl, UI_CONTENT_W,
-                        summary_lines * body_h);
-        lv_obj_align(s_ui.summary_lbl, LV_ALIGN_TOP_MID, 0, y);
-        y += summary_lines * body_h;
-    }
-    if (has_options) {
-        y += UI_GAP_SM;
-        int ox = (SCREEN_W - UI_CONTENT_W) / 2;
-        for (int i = 0; i < AGENT_AWAITING_OPTIONS_MAX; ++i) {
-            lv_obj_align(s_ui.option_rows[i], LV_ALIGN_TOP_LEFT, ox, y);
-            if (i < n_show) y += AWAIT_OPT_ROW_H;
-        }
-        lv_obj_align(s_ui.more_lbl, LV_ALIGN_TOP_MID, 0, y);
-    } else if (!has_summary) {
-        y += UI_GAP_SM;
-        for (int i = 0; i < AGENT_AWAITING_CONTEXT_LINES; ++i) {
-            lv_obj_align(s_ui.ctx_lines[i], LV_ALIGN_TOP_MID, 0, y);
-            if (i < n_ctx) y += body_h;
-        }
-    }
-
-    if (has_summary) {
-        /* Static wrapped text (v4.4) — the old scroll-circular marquee
-         * re-laid the FULL string out every frame and was the device-
-         * freeze root cause (task-watchdog starvation, bisected
-         * 2026-07-05); it is also poor ergonomics — reading moving text
-         * at 0.6-1 m is ~3x slower than static. Two BODY lines with
-         * DOT truncation show everything a glanceable panel should. */
-        static char s_last_summary[AGENT_AWAITING_SUMMARY_MAX];
-        static bool s_have_last = false;
-        if (!s_have_last
-            || strncmp(s_last_summary, anchor->awaiting_summary,
-                       sizeof(s_last_summary)) != 0) {
-            char capped[120];   /* 2 wrapped lines ≈ 22 hanzi; DOT handles the rest */
-            cjk_utf8_lcpy(capped, anchor->awaiting_summary, sizeof(capped));
-            lv_label_set_text(s_ui.summary_lbl, capped);
-            strncpy(s_last_summary, anchor->awaiting_summary,
-                    sizeof(s_last_summary) - 1);
-            s_last_summary[sizeof(s_last_summary) - 1] = '\0';
-            s_have_last = true;
-        }
-        lv_obj_clear_flag(s_ui.summary_lbl, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(s_ui.summary_lbl, LV_OBJ_FLAG_HIDDEN);
-    }
-
-    if (has_options) {
-        for (int i = 0; i < AGENT_AWAITING_OPTIONS_MAX; ++i) {
-            if (i < n_show && anchor->awaiting_options[i][0] != '\0') {
-                /* Compose with a UTF-8-safe copy — a byte-truncating
-                 * snprintf can split a hanzi and leave garbage bytes. */
-                char row[96];
-                int p = snprintf(row, sizeof(row), "%d  ", i + 1);
-                if (p > 0 && (size_t)p < sizeof(row)) {
-                    cjk_utf8_lcpy(row + p, anchor->awaiting_options[i],
-                                  (unsigned)(sizeof(row) - (size_t)p));
-                }
-                lv_label_set_text(s_ui.option_rows[i], row);
-                lv_obj_clear_flag(s_ui.option_rows[i], LV_OBJ_FLAG_HIDDEN);
-            } else {
-                lv_obj_add_flag(s_ui.option_rows[i], LV_OBJ_FLAG_HIDDEN);
-            }
-        }
-        if (n_more > 0) {
-            char more[24];
-            snprintf(more, sizeof(more), "+%d 更多", n_more);
-            lv_label_set_text(s_ui.more_lbl, more);
-            lv_obj_clear_flag(s_ui.more_lbl, LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_add_flag(s_ui.more_lbl, LV_OBJ_FLAG_HIDDEN);
-        }
-    } else {
-        for (int i = 0; i < AGENT_AWAITING_OPTIONS_MAX; ++i) {
-            lv_obj_add_flag(s_ui.option_rows[i], LV_OBJ_FLAG_HIDDEN);
-        }
-        lv_obj_add_flag(s_ui.more_lbl, LV_OBJ_FLAG_HIDDEN);
-    }
-
-    /* Context lines only when neither summary nor options present —
-     * i.e. v2.3.0 fallback. */
-    bool show_ctx = !has_summary && !has_options;
-    for (int i = 0; i < AGENT_AWAITING_CONTEXT_LINES; ++i) {
-        if (show_ctx && i < anchor->awaiting_context_count
-            && anchor->awaiting_context[i][0] != '\0') {
-            lv_label_set_text(s_ui.ctx_lines[i], anchor->awaiting_context[i]);
-            lv_obj_clear_flag(s_ui.ctx_lines[i], LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_add_flag(s_ui.ctx_lines[i], LV_OBJ_FLAG_HIDDEN);
-        }
-    }
+    /* Content widgets are permanently parked (kept in the tree for a
+     * possible future revival, never shown). */
+    lv_obj_add_flag(s_ui.summary_lbl, LV_OBJ_FLAG_HIDDEN);
+    for (int i = 0; i < AGENT_AWAITING_OPTIONS_MAX; ++i)
+        lv_obj_add_flag(s_ui.option_rows[i], LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_ui.more_lbl, LV_OBJ_FLAG_HIDDEN);
+    for (int i = 0; i < AGENT_AWAITING_CONTEXT_LINES; ++i)
+        lv_obj_add_flag(s_ui.ctx_lines[i], LV_OBJ_FLAG_HIDDEN);
 
     /* Shared status bar (top time + bottom active/tokens) replaces the old
      * eyebrow + "waiting Xs" footer — same header/footer as every other scene. */
@@ -473,7 +349,6 @@ static void init(scene_t *s, lv_obj_t *parent)
 {
     s->container = parent;
     memset(&s_ui, 0, sizeof(s_ui));
-    s_ui.last_rendered_kind = AWAITING_NONE;
     s_ui.headline_big = -1;   /* force first tick to apply a headline font */
     lv_obj_t *root = parent;
     /* Background */
@@ -481,11 +356,12 @@ static void init(scene_t *s, lv_obj_t *parent)
     lv_obj_set_style_bg_color(root, lv_color_hex(pal ? pal->bg : 0x0B0A09), 0);
     lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
 
-    /* Shared status bar. The top clock is hidden (v4.4): a takeover
-     * asking for input doesn't need the time, and dropping it frees
-     * ~76 px of band for full-size text. Footer + conn pill stay. */
+    /* Shared status bar, full chrome (v5.9): top clock (time anchor) +
+     * conn dot + active/tokens footer — parity with dashboard, so the
+     * takeover no longer looks like a different device state. */
     status_bar_create(root, &s_ui.sb);
-    lv_obj_add_flag(s_ui.sb.time_lbl, LV_OBJ_FLAG_HIDDEN);
+    /* v5.1: top clock stays visible — it sits at the consensus pose, so
+     * transitions into/out of this takeover keep the time anchored. */
 
     /* Glyph container — initial position; tick() re-aligns per-frame. */
     s_ui.glyph = lv_obj_create(root);
@@ -506,19 +382,15 @@ static void init(scene_t *s, lv_obj_t *parent)
     /* Agent chip (project name) — LABEL tier metadata under the
      * headline; CJK folder names come via the fallback chain. */
     s_ui.agent_chip = lv_label_create(root);
-    lv_obj_set_style_text_color(s_ui.agent_chip, lv_color_hex(0x2BB3B1), 0);
+    /* v5.4 state colour: gold from birth — the tick recolours on kind
+     * change only, so a teal initial would leak into the first frames. */
+    lv_obj_set_style_text_color(s_ui.agent_chip, lv_color_hex(0xB89020), 0);
     lv_obj_set_style_text_font(s_ui.agent_chip, ui_type(UI_T_LABEL), 0);
     lv_label_set_text(s_ui.agent_chip, "");
     lv_obj_align(s_ui.agent_chip, LV_ALIGN_TOP_MID, 0, AWAIT_TOP + 180);
 
-    /* Affordance hint for approve kind — tells user which physical
-     * buttons map to approve / deny. Hidden until kind == APPROVE. */
-    s_ui.affordance = lv_label_create(root);
-    lv_obj_set_style_text_color(s_ui.affordance, lv_color_hex(0x8A807A), 0);
-    lv_obj_set_style_text_font(s_ui.affordance, ui_type(UI_T_LABEL), 0);
-    lv_label_set_text(s_ui.affordance, "BOOT approve  \xC2\xB7  USER deny");
-    lv_obj_add_flag(s_ui.affordance, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_align(s_ui.affordance, LV_ALIGN_TOP_MID, 0, 0);
+    /* (v5.2: the "BOOT approve · USER deny" affordance label is gone —
+     * the prompt takeover is retired and keys never mean approve.) */
 
     /* Context lines (used when no dash-state summary). */
     for (int i = 0; i < AGENT_AWAITING_CONTEXT_LINES; ++i) {

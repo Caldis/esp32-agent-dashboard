@@ -30,17 +30,21 @@ enum { CONN_OK = 0, CONN_WAITING, CONN_STALE };
  *
  * v4.5: numbers now align TOP_MID over their caption (a number and its
  * caption share the column's dx, so the number centres over the
- * caption instead of left-hanging off it). Columns keep their left /
- * right placement; dx = offset from screen mid (233), tuned so the
- * captions don't visibly move. */
+ * caption instead of left-hanging off it).
+ *
+ * v6.1: the column pair is SYMMETRIC about the screen mid (dx = ±77,
+ * same 154px separation). The old -92/+62 was v4.5 drift ("don't move
+ * the captions") — its midpoint sat at x218, 15px left of centre,
+ * which read as the whole footer leaning left (user call), worst in
+ * idle where both numbers are a lone "0". */
 #define HEADER_Y        56   /* time, top-center */
 #define CONN_DOT_D      16   /* connection dot diameter (~1.3 mm @305 ppi) */
 #define CONN_DOT_Y      24   /* sits in the band the old text pill used,
                               * clear of the 48 px clock at HEADER_Y */
 #define FOOTER_Y       392   /* numbers row (36 px line ends ≈435) */
 #define FOOTER_CAP_Y   438   /* captions row (20 px line ends ≈462) */
-#define FOOTER_LEFT_DX  (-92)   /* active column centre (≈ x141) */
-#define FOOTER_RIGHT_DX  (62)   /* tokens column centre (≈ x295) */
+#define FOOTER_LEFT_DX  (-77)   /* active column centre (x156) */
+#define FOOTER_RIGHT_DX  (77)   /* tokens column centre (x310) */
 
 void status_bar_format_time(char *buf, size_t cap, const agent_state_t *st)
 {

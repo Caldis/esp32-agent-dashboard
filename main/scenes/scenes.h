@@ -6,32 +6,16 @@ extern "C" {
 #endif
 
 extern scene_t scene_dashboard;
-extern scene_t scene_overview;   /* v4 rollup — wire id stays "idle" */
+/* scene_overview retired in v5.2 — source kept, no longer built. */
+extern scene_t scene_weather;    /* v4.9 weather + clock combo */
 extern scene_t scene_clock;      /* v4 StandBy-style big clock */
-extern scene_t scene_prompt;
-extern scene_t scene_awaiting;   /* v2.3.0 takeover */
-
-/* Resolve the active permission prompt from outside the scene (the
- * button router's BOOT=approve / USER=deny path). decision is "once" or
- * "deny"; no-op when no prompt is active. Task-safe: takes the display
- * lock internally. */
-void scene_prompt_decide(const char *decision);
-
-/* v4 manual-switch contract: the prompt takeover remembers which
- * environment scene it covered and restores it on exit — the user's
- * BOOT-cycled view (overview/clock) must survive a prompt, so no exit
- * path may hardcode "back to dashboard".
- *
- * note_origin: call BEFORE switching to the prompt scene (the `dash
- * prompt` / snapshot prompt_set handlers). No-op when the current scene
- * is already a takeover (prompt/awaiting).
- * return_home: switch back to the noted origin (default scene when none
- * was noted) and forget it. Replaces every prompt-exit switch.
- *
- * Both mutate the scene registry — call under the display lock or from
- * the LVGL task. */
-void scene_prompt_note_origin(void);
-void scene_prompt_return_home(void);
+/* scene_prompt retired in v5.2 (approvals happen in the terminal) —
+ * source kept at scenes/scene_prompt.c, no longer built. Its
+ * scene_prompt_decide/note_origin/return_home API went with it. */
+/* scene_awaiting retired in v6.0 (the dashboard gold pose absorbed the
+ * takeover: greeting word + project chip in place; auto-switch pulls
+ * the display to the dashboard on a fresh awaiting rising edge).
+ * Source kept at scenes/scene_awaiting.c, no longer built. */
 
 /* v4.3: consume the clock-screensaver state (implemented in
  * esp32_agent_dashboard_main.c). Called by the button router at the

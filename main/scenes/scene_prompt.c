@@ -16,6 +16,7 @@
 #include "agent_state.h"
 #include "theme.h"
 #include "ui_type.h"
+#include "scene_trans.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -103,7 +104,7 @@ void scene_prompt_return_home(void)
     int idx = s_pre_prompt_scene_idx;
     s_pre_prompt_scene_idx = -1;
     if (idx < 0 || idx >= scene_fw_count()) idx = 0;
-    scene_fw_show(idx);
+    scene_trans_switch(idx);
 }
 
 static void prompt_decide(const char *decision)

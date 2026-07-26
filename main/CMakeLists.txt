@@ -5,18 +5,22 @@ idf_component_register(
         "buttons.c"
         "pwr_key.c"
         "button_router.c"
-        "pet.c"
+        # pet.c retired in v5.3 (source kept; the pulse ring is the one
+        # status glyph device-wide)
         "theme.c"
         "tiny_json.c"
         "tool_icons.c"
         "harness/agent_commands.c"
         "harness/agent_snapshot_apply.c"
         "scenes/scene_dashboard.c"
-        "scenes/scene_overview.c"
+        # scene_overview.c retired in v5.2 (source kept for reference)
+        "scenes/scene_weather.c"
         "scenes/scene_clock.c"
-        "scenes/scene_prompt.c"
-        "scenes/scene_awaiting.c"
+        # scene_prompt.c retired in v5.2 (source kept for reference)
+        # scene_awaiting.c retired in v6.0 (dashboard gold pose absorbed it)
         "anim/apple_ease.c"
+        "anim/spring.c"
+        "scene_trans.c"
         "cjk_font.c"
         "ui_type.c"
         "status_bar.c"

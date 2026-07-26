@@ -55,6 +55,11 @@ extern "C" {
 /* v4.8: number of rotating "your turn" greetings for the CONTINUE
  * takeover headline (see agent_awaiting_greeting). */
 #define AGENT_AWAITING_GREETING_COUNT  8
+/* v4.9 weather: fixed five-day window — days[0]=yesterday, days[1]=today,
+ * days[2..4]=next three days. Pushed by the bridge via `dash weather`
+ * (see tools/claude_buddy_bridge.py WeatherPoller). */
+#define WEATHER_DAYS            5
+#define WEATHER_LOC_MAX        32   /* "深圳·福田" — UTF-8, host-supplied */
 
 typedef enum {
     AWAITING_NONE     = 0,   /* not blocked on user */
@@ -129,6 +134,30 @@ typedef struct {
     uint8_t         awaiting_greeting_idx;
 } agent_slot_t;
 
+/* v4.9: one day of the weather window. Temperatures are whole °C (the
+ * panel shows integers; the bridge rounds). code is the WMO weather
+ * interpretation code Open-Meteo emits (0 clear … 99 thunderstorm);
+ * wday is 0=Sunday..6=Saturday for that date. */
+typedef struct {
+    int16_t code;
+    int8_t  t_lo;
+    int8_t  t_hi;
+    uint8_t wday;
+} weather_day_t;
+
+/* v4.9: weather snapshot pushed by the host bridge (`dash weather`).
+ * valid stays false until the first push lands; received_ms lets scenes
+ * grey the data out when the feed goes stale (bridge re-pushes on
+ * reconnect and every poll interval). */
+typedef struct {
+    bool          valid;
+    char          loc[WEATHER_LOC_MAX];   /* display name, e.g. "深圳·福田" */
+    int16_t       cur_temp;               /* current °C, rounded */
+    int16_t       cur_code;               /* current WMO code */
+    weather_day_t days[WEATHER_DAYS];
+    uint32_t      received_ms;            /* lv_tick at receipt */
+} weather_state_t;
+
 typedef struct {
     /* Slot array — index is stable across snapshots, so left pane is
      * always slot 0 and right pane slot 1 unless something explicitly
@@ -192,6 +221,9 @@ typedef struct {
      * (keepalives repeating the same state don't count). Drives the
      * screensaver timer in scene_auto_switch_cb. */
     uint32_t      last_activity_ms;
+
+    /* v4.9: latest weather push (see weather_state_t above). */
+    weather_state_t weather;
 
     /* Counters for `dash health` reply. */
     uint32_t      snapshots_received;

@@ -36,6 +36,7 @@
 #include "harness/default_cmds.h"
 
 #include "scenes/scenes.h"
+#include "scene_trans.h"
 #include "agent_state.h"
 #include "buttons.h"
 #include "pwr_key.h"
@@ -80,15 +81,21 @@ static void on_scene_changed(int idx, const scene_t *current)
     }
 }
 
-/* v2.3.0: auto-switch between AWAITING takeover and the active
- * non-awaiting scene. Remembers what the user was on before the
- * takeover so we restore them when awaiting clears.
- *
- * v3.0 fleet rule: the takeover only fires when EXACTLY ONE agent is
- * live. With 2+ agents a full-screen takeover would hide every other
- * agent's progress — the dashboard's fleet rows carry the awaiting
- * state (gold highlight) instead. */
-static int s_pre_awaiting_scene_idx = -1;
+/* v6.0: the AWAITING takeover scene is retired (user call: it and the
+ * dashboard's gold pose were two near-identical gold pages a key press
+ * flipped between). "Takeover" is now a PULL: on the rising edge of
+ * effective-awaiting (any slot awaiting AND the host link alive) the
+ * display switches to the dashboard, whose gold pose carries the
+ * greeting word + project chip. One-shot: if the user keys away
+ * afterwards nothing re-grabs — only the next genuine turn-return (a
+ * fresh rising edge) pulls again. This subsumes the v4.9 dismissal
+ * flag AND the pre-takeover scene restore (there is no takeover to
+ * restore from; when a round clears the dashboard just re-renders in
+ * place). Edging on EFFECTIVE awaiting keeps the two old suppressions
+ * for free: host_lost drops the signal (stale frozen slots can't
+ * pull), and the reconnect force-push raises it again — the v4.7
+ * "reconnect re-fires from the fresh snapshot" contract. */
+static bool s_prev_eff_awaiting = false;
 
 /* v4.2 clock screensaver: after screensaver_min minutes with no
  * activity (key press / dash prompt / dash event / a snapshot that
@@ -127,13 +134,11 @@ int scene_saver_consume(void)
 void scene_auto_switch_cb(lv_timer_t *t)
 {
     (void)t;
-    int awaiting_idx = scene_fw_find_by_id("awaiting");
+    int dash_idx = scene_fw_find_by_id("dashboard");
     int current_idx = scene_fw_current_index();
-    if (awaiting_idx < 0 || current_idx < 0) return;
+    if (dash_idx < 0 || current_idx < 0) return;
 
     bool any_awaiting = false;
-    bool prompt_active = false;
-    int  slot_count = 0;
     int32_t  saver_min = 0;
     int32_t  offline_min = 0;
     uint32_t last_activity_ms = 0;
@@ -141,8 +146,6 @@ void scene_auto_switch_cb(lv_timer_t *t)
     bool     ever_received = false;
     agent_state_lock();
     if (agent_state_most_recent_awaiting() != NULL) any_awaiting = true;
-    prompt_active = agent_state_get()->prompt_active;
-    slot_count = agent_state_get()->slot_count;
     saver_min = agent_state_get()->screensaver_min;
     offline_min = agent_state_get()->offline_clock_min;
     last_activity_ms = agent_state_get()->last_activity_ms;
@@ -161,40 +164,26 @@ void scene_auto_switch_cb(lv_timer_t *t)
     bool host_lost = ever_received && offline_min > 0
                   && (now - last_snapshot_ms) >= (uint32_t)offline_min * 60000u;
 
-    /* An active permission prompt is the higher-priority interactive scene: it
-     * owns the physical BOOT/USER buttons. If we let the AWAITING takeover grab
-     * the screen while a prompt is up, the prompt is hidden (its countdown
-     * pauses, its buttons stop responding) yet AWAITING shows "BOOT approve /
-     * USER deny" that do nothing — the device-side approval becomes dead. So
-     * suppress the takeover while a prompt is active. */
     /* (v4.3: screen-off is gone — PWR locks to the clock instead — so
      * the wake call is inert; kept for the day a real screen-off
-     * returns.) */
-    if ((any_awaiting || prompt_active) && button_router_screen_is_off()) {
+     * returns. v5.2: the prompt takeover is retired, so awaiting is the
+     * only interactive takeover left.) */
+    if (any_awaiting && button_router_screen_is_off()) {
         button_router_screen_wake();
     }
 
-    bool on_awaiting = (current_idx == awaiting_idx);
-    /* !host_lost: an AWAITING takeover shouts "needs your input" with
-     * BOOT/USER hints, but with the host gone the decision has nowhere
-     * to go — a lie on screen. Suppressing it also lets an in-progress
-     * takeover yield (branch below) so the clock fallback can engage;
-     * on reconnect the refreshed snapshot re-fires it if still true. */
-    bool want_takeover = any_awaiting && (slot_count <= 1) && !host_lost;
-    if (want_takeover && !on_awaiting && !prompt_active) {
-        s_pre_awaiting_scene_idx = current_idx;
+    /* v6.0 pull-to-dashboard. Any agent count: the destination is the
+     * dashboard itself, so the old v3.0 "suppress with 2+ agents" gate
+     * (a full-screen takeover would hide the fleet) is moot — with 2+
+     * live the pull lands on the fleet rows and the gold row carries
+     * the state. */
+    bool eff_awaiting = any_awaiting && !host_lost;
+    bool pull = eff_awaiting && !s_prev_eff_awaiting;
+    s_prev_eff_awaiting = eff_awaiting;
+    if (pull && current_idx != dash_idx) {
         bsp_display_lock(-1);
-        scene_fw_show(awaiting_idx);
+        scene_trans_switch(dash_idx);
         bsp_display_unlock();
-        return;
-    } else if (!want_takeover && on_awaiting) {
-        /* Either nothing is awaiting anymore, or a second agent appeared —
-         * both mean the takeover must yield (to the previous scene / fleet). */
-        int back = (s_pre_awaiting_scene_idx >= 0) ? s_pre_awaiting_scene_idx : 0;
-        bsp_display_lock(-1);
-        scene_fw_show(back);
-        bsp_display_unlock();
-        s_pre_awaiting_scene_idx = -1;
         return;
     }
 
@@ -215,7 +204,6 @@ void scene_auto_switch_cb(lv_timer_t *t)
         s_saver_active = false;
         s_pre_saver_scene_idx = -1;
     } else if (!s_saver_active && !on_clock
-               && !prompt_active
                && !button_router_screen_is_off()
                && ((!any_awaiting && saver_min > 0
                     && (now - last_activity_ms) >= (uint32_t)saver_min * 60000u)
@@ -224,7 +212,7 @@ void scene_auto_switch_cb(lv_timer_t *t)
         bsp_display_lock(-1);
         s_pre_saver_scene_idx = scene_fw_current_index();
         s_saver_active = true;
-        scene_fw_show(clock_idx);
+        scene_trans_switch(clock_idx);
         bsp_display_unlock();
     }
     /* NB: while s_saver_active && on_clock we intentionally do nothing on
@@ -278,21 +266,29 @@ void app_main(void)
      * cycles environment scenes in registration order (dashboard →
      * overview → …), skipping the takeovers. */
     scene_fw_register(&scene_dashboard);
-    scene_fw_register(&scene_overview);
+    /* v5.2: scene_overview (wire id "idle") is RETIRED — with one agent
+     * it showed a lone "1", and its fleet rollup belongs in a dashboard
+     * summary row. The BOOT cycle is now just dashboard ↔ weather
+     * (clock stays saver/lock-only). `dash idle` aliases to dashboard
+     * for wire compat; an NVS default_scene of "idle" falls back to
+     * index 0 naturally. Source kept at scenes/scene_overview.c
+     * (unregistered, out of the build). */
+    scene_fw_register(&scene_weather);
     scene_fw_register(&scene_clock);
-    scene_fw_register(&scene_prompt);
-    /* v2.3.0 AWAITING takeover — the scene that fires when any agent
-     * is blocking on user input. Not the default (entered automatically
-     * by the auto_switch_cb timer when slots report awaiting state). */
-    scene_fw_register(&scene_awaiting);
+    /* v5.2: scene_prompt is RETIRED (approvals happen in the terminal;
+     * the panel is a display, not an input device — user's words).
+     * Source kept at scenes/scene_prompt.c, out of the build. */
+    /* v6.0: scene_awaiting is RETIRED (the dashboard gold pose is the
+     * "your turn" view; auto_switch pulls the display to the dashboard
+     * instead). Source kept at scenes/scene_awaiting.c, out of the
+     * build — same convention as prompt/overview/pet. */
 
     lv_timer_create(frame_cb, 33, NULL);
     lv_timer_create(heap_watchdog_cb, HEAP_WD_PERIOD_MS, NULL);
 
-    /* v2.3.0 auto-switch: poll agent_state every 500ms; if any slot is
-     * AWAITING_* we switch to scene_awaiting; if no slot is awaiting and
-     * we're currently on awaiting, switch back to the previously-active
-     * scene (or default_scene). */
+    /* auto-switch: poll agent_state every 500ms; v6.0 — a fresh
+     * awaiting rising edge pulls the display to the dashboard (one-
+     * shot); also runs the clock screensaver + offline fallback. */
     extern void scene_auto_switch_cb(lv_timer_t *t);
     lv_timer_create(scene_auto_switch_cb, 500, NULL);
 
@@ -317,7 +313,7 @@ void app_main(void)
         int idx = scene_fw_find_by_id(start_scene);
         if (idx >= 0) {
             bsp_display_lock(-1);
-            scene_fw_show(idx);
+            scene_trans_switch(idx);
             bsp_display_unlock();
         }
     }

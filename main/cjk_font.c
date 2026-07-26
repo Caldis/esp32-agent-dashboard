@@ -106,12 +106,16 @@ const lv_font_t *ui_font_bold(int px)
 }
 
 /* Clock digits: rounded subset for scene_clock (see header). Same
- * tiny_ttf pipeline, its own tiny cache — the face wants one size but a
- * follow-up (e.g. seconds readout) may add another. */
+ * tiny_ttf pipeline, its own cache. v5.1: the scene-transition "true
+ * morph" steps the clock through size RUNGS (48/66/84/102/120/135 for
+ * the big face, 26/33/40/48 for weather's corner clock) instead of
+ * transform_scale (the retired 12-fps plan A), so the cache must hold
+ * every rung — 12 covers both ladders with headroom. Each instance is
+ * tiny (12-glyph subset, ~2.4 KB source). */
 extern const uint8_t clock_ttf_start[] asm("_binary_clock_digits_ttf_start");
 extern const uint8_t clock_ttf_end[]   asm("_binary_clock_digits_ttf_end");
 
-#define CLOCK_CACHE_MAX 4
+#define CLOCK_CACHE_MAX 12
 static lv_font_t *s_clock_font[CLOCK_CACHE_MAX];
 static int        s_clock_px[CLOCK_CACHE_MAX];
 

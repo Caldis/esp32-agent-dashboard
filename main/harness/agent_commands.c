@@ -38,10 +38,12 @@
 #include "agent_commands.h"
 #include "agent_snapshot_apply.h"
 #include "../agent_state.h"
+#include "../cjk_font.h"
 #include "../theme.h"
 #include "../tiny_json.h"
 #include "../button_router.h"
 #include "../scenes/scenes.h"
+#include "../scene_trans.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -69,23 +71,13 @@ static bool switch_scene(const char *id)
     int idx = scene_fw_find_by_id(id);
     if (idx < 0) return false;
     bsp_display_lock(-1);
-    scene_fw_show(idx);
+    scene_trans_switch(idx);
     bsp_display_unlock();
     return true;
 }
 
-/* Enter the prompt takeover, remembering the scene it covers so the
- * exit paths (decision / clear / timeout) can restore it. */
-static bool switch_to_prompt(void)
-{
-    int idx = scene_fw_find_by_id("prompt");
-    if (idx < 0) return false;
-    bsp_display_lock(-1);
-    scene_prompt_note_origin();
-    scene_fw_show(idx);
-    bsp_display_unlock();
-    return true;
-}
+/* (v5.2: switch_to_prompt removed — the on-device prompt takeover is
+ * retired; approvals happen in the terminal.) */
 
 /* argv[2] is the JSON. Returns NULL after replying ERR. */
 static const char *json_arg(const console_args_t *a, const char **out_end)
@@ -156,18 +148,9 @@ static int cmd_snapshot(const console_args_t *a)
                          result.dropped_count);
     }
 
-    /* v4: only the prompt takeover is scene-driven by snapshots.
-     * Environment scenes (dashboard/overview/clock) are manual — the
-     * old total_now-based idle↔dashboard auto-switch is gone. */
-    const scene_t *cur = scene_fw_current();
-    const char *cur_id = cur ? cur->id : "";
-    if (result.prompt_set) {
-        switch_to_prompt();
-    } else if (result.prompt_clear && strcmp(cur_id, "prompt") == 0) {
-        bsp_display_lock(-1);
-        scene_prompt_return_home();
-        bsp_display_unlock();
-    }
+    /* v5.2: snapshots drive NO scene changes at all any more — the
+     * prompt takeover is retired (approvals happen in the terminal) and
+     * environment scenes were already manual since v4. */
 
     console_reply_ok("{\"applied\":true,\"agents\":%d,\"dropped\":%d}",
                      result.total_now, result.dropped_count);
@@ -176,43 +159,26 @@ static int cmd_snapshot(const console_args_t *a)
 
 /* ── dash prompt ─────────────────────────────────────────────────── */
 
+/* v5.2: the on-device prompt takeover is retired — approvals happen in
+ * the terminal. The verb stays a wire-compatible no-op (the bridge may
+ * still push prompts; erroring would just spam its logs) and keeps the
+ * health counter ticking. prompt_active must never go true (see the
+ * matching note in agent_snapshot_apply.c). */
 static int cmd_prompt(const console_args_t *a)
 {
     const char *end = NULL;
     const char *json = json_arg(a, &end);
     if (!json) return 0;
 
-    char id[AGENT_PROMPT_ID_MAX]       = {0};
-    char tool[AGENT_TOOL_MAX]          = {0};
-    char hint[AGENT_HINT_MAX]          = {0};
-    char kind[AGENT_KIND_MAX]          = {0};
-    char sid[AGENT_SESSION_ID_MAX]     = {0};
-    char mode[16]                      = {0};
-    tj_object_get_string(json, end, "id",         id,   sizeof(id));
-    tj_object_get_string(json, end, "tool",       tool, sizeof(tool));
-    tj_object_get_string(json, end, "hint",       hint, sizeof(hint));
-    tj_object_get_string(json, end, "agent_kind", kind, sizeof(kind));
-    tj_object_get_string(json, end, "session_id", sid,  sizeof(sid));
-    tj_object_get_string(json, end, "mode",       mode, sizeof(mode));
-
+    char id[AGENT_PROMPT_ID_MAX] = {0};
+    tj_object_get_string(json, end, "id", id, sizeof(id));
     if (id[0] == '\0') { console_reply_err("prompt id required"); return 0; }
 
     agent_state_lock();
-    agent_state_t *s = agent_state_get();
-    memcpy(s->prompt_id,         id,   sizeof(s->prompt_id));
-    memcpy(s->prompt_tool,       tool, sizeof(s->prompt_tool));
-    memcpy(s->prompt_hint,       hint, sizeof(s->prompt_hint));
-    memcpy(s->prompt_agent_kind, kind, sizeof(s->prompt_agent_kind));
-    memcpy(s->prompt_session_id, sid,  sizeof(s->prompt_session_id));
-    s->prompt_mode_reply = (strcmp(mode, "reply") == 0);
-    s->prompt_active = true;
-    s->prompt_shown_ms = lv_tick_get();
-    s->prompts_received++;
+    agent_state_get()->prompts_received++;
     agent_state_unlock();
 
-    agent_state_touch_activity();
-    switch_to_prompt();
-    console_reply_ok("{\"prompt\":\"%s\"}", id);
+    console_reply_ok("{\"prompt\":\"%s\",\"takeover\":\"retired\"}", id);
     return 0;
 }
 
@@ -301,7 +267,9 @@ static int cmd_tokens(const console_args_t *a)
 static int cmd_idle(const console_args_t *a)
 {
     (void)a;
-    if (!switch_scene("idle")) {
+    /* v5.2: the overview scene (wire id "idle") is retired; keep the
+     * verb as a dashboard alias so old tooling doesn't start erroring. */
+    if (!switch_scene("idle") && !switch_scene("dashboard")) {
         console_reply_err("idle scene missing");
         return 0;
     }
@@ -477,6 +445,68 @@ static int cmd_time(const console_args_t *a)
     return 0;
 }
 
+/* ── dash weather ────────────────────────────────────────────────── */
+
+/* v4.9: weather push from the bridge. Compact shape (wire budget):
+ *   {"loc":"深圳·福田","t":31,"c":95,
+ *    "days":[{"w":4,"c":80,"lo":26,"hi":33}, ×5]}
+ * days[] is the fixed five-day window (yesterday, today, +3); anything
+ * other than exactly WEATHER_DAYS entries is rejected so the scene never
+ * renders a half-filled strip. Weather is background data — deliberately
+ * NOT an activity touch (it must not hold the screensaver open). */
+static int cmd_weather(const console_args_t *a)
+{
+    const char *end = NULL;
+    const char *json = json_arg(a, &end);
+    if (!json) return 0;
+
+    char loc[WEATHER_LOC_MAX] = {0};
+    double cur_t = 0, cur_c = 0;
+    bool has_t = tj_object_get_double(json, end, "t", &cur_t);
+    bool has_c = tj_object_get_double(json, end, "c", &cur_c);
+    tj_object_get_string(json, end, "loc", loc, sizeof(loc));
+
+    weather_day_t days[WEATHER_DAYS];
+    int n = 0;
+    tj_span_t arr;
+    if (tj_object_find(json, end, "days", &arr) && tj_value_is_array(arr)) {
+        const char *cursor = NULL;
+        tj_span_t it;
+        while (n < WEATHER_DAYS && tj_array_next(arr, cursor, &it)) {
+            cursor = it.end;
+            if (!tj_value_is_object(it)) continue;
+            double w = 0, dc = 0, lo = 0, hi = 0;
+            tj_object_get_double(it.begin, it.end, "w",  &w);
+            tj_object_get_double(it.begin, it.end, "c",  &dc);
+            tj_object_get_double(it.begin, it.end, "lo", &lo);
+            tj_object_get_double(it.begin, it.end, "hi", &hi);
+            days[n].wday = (uint8_t)(((int)w % 7 + 7) % 7);
+            days[n].code = (int16_t)dc;
+            days[n].t_lo = (int8_t)lo;
+            days[n].t_hi = (int8_t)hi;
+            n++;
+        }
+    }
+    if (!has_t || !has_c || n != WEATHER_DAYS) {
+        console_reply_err("weather needs t,c,days[%d] (got %d)",
+                          WEATHER_DAYS, n);
+        return 0;
+    }
+
+    agent_state_lock();
+    weather_state_t *w = &agent_state_get()->weather;
+    if (loc[0]) cjk_utf8_lcpy(w->loc, loc, sizeof(w->loc));
+    w->cur_temp = (int16_t)cur_t;
+    w->cur_code = (int16_t)cur_c;
+    memcpy(w->days, days, sizeof(days));
+    w->valid = true;
+    w->received_ms = lv_tick_get();
+    agent_state_unlock();
+
+    console_reply_ok("{\"weather\":\"applied\",\"days\":%d}", n);
+    return 0;
+}
+
 /* ── dash health ─────────────────────────────────────────────────── */
 
 static int cmd_health(const console_args_t *a)
@@ -569,7 +599,7 @@ static int cmd_dash(const console_args_t *a)
 {
     if (a->argc < 2) {
         console_reply_err("dash needs a subcommand "
-                          "(snapshot|prompt|event|tokens|idle|scene|config|time|health|btn)");
+                          "(snapshot|prompt|event|tokens|idle|scene|config|time|weather|health|btn)");
         return 0;
     }
     const char *sub = a->argv[1];
@@ -581,6 +611,7 @@ static int cmd_dash(const console_args_t *a)
     else if (strcmp(sub, "scene")    == 0) return cmd_scene(a);
     else if (strcmp(sub, "config")   == 0) return cmd_config(a);
     else if (strcmp(sub, "time")     == 0) return cmd_time(a);
+    else if (strcmp(sub, "weather")  == 0) return cmd_weather(a);
     else if (strcmp(sub, "health")   == 0) return cmd_health(a);
     else if (strcmp(sub, "btn")      == 0) return cmd_btn(a);
     console_reply_err("unknown dash subcommand: %s", sub);
@@ -590,7 +621,7 @@ static int cmd_dash(const console_args_t *a)
 static const console_cmd_t s_cmd_dash = {
     "dash",
     cmd_dash,
-    "dash <snapshot|prompt|event|tokens|idle|scene|config|time|health|btn> [json|id]"
+    "dash <snapshot|prompt|event|tokens|idle|scene|config|time|weather|health|btn> [json|id]"
 };
 
 void agent_commands_register(void)

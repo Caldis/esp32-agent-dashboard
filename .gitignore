@@ -54,4 +54,5 @@ fonts/MPLUSRounded1c-Black.ttf
 # ignored). See AGENTS.md "Screenshots". Route new captures to a scratch path
 # or into .harness/ — never commit them.
 .harness/
+.artifacts/
 /*.png

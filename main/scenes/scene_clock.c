@@ -42,6 +42,8 @@
 #include "cjk_font.h"
 #include "ui_type.h"
 #include "anim/apple_ease.h"
+#include "anim/spring.h"
+#include "scene_trans.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -114,6 +116,8 @@ typedef struct {
     lv_obj_t   *hh;           /* hours "HH" */
     lv_obj_t   *colon;        /* ":" — only its text_opa toggles */
     lv_obj_t   *mm;           /* minutes "MM" */
+    int         face_px;      /* current size rung of the face (morph) */
+    int32_t     morph_v;      /* live morph factor 0..1000 (1000 = big) */
     lv_timer_t *timer;
     char        cached[16];   /* last rendered time string */
     uint32_t    show_ms;      /* on_show tick — blink phase + entrance gate */
@@ -564,6 +568,129 @@ static void clock_tick(lv_timer_t *t)
     }
 }
 
+/* ── v5.1 转场接入：时间真变形 + footer 演员 ────────────────────────
+ * 时间是跨转场的固定锚点（用户契约），且必须是【同一实体】的真位移
+ * + 真缩放——不允许小钟/大钟交叉淡化的障眼法。实现：face_grp 三标签
+ * 全程唯一实体（status_bar 的 time_lbl 在本场景恒隐）；
+ *   位移  face_grp 的 y 从共识槽位(-148，ink 中心=顶钟位 85)连续滑到
+ *         中央，spring_disp 真弹簧（出场反向 apple_ease_in 加速）。
+ *   缩放  字号走档位阶梯 48→66→84→102→120→135：transform_scale 是
+ *         红线（plan A 实测 12-13 fps），而档位步进每档只做一次原生
+ *         tiny_ttf 栅格化（12-glyph 子集，毫秒级），帧间保持快路径。
+ *         三标签 CENTER 对齐，字号切换自动居中，只需按档位重算
+ *         hh/mm 的 ±COLON_DX 让三个标签盒继续边贴边。
+ * 共识端(48px@顶部中央)与其它场景的 time_lbl 逐像素等价（同字体、
+ * tabular 数字、同拼装公式），瞬切帧时间纹丝不动。
+ * footer 两列是演员：从底部屏幕外弹入/沉出。 */
+
+static const int16_t FACE_RUNGS[] = { 48, 66, 84, 102, 120, 135 };
+#define FACE_RUNG_N     6
+#define FACE_PX_MIN     48
+#define CONSENSUS_GRP_Y ENTRY_Y     /* -148: face ink 中心落在顶钟槽位 */
+
+/* 应用一个字号档位：换字体 + 重算三标签盒的边贴边偏移。 */
+static void face_apply_rung(clock_state_t *st, int px)
+{
+    const lv_font_t *f = clock_font(px);
+    if (!f) return;
+    int dx = ((1320 + 286) / 2 * px) / 1000;
+    lv_obj_set_style_text_font(st->hh,    f, 0);
+    lv_obj_set_style_text_font(st->colon, f, 0);
+    lv_obj_set_style_text_font(st->mm,    f, 0);
+    lv_obj_align(st->hh,    LV_ALIGN_CENTER, -dx, 0);
+    lv_obj_align(st->colon, LV_ALIGN_CENTER,   0, 0);
+    lv_obj_align(st->mm,    LV_ALIGN_CENTER,  dx, 0);
+}
+
+/* 变形驱动：v = 0(共识小钟) .. 1000(中央大钟)。y 连续；字号就近档位，
+ * 档位变化才触发重栅格化。spring 过冲(v≈1055)被"就近档位"天然钳制在
+ * 135，y 的过冲则表现为轻微下坠回弹——期望的弹簧手感。 */
+static void anim_face_morph(void *var, int32_t v)
+{
+    clock_state_t *st = (clock_state_t *)lv_obj_get_user_data((lv_obj_t *)var);
+    if (!st) return;
+    st->morph_v = v;
+    lv_obj_set_y(st->face_grp,
+                 CONSENSUS_GRP_Y - (int32_t)CONSENSUS_GRP_Y * v / 1000);
+    int px = FACE_PX_MIN + (CLOCK_PX - FACE_PX_MIN) * v / 1000;
+    int best = FACE_RUNGS[0];
+    for (int i = 1; i < FACE_RUNG_N; ++i)
+        if (LV_ABS(FACE_RUNGS[i] - px) < LV_ABS(best - px))
+            best = FACE_RUNGS[i];
+    if (best != st->face_px) {
+        st->face_px = best;
+        face_apply_rung(st, best);
+    }
+}
+
+static void face_kill_morph(clock_state_t *st)
+{
+    lv_anim_delete(st->face_grp, anim_face_morph);
+    lv_anim_delete(st->face_grp, anim_grp_y);
+    lv_anim_delete(st->face_grp, anim_grp_opa);
+    lv_anim_delete(st->sb.time_lbl, anim_topclock_in);
+    lv_anim_delete(st->sb.time_lbl, anim_topclock_out);
+}
+
+static void face_start_morph(clock_state_t *st, int32_t to, uint32_t ms,
+                             lv_anim_path_cb_t path)
+{
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, st->face_grp);
+    lv_anim_set_time(&a, ms);
+    lv_anim_set_path_cb(&a, path);
+    lv_anim_set_values(&a, st->morph_v, to);
+    lv_anim_set_exec_cb(&a, anim_face_morph);
+    lv_anim_start(&a);
+}
+
+static void clock_trans_to_consensus(scene_t *s, uint32_t ms)
+{
+    clock_state_t *st = (clock_state_t *)s->user_data;
+    if (!st) return;
+    face_kill_morph(st);
+    /* 本场景时间实体=face；小钟标签恒隐（共识形态由 face@48 呈现）。 */
+    lv_obj_add_flag(st->sb.time_lbl, LV_OBJ_FLAG_HIDDEN);
+    set_group_text_opa(st->face_grp, LV_OPA_COVER);
+    st->colon_on = -1;                     /* blink 熄相不带进变形 */
+
+    /* push 卡把 face 退去顶部+透明的罕见边界：直接落共识端态。 */
+    if (st->push_active || ms == 0) {
+        anim_face_morph(st->face_grp, 0);
+        return;
+    }
+    face_start_morph(st, 0, ms, apple_ease_in);
+}
+
+static void clock_trans_from_consensus(scene_t *s, uint32_t ms)
+{
+    clock_state_t *st = (clock_state_t *)s->user_data;
+    if (!st) return;
+    face_kill_morph(st);
+    lv_obj_add_flag(st->sb.time_lbl, LV_OBJ_FLAG_HIDDEN);
+    set_group_text_opa(st->face_grp, LV_OPA_COVER);
+
+    st->show_ms = lv_tick_get();     /* 冒号闪从变形结束后接管 */
+    st->colon_on = -1;
+
+    if (ms == 0) {
+        anim_face_morph(st->face_grp, 1000);
+        return;
+    }
+    /* 瞬切帧：face@48 恰在共识槽位 = 上一场景小钟的位置。 */
+    anim_face_morph(st->face_grp, 0);
+    face_start_morph(st, 1000, ms, spring_disp);
+}
+
+static trans_actor_t s_clock_actors[4];
+static trans_profile_t s_clock_profile = {
+    .actors               = s_clock_actors,
+    .actor_n              = 4,
+    .clock_to_consensus   = clock_trans_to_consensus,
+    .clock_from_consensus = clock_trans_from_consensus,
+};
+
 static void clock_init(scene_t *s, lv_obj_t *parent)
 {
     clock_state_t *st = lv_malloc_zeroed(sizeof(*st));
@@ -575,13 +702,17 @@ static void clock_init(scene_t *s, lv_obj_t *parent)
      * set_text-ing the hidden label; harmless. */
     lv_obj_add_flag(st->sb.time_lbl, LV_OBJ_FLAG_HIDDEN);
 
-    /* Container the entrance animates as one unit. */
+    /* Container the entrance animates as one unit. user_data carries st
+     * for the morph exec (anim_face_morph). */
     st->face_grp = lv_obj_create(parent);
     lv_obj_remove_style_all(st->face_grp);
     lv_obj_set_size(st->face_grp, SCREEN_W, FACE_GRP_H);
     lv_obj_align(st->face_grp, LV_ALIGN_CENTER, 0, 0);
     lv_obj_clear_flag(st->face_grp, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_clear_flag(st->face_grp, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_user_data(st->face_grp, st);
+    st->face_px = CLOCK_PX;
+    st->morph_v = 1000;
 
     const lv_font_t *bf = clock_font(CLOCK_PX);
     if (!bf) bf = &lv_font_montserrat_48;
@@ -676,6 +807,22 @@ static void clock_init(scene_t *s, lv_obj_t *parent)
     st->timer = lv_timer_create(clock_tick, CLOCK_TICK_MS, st);
     lv_timer_pause(st->timer);
     clock_tick(st->timer);
+
+    /* v5.0 转场演员：footer 两列从底部屏幕外入/出（token 列晚一拍）。
+     * 大钟面不进演员表——它是时间锚点，由 to/from_consensus 变形。 */
+    s_clock_actors[0] = (trans_actor_t){ .obj = st->sb.active_num,
+        .dir = TRANS_FROM_BOTTOM, .ch = TROPA_TEXT, .base_opa = 255,
+        .out_dist = 150, .delay_ms = 0 };
+    s_clock_actors[1] = (trans_actor_t){ .obj = st->sb.active_cap,
+        .dir = TRANS_FROM_BOTTOM, .ch = TROPA_TEXT, .base_opa = 255,
+        .out_dist = 150, .delay_ms = 0 };
+    s_clock_actors[2] = (trans_actor_t){ .obj = st->sb.token_num,
+        .dir = TRANS_FROM_BOTTOM, .ch = TROPA_TEXT, .base_opa = 255,
+        .out_dist = 150, .delay_ms = 70 };
+    s_clock_actors[3] = (trans_actor_t){ .obj = st->sb.token_cap,
+        .dir = TRANS_FROM_BOTTOM, .ch = TROPA_TEXT, .base_opa = 255,
+        .out_dist = 150, .delay_ms = 70 };
+    scene_trans_bind("clock", &s_clock_profile);
 }
 
 static void clock_on_show(scene_t *s)
@@ -701,7 +848,11 @@ static void clock_on_show(scene_t *s)
     push_set_opa(st, LV_OPA_TRANSP);
     lv_obj_add_flag(st->sb.time_lbl, LV_OBJ_FLAG_HIDDEN);  /* face owns the time */
 
-    clock_entrance(st, st->motion_ok);
+    /* v5.0：入场变形归 scene_trans（from_consensus 回调）。on_show 只
+     * 摆静置姿态（morph 端态 1000 = 中央 135px，含字号档位复位）——
+     * 非转场路径也保证画面完整；转场路径会紧接着重摆再播弹簧。 */
+    anim_face_morph(st->face_grp, 1000);
+    set_group_text_opa(st->face_grp, LV_OPA_COVER);
 
     if (st->timer) {
         lv_timer_resume(st->timer);
@@ -729,11 +880,10 @@ static void clock_on_hide(scene_t *s)
     lv_obj_set_style_text_opa(st->sb.time_lbl, LV_OPA_COVER, 0);
     lv_obj_add_flag(st->sb.time_lbl, LV_OBJ_FLAG_HIDDEN);
 
-    /* Kill an in-flight entrance and park at the resting pose so the
-     * scene-framework crossfade never snapshots a mid-flight face. */
-    lv_anim_delete(st->face_grp, anim_grp_y);
-    lv_anim_delete(st->face_grp, anim_grp_opa);
-    lv_obj_set_y(st->face_grp, 0);
+    /* Kill an in-flight entrance/morph and park at the resting pose so
+     * the next show never inherits a mid-flight face. */
+    face_kill_morph(st);
+    anim_face_morph(st->face_grp, 1000);
     set_group_text_opa(st->face_grp, LV_OPA_COVER);
     st->colon_on = -1;
     if (st->timer) lv_timer_pause(st->timer);

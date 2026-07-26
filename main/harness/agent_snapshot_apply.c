@@ -325,13 +325,18 @@ bool agent_snapshot_apply_json(const char *json,
         if (tj_object_get_double(json, end, "tokens_today", &tkt)) s->tokens_today      = (uint64_t)tkt;
     }
 
+    /* v5.2: the on-device prompt takeover is RETIRED (the user approves
+     * in the terminal, not on the panel). Prompt metadata is still
+     * recorded for `dash health` counters, but prompt_active must NEVER
+     * go true — a stale true would suppress the awaiting takeover and
+     * the screensaver forever now that nothing clears it via a scene. */
     if (out->prompt_set) {
         memcpy(s->prompt_id,         prompt_id_buf,   sizeof(s->prompt_id));
         memcpy(s->prompt_tool,       prompt_tool_buf, sizeof(s->prompt_tool));
         memcpy(s->prompt_hint,       prompt_hint_buf, sizeof(s->prompt_hint));
         memcpy(s->prompt_agent_kind, prompt_kind_buf, sizeof(s->prompt_agent_kind));
         memcpy(s->prompt_session_id, prompt_sid_buf,  sizeof(s->prompt_session_id));
-        s->prompt_active = true;
+        s->prompt_active = false;
         s->prompt_shown_ms = lv_tick_get();
         s->prompts_received++;
     } else if (out->prompt_clear) {

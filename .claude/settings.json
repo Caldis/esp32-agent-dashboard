@@ -1,0 +1,8 @@
+{
+  "worktree": {
+    "bgIsolation": "none"
+  },
+  "env": {
+    "PYTHONUTF8": "1"
+  }
+}

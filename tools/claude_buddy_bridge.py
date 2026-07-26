@@ -72,6 +72,25 @@ DEFAULT_THROTTLE_MS = 250
 DEFAULT_KEEPALIVE_MS = 10_000
 DEFAULT_PERMISSION_TIMEOUT_S = 60.0
 DEFAULT_HEALTH_POLL_S = 5.0
+# v4.9 weather: fetched HOST-side from Open-Meteo (free, no API key) and
+# pushed via `dash weather` — the device is a pure display and never talks
+# to the network itself. Region is currently FIXED to 深圳市福田区; override
+# in ~/.claude-buddy/config.toml under [weather] (lat/lon/name/poll_min/
+# enabled) or with the --weather-* CLI flags.
+DEFAULT_WEATHER_ENABLED = True
+DEFAULT_WEATHER_LAT = 22.5455          # 深圳市福田区
+DEFAULT_WEATHER_LON = 114.0545
+DEFAULT_WEATHER_NAME = "深圳·福田"
+DEFAULT_WEATHER_POLL_MIN = 30
+# provider: "auto" tries xiaomi first (domestic CN route, has a native
+# `yesterday` field), then open-meteo (international route). On this
+# network open-meteo is unreachable (international egress blackholed) —
+# measured 2026-07-25 — so auto exists precisely for that.
+DEFAULT_WEATHER_PROVIDER = "auto"
+# weathercn city id for the xiaomi provider (深圳福田). Pair it with
+# lat/lon when relocating: both are exposed in [weather] config.
+DEFAULT_WEATHER_LOCATION_KEY = "weathercn:101280603"
+WEATHER_RETRY_MIN = 5                  # refetch sooner after a failure
 DEFAULT_DEVICE_NAME = "Clawd"
 DEFAULT_THEME = "noir"
 DEFAULT_OWNER = os.environ.get("USER") or os.environ.get("USERNAME") or "user"
@@ -233,6 +252,18 @@ tcp_port = "127.0.0.1:9876"
 
 listen = "127.0.0.1:7321"
 health_poll_s = 5
+
+# v4.9 weather (no API key needed). Region defaults to 深圳市福田区;
+# change lat/lon/name/location_key here to relocate. provider: auto =
+# xiaomi (domestic route) first, then open-meteo (international).
+[weather]
+enabled = true
+lat = 22.5455
+lon = 114.0545
+name = "深圳·福田"
+poll_min = 30
+provider = "auto"
+location_key = "weathercn:101280603"
 """
 
 
@@ -1435,6 +1466,210 @@ class HealthPoller(threading.Thread):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Weather poller (v4.9)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# weathercn (中国天气网) code → WMO interpretation code. The device
+# classifies/labels by WMO (see scene_weather.c wx_classify), so the
+# xiaomi provider translates before pushing.
+_WEATHERCN_TO_WMO = {
+    0: 0,    # 晴
+    1: 2,    # 多云
+    2: 3,    # 阴
+    3: 80,   # 阵雨
+    4: 95,   # 雷阵雨
+    5: 96,   # 雷阵雨伴冰雹
+    6: 85,   # 雨夹雪
+    7: 61,   # 小雨
+    8: 63,   # 中雨
+    9: 65,   # 大雨
+    10: 65, 11: 65, 12: 65,          # 暴雨 / 大暴雨 / 特大暴雨
+    13: 85,  # 阵雪
+    14: 71, 15: 73, 16: 75, 17: 75,  # 小/中/大/暴雪
+    18: 45,  # 雾
+    19: 67,  # 冻雨
+    20: 45, 26: 45, 27: 45, 28: 45, 29: 45,  # 沙尘类 → 按雾渲染
+    21: 61, 22: 63, 23: 65, 24: 65, 25: 65,  # 雨量过渡档
+    53: 45,  # 霾
+}
+
+
+def _cn2wmo(code) -> int:
+    try:
+        return _WEATHERCN_TO_WMO.get(int(code), 3)
+    except (TypeError, ValueError):
+        return 3
+
+
+class WeatherPoller(threading.Thread):
+    """Fetch weather (yesterday + today + next 3 days) and push it as
+    `dash weather`. Two providers behind one payload shape:
+
+      xiaomi     — weatherapi.market.xiaomi.com (domestic CN route; has a
+                   native `yesterday` block; codes translated weathercn→WMO)
+      open-meteo — api.open-meteo.com (international; past_days=1 covers
+                   yesterday natively)
+
+    provider="auto" tries xiaomi then open-meteo, so the poller works both
+    on this CN-egress-blocked network and on unrestricted ones. The device
+    keeps the last push in RAM only and weather — like config/time — has NO
+    keepalive to self-heal through, so the cached payload is re-pushed on
+    every reconnect (see _on_reconnect / _late_resync in _build_stack). A
+    fetch failure keeps the previous cache and retries sooner; stdlib
+    urllib only, no new dependencies."""
+
+    def __init__(self, *, pusher: DevicePusher, lat: float, lon: float,
+                 name: str, poll_min: float,
+                 provider: str = DEFAULT_WEATHER_PROVIDER,
+                 location_key: str = DEFAULT_WEATHER_LOCATION_KEY) -> None:
+        super().__init__(daemon=True, name="weather-poller")
+        self.pusher = pusher
+        self.lat = lat
+        self.lon = lon
+        self.loc_name = name
+        self.provider = provider
+        self.location_key = location_key
+        self.period_s = max(300.0, float(poll_min) * 60.0)
+        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self._cached: Optional[dict] = None
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    def push_cached(self) -> None:
+        """Re-push the last good payload (no-op before the first fetch)."""
+        with self._lock:
+            payload = self._cached
+        if payload:
+            self.pusher.push("weather", payload)
+
+    @staticmethod
+    def _http_json(url: str) -> dict:
+        import urllib.request
+        with urllib.request.urlopen(url, timeout=15) as r:
+            return json.loads(r.read().decode("utf-8"))
+
+    def _fetch_openmeteo(self) -> dict:
+        import urllib.parse
+        qs = urllib.parse.urlencode({
+            "latitude": f"{self.lat:.4f}",
+            "longitude": f"{self.lon:.4f}",
+            "daily": "weather_code,temperature_2m_max,temperature_2m_min",
+            "current": "temperature_2m,weather_code",
+            "past_days": 1,          # days[0] = yesterday
+            "forecast_days": 4,      # today + 3 → five rows total
+            "timezone": "auto",
+        })
+        data = self._http_json(f"https://api.open-meteo.com/v1/forecast?{qs}")
+        cur = data["current"]
+        daily = data["daily"]
+        days = []
+        for iso, code, tmax, tmin in zip(daily["time"], daily["weather_code"],
+                                         daily["temperature_2m_max"],
+                                         daily["temperature_2m_min"]):
+            # date.weekday(): Mon=0 … Sun=6 → device convention Sun=0 … Sat=6
+            days.append({
+                "w": (date.fromisoformat(iso).weekday() + 1) % 7,
+                "c": int(code),
+                "lo": int(round(float(tmin))),
+                "hi": int(round(float(tmax))),
+            })
+        if len(days) != 5:
+            raise ValueError(f"open-meteo: expected 5 daily rows, got {len(days)}")
+        return {
+            "loc": self.loc_name,
+            "t": int(round(float(cur["temperature_2m"]))),
+            "c": int(cur["weather_code"]),
+            "days": days,
+        }
+
+    def _fetch_xiaomi(self) -> dict:
+        import urllib.parse
+        qs = urllib.parse.urlencode({
+            "latitude": f"{self.lat:.2f}",
+            "longitude": f"{self.lon:.2f}",
+            "isLocated": "true",
+            "locationKey": self.location_key,
+            "days": 5,
+            "appKey": "weather20151024",
+            "sign": "zUFJoAR2ZVrDy1vF3D07",
+            "romVersion": "7.2.16",
+            "appVersion": "87",
+            "alpha": "false",
+            "isGlobal": "false",
+            "device": "cancro",
+            "modDevice": "",
+            "locale": "zh_cn",
+        })
+        data = self._http_json(
+            f"https://weatherapi.market.xiaomi.com/wtr-v3/weather/all?{qs}")
+        y = data["yesterday"]
+        cur = data["current"]
+        fd = data["forecastDaily"]
+        temps = fd["temperature"]["value"]      # [{"from": hi, "to": lo}, …]
+        codes = fd["weather"]["value"]          # [{"from": day-code, …}, …]
+        if len(temps) < 4 or len(codes) < 4:
+            raise ValueError(f"xiaomi: forecast too short ({len(temps)})")
+
+        today = date.today()
+        def dev_wday(offset_days: int) -> int:
+            d = date.fromordinal(today.toordinal() + offset_days)
+            return (d.weekday() + 1) % 7        # Sun=0 … Sat=6
+
+        days = [{
+            "w": dev_wday(-1),
+            "c": _cn2wmo(y["weatherStart"]),
+            "lo": int(round(float(y["tempMin"]))),
+            "hi": int(round(float(y["tempMax"]))),
+        }]
+        for i in range(4):                       # today + 3
+            hi = float(temps[i]["from"])
+            lo = float(temps[i]["to"])
+            if lo > hi:
+                hi, lo = lo, hi
+            days.append({
+                "w": dev_wday(i),
+                "c": _cn2wmo(codes[i]["from"]),
+                "lo": int(round(lo)),
+                "hi": int(round(hi)),
+            })
+        return {
+            "loc": self.loc_name,
+            "t": int(round(float(cur["temperature"]["value"]))),
+            "c": _cn2wmo(cur["weather"]),
+            "days": days,
+        }
+
+    def _fetch(self) -> dict:
+        if self.provider == "xiaomi":
+            return self._fetch_xiaomi()
+        if self.provider == "open-meteo":
+            return self._fetch_openmeteo()
+        # auto: domestic route first, international as fallback
+        try:
+            return self._fetch_xiaomi()
+        except Exception as e:  # noqa: BLE001
+            print(f"[bridge] weather: xiaomi failed ({e}); trying open-meteo",
+                  file=sys.stderr)
+            return self._fetch_openmeteo()
+
+    def run(self) -> None:
+        while not self._stop.is_set():
+            wait = self.period_s
+            try:
+                payload = self._fetch()
+                with self._lock:
+                    self._cached = payload
+                self.pusher.push("weather", payload)
+            except Exception as e:  # noqa: BLE001 — poller must never die
+                print(f"[bridge] weather fetch failed (caught): {e}",
+                      file=sys.stderr)
+                wait = WEATHER_RETRY_MIN * 60.0
+            self._stop.wait(wait)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Event normalization
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1828,6 +2063,13 @@ class Settings:
     dry_run: bool
     mirror: Optional[str] = None
     gate_permissions: bool = False
+    weather_enabled: bool = DEFAULT_WEATHER_ENABLED
+    weather_lat: float = DEFAULT_WEATHER_LAT
+    weather_lon: float = DEFAULT_WEATHER_LON
+    weather_name: str = DEFAULT_WEATHER_NAME
+    weather_poll_min: float = DEFAULT_WEATHER_POLL_MIN
+    weather_provider: str = DEFAULT_WEATHER_PROVIDER
+    weather_location_key: str = DEFAULT_WEATHER_LOCATION_KEY
 
     def as_redacted_dict(self) -> dict:
         return {
@@ -1842,6 +2084,15 @@ class Settings:
             "listen": self.listen,
             "health_poll_s": self.health_poll_s,
             "dry_run": self.dry_run,
+            "weather": {
+                "enabled": self.weather_enabled,
+                "lat": self.weather_lat,
+                "lon": self.weather_lon,
+                "name": self.weather_name,
+                "poll_min": self.weather_poll_min,
+                "provider": self.weather_provider,
+                "location_key": self.weather_location_key,
+            },
         }
 
 
@@ -1857,6 +2108,7 @@ def _resolve_setting(cli_value, file_value, default):
 
 def build_settings(args) -> Settings:
     cfg = load_config_file()
+    wx_cfg = cfg.get("weather") if isinstance(cfg.get("weather"), dict) else {}
     pk = _resolve_setting(getattr(args, "port_kind", None), cfg.get("port_kind"), "serial")
     if pk == "tcp":
         port_default = cfg.get("tcp_port") or "127.0.0.1:9876"
@@ -1889,6 +2141,26 @@ def build_settings(args) -> Settings:
         dry_run=bool(getattr(args, "dry_run", False)),
         mirror=getattr(args, "mirror", None),
         gate_permissions=bool(getattr(args, "gate_permissions", False)),
+        weather_enabled=(False if getattr(args, "no_weather", False)
+                         else bool(wx_cfg.get("enabled", DEFAULT_WEATHER_ENABLED))),
+        weather_lat=float(_resolve_setting(
+            getattr(args, "weather_lat", None), wx_cfg.get("lat"),
+            DEFAULT_WEATHER_LAT)),
+        weather_lon=float(_resolve_setting(
+            getattr(args, "weather_lon", None), wx_cfg.get("lon"),
+            DEFAULT_WEATHER_LON)),
+        weather_name=str(_resolve_setting(
+            getattr(args, "weather_name", None), wx_cfg.get("name"),
+            DEFAULT_WEATHER_NAME)),
+        weather_poll_min=float(_resolve_setting(
+            getattr(args, "weather_poll_min", None), wx_cfg.get("poll_min"),
+            DEFAULT_WEATHER_POLL_MIN)),
+        weather_provider=str(_resolve_setting(
+            getattr(args, "weather_provider", None), wx_cfg.get("provider"),
+            DEFAULT_WEATHER_PROVIDER)),
+        weather_location_key=str(_resolve_setting(
+            getattr(args, "weather_location_key", None),
+            wx_cfg.get("location_key"), DEFAULT_WEATHER_LOCATION_KEY)),
     )
 
 
@@ -1937,6 +2209,7 @@ def _build_stack(settings: Settings):
         # snapshot replay in _reconnect_loop only covers the case where
         # a push FAILED while disconnected, not a clean reboot.
         push_initial_config_and_time(pusher, settings, force=True, state=setup_state)
+        weather.push_cached()      # weather has no keepalive either (v4.9)
         publisher.force_push()
         # Belt & braces (the --:-- incident): when this fires because the
         # device just REBOOTED, the push above can land mid-boot — the lines
@@ -1948,6 +2221,7 @@ def _build_stack(settings: Settings):
         def _late_resync():
             push_initial_config_and_time(pusher, settings, force=True,
                                          state=setup_state)
+            weather.push_cached()
             publisher.force_push()
         t = threading.Timer(3.0, _late_resync)
         t.daemon = True
@@ -1967,6 +2241,15 @@ def _build_stack(settings: Settings):
         throttle_ms=settings.throttle_ms,
         keepalive_ms=settings.keepalive_ms,
     )
+    weather = WeatherPoller(
+        pusher=pusher,
+        lat=settings.weather_lat,
+        lon=settings.weather_lon,
+        name=settings.weather_name,
+        poll_min=settings.weather_poll_min,
+        provider=settings.weather_provider,
+        location_key=settings.weather_location_key,
+    )
     bridge = Bridge(
         registry=registry,
         pusher=pusher,
@@ -1974,7 +2257,7 @@ def _build_stack(settings: Settings):
         permission_timeout_s=settings.permission_timeout_s,
         gate_permissions=settings.gate_permissions,
     )
-    return bridge, pusher, publisher, registry, health, setup_state
+    return bridge, pusher, publisher, registry, health, setup_state, weather
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2010,7 +2293,7 @@ def cmd_serve(args) -> int:
               f"exiting", flush=True)
         return 0
 
-    bridge, pusher, publisher, registry, health, setup_state = _build_stack(settings)
+    bridge, pusher, publisher, registry, health, setup_state, weather = _build_stack(settings)
 
     if not settings.dry_run:
         ok = pusher.open_with_retry(retry_total_s=30.0, retry_every_s=2.0)
@@ -2024,6 +2307,8 @@ def cmd_serve(args) -> int:
     health_poller = HealthPoller(pusher=pusher, period_s=settings.health_poll_s)
     if not settings.dry_run:
         health_poller.start()
+    if settings.weather_enabled:
+        weather.start()
 
     host, port_s = settings.listen.split(":")
     port = int(port_s)
@@ -2060,6 +2345,7 @@ def cmd_serve(args) -> int:
     finally:
         publisher.stop()
         health_poller.stop()
+        weather.stop()
         pusher.close()
         stats = pusher.timing_stats()
         print(f"[bridge] push timing: {stats}", flush=True)
@@ -2102,7 +2388,7 @@ def cmd_send(args) -> int:
 
 def cmd_replay(args) -> int:
     settings = build_settings(args)
-    bridge, pusher, publisher, registry, health, setup_state = _build_stack(settings)
+    bridge, pusher, publisher, registry, health, setup_state, _weather = _build_stack(settings)
 
     if not settings.dry_run:
         pusher.open_with_retry(retry_total_s=10.0, retry_every_s=1.0)
@@ -2223,7 +2509,7 @@ def _synth_events(n: int) -> list[dict]:
 def cmd_bench(args) -> int:
     args.dry_run = True  # bench is always dry-run by design
     settings = build_settings(args)
-    bridge, pusher, publisher, registry, health, setup_state = _build_stack(settings)
+    bridge, pusher, publisher, registry, health, setup_state, _weather = _build_stack(settings)
     publisher.start()
 
     events = _synth_events(args.events)
@@ -2294,6 +2580,24 @@ def _add_v1_flags(p):
                    help="block tool calls until approved via device/browser "
                         "(default: observe — let Claude Code's own prompt gate, "
                         "so the agent never stalls waiting on the dashboard)")
+    p.add_argument("--no-weather", action="store_true",
+                   help="disable the Open-Meteo weather poller (v4.9)")
+    p.add_argument("--weather-lat", type=float, default=None,
+                   help=f"weather latitude (default {DEFAULT_WEATHER_LAT} — 深圳福田)")
+    p.add_argument("--weather-lon", type=float, default=None,
+                   help=f"weather longitude (default {DEFAULT_WEATHER_LON})")
+    p.add_argument("--weather-name", default=None,
+                   help=f"weather location label pushed to the device "
+                        f"(default {DEFAULT_WEATHER_NAME!r})")
+    p.add_argument("--weather-poll-min", type=float, default=None,
+                   help=f"weather refetch period in minutes "
+                        f"(default {DEFAULT_WEATHER_POLL_MIN})")
+    p.add_argument("--weather-provider", default=None,
+                   choices=[None, "auto", "xiaomi", "open-meteo"],
+                   help=f"weather data source (default {DEFAULT_WEATHER_PROVIDER!r})")
+    p.add_argument("--weather-location-key", default=None,
+                   help=f"weathercn city id for the xiaomi provider "
+                        f"(default {DEFAULT_WEATHER_LOCATION_KEY!r})")
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -12,10 +12,10 @@
  *               me" is readable across the room. Urgent kinds (approve /
  *               clarify) get the brighter gold.
  *
- * With 2+ agents the AWAITING takeover is suppressed (see
- * scene_auto_switch_cb in esp32_agent_dashboard_main.c) — the fleet IS the
- * multi-agent view; a full-screen takeover would hide every other agent,
- * which was the v2 complaint.
+ * v6.0: the AWAITING takeover scene is retired — the dashboard IS the
+ * "your turn" view at every agent count. When a turn comes back,
+ * scene_auto_switch_cb pulls the display here (rising edge, one-shot)
+ * instead of switching to a near-identical dedicated page.
  *
  * All four rows are pre-created in init() and shown/hidden per tick; row
  * geometry is recomputed only when the visible count changes.
@@ -27,7 +27,6 @@
 #include "status_bar.h"
 #include "cjk_font.h"   /* cjk_utf8_lcpy */
 #include "ui_type.h"
-#include "pet.h"
 #include "anim/apple_ease.h"
 
 #include <stdio.h>
@@ -58,27 +57,27 @@
  * name + meta so the name stays at full BODY size instead of shrinking. */
 #define ROW_TWOLINE_MIN_H 100
 
-/* Ambient cluster group-top anchors, centring the stack in the safe
- * band [UI_SAFE_TOP..UI_SAFE_BOT] (134..360). The stack is compact —
- * the word/proj/act sit right under the pet's *visual* bottom (~84),
- * reclaiming the 96-px pet box's empty lower padding — so the whole
- * cluster clears the top clock and the footer by ~24 px each (the pet
- * box's own top padding adds a little more air at the top).
- *   with info (pet+word+proj+act) → group y 124
- *   no info   (pet+word+proj)     → group y 142 (shorter → sits lower)
- * The transition animates with Apple's standard ease (apple_ease_out). */
-#define AMBIENT_Y_CENTERED 142
-#define AMBIENT_Y_INFO     124
+/* Ambient cluster anchor. v6.0: the awaiting takeover scene is retired
+ * (user call: two near-identical gold pages a key press flipped
+ * between). The dashboard gold pose IS the "your turn" view now: ring +
+ * TITLE greeting word + project chip. TITLE (52) for ALL three states —
+ * the word never changes size again; "loud" is carried by colour alone
+ * (gold = your move, the device-wide contract).
+ *
+ * Two poses, both ink-centred in the chrome band (clock ink ends 112,
+ * footer chrome starts at UI_CHROME_BOT 382 → centre 247):
+ *   ring+word       ink 12..164, centre  88 → y 160 (idle / thinking)
+ *   ring+word+chip  ink 12..215, centre 114 → y 133 (gold, chip shown)
+ * ambient_slide_to() glides between them (the old avoidance-slide
+ * machinery, revived). */
+#define AMBIENT_Y_CENTERED 160
+#define AMBIENT_Y_CHIP     133
 #define AMBIENT_SLIDE_MS   450
-/* y offsets inside the ambient group (stacked: pet box 0..96 → word →
- * proj → act), tightened so the text tucks under the pet's ink. */
-#define AMBIENT_WORD_Y   90
-#define AMBIENT_PROJ_Y  154
-#define AMBIENT_ACT_Y   202
+/* ring ink ends ~84; +28 gap below it. Chip sits under the word's
+ * line box (112+63) + 14. */
+#define AMBIENT_WORD_Y  112
+#define AMBIENT_CHIP_Y  189
 
-/* v4.4: the 12-px kind chip ("cc") is gone — unreadable at desk
- * distance and redundant (dot color + meta already differentiate; the
- * focus/ambient view still names the kind in its project line). */
 typedef struct {
     lv_obj_t *card;
     lv_obj_t *dot;
@@ -91,10 +90,24 @@ typedef struct {
     status_bar_t sb;             /* shared top time + bottom active/tokens */
     /* ambient (single-agent) group */
     lv_obj_t *ambient_grp;
-    pet_t    *pet;               /* per-kind status creature (v3.1) */
+    /* v5.3: the pet mascot is retired (user: the panel's ONE job is
+     * "agent finished a turn, your move" — the creature was charm, not
+     * signal). The 96px slot now holds the same breathing pulse ring
+     * the awaiting takeover uses: ONE visual language device-wide.
+     * Colour carries the state: teal=running, gold=your turn, dim=idle. */
+    lv_obj_t *pulse_ring;        /* 72px outline ring */
+    lv_obj_t *pulse_dot;         /* breathing inner dot */
+    uint32_t  pulse_color;       /* cached — restyle only on change */
     lv_obj_t *ambient_lbl;       /* status word */
-    lv_obj_t *ambient_proj;      /* "cc  <project>" */
-    lv_obj_t *ambient_act;       /* live activity line */
+    /* (v5.8: ambient_proj / ambient_act retired — grey metadata lines
+     * under the word carried no glanceable signal.) */
+    /* v6.0: project chip ("cc esp32-agent-dashboard"), gold-state only —
+     * inherited from the retired awaiting takeover: it answers "WHO is
+     * waiting on me". Cached to avoid re-invalidating tiny_ttf labels
+     * every 500ms tick. */
+    lv_obj_t *ambient_chip;
+    char      cached_word[32];
+    char      cached_chip[64];
     int       ambient_target_y;  /* last slide target; 0 = not yet placed */
     /* fleet (multi-agent) rows */
     fleet_row_t rows[AGENT_SLOT_MAX];
@@ -249,13 +262,20 @@ static void ambient_slide_to(dash_t *d, int target, bool motion_ok)
     lv_anim_start(&a);
 }
 
-/* Shared single-agent detail cluster. focus_pos > 0 marks Key3 focus
- * mode: the project line gains a "pos/live" prefix in gold and the
- * ring/dot pick up the slot's waiting accent, so a pinned agent reads
- * differently from the lone-agent ambient screen. */
+/* 呼吸点 exec（同旧 awaiting glyph 的呼吸）：CENTER 对齐是持久属性，
+ * 尺寸变化后自动保持居中。 */
+static void dash_pulse_breath(void *obj, int32_t v)
+{
+    lv_obj_set_size((lv_obj_t *)obj, v, v);
+}
+
+/* The single-agent pose (v6.0). Word + colour + chip all derive from
+ * the slot: gold = your move (rotating greeting for CONTINUE, fixed
+ * instructional word for approve/pick/type/clarify) + project chip;
+ * teal = thinking; dim = idle. This absorbs the retired awaiting
+ * takeover scene — same information, ONE page, word always TITLE. */
 static void render_single(dash_t *d, const agent_state_t *st,
-                          const agent_slot_t *one, const char *verb,
-                          int focus_pos, int focus_live)
+                          const agent_slot_t *one)
 {
     for (int i = 0; i < AGENT_SLOT_MAX; ++i) {
         lv_obj_add_flag(d->rows[i].card, LV_OBJ_FLAG_HIDDEN);
@@ -263,89 +283,85 @@ static void render_single(dash_t *d, const agent_state_t *st,
     lv_obj_clear_flag(d->ambient_grp, LV_OBJ_FLAG_HIDDEN);
     d->last_layout_n = -1;   /* force row re-layout when fleet returns */
 
-    lv_label_set_text(d->ambient_lbl, verb);
-
-    bool focused = (focus_pos > 0);
-    lv_obj_set_style_text_color(d->ambient_proj,
-        lv_color_hex(focused ? COL_GOLD : COL_TEXT_DIM), 0);
-
-    /* The pet mirrors the agent: kind picks the creature, state picks
-     * the animation (working bounce / expectant sway / sleeping). */
-    pet_mood_t mood = PET_MOOD_IDLE;
+    const char *word = "空闲";
+    uint32_t pc = 0x5A514A;                       /* idle dim */
+    bool your_move = false;
     if (one) {
-        if (one->awaiting_kind != AWAITING_NONE
-            || one->status == AGENT_STATUS_WAITING) {
-            mood = PET_MOOD_WAITING;
+        if (one->awaiting_kind != AWAITING_NONE) {
+            word = (one->awaiting_kind == AWAITING_CONTINUE)
+                 ? agent_awaiting_greeting(one->awaiting_greeting_idx)
+                 : awaiting_headline(one->awaiting_kind);
+            your_move = true;
+        } else if (one->status == AGENT_STATUS_WAITING) {
+            word = "该你了";
+            your_move = true;
         } else if (one->status == AGENT_STATUS_RUNNING) {
-            mood = PET_MOOD_WORKING;
+            word = "思考中";
+            pc = 0x2BB3B1;                        /* teal — thinking */
         }
+    } else if (st->running > 0) {                 /* totals without slots */
+        word = "思考中";
+        pc = 0x2BB3B1;
+    } else if (st->waiting > 0) {
+        word = "该你了";
+        your_move = true;
     }
-    pet_set(d->pet, one ? one->kind : NULL, mood);
+    if (your_move) pc = 0xB89020;                 /* gold — your move */
 
-    ambient_slide_to(d, one ? AMBIENT_Y_INFO : AMBIENT_Y_CENTERED,
-                     !st->motion_reduced);
-    if (one) {
-        char proj[80];
-        char prefix[16] = "";
-        if (focused) {
-            snprintf(prefix, sizeof(prefix), "%d/%d  ", focus_pos, focus_live);
-        }
+    if (strncmp(word, d->cached_word, sizeof(d->cached_word)) != 0) {
+        snprintf(d->cached_word, sizeof(d->cached_word), "%s", word);
+        lv_label_set_text(d->ambient_lbl, word);
+    }
+
+    if (pc != d->pulse_color) {
+        d->pulse_color = pc;
+        lv_obj_set_style_border_color(d->pulse_ring, lv_color_hex(pc), 0);
+        lv_obj_set_style_bg_color(d->pulse_dot, lv_color_hex(pc), 0);
+        lv_obj_set_style_text_color(d->ambient_chip, lv_color_hex(pc), 0);
+    }
+
+    /* Project chip — gold pose only: WHO is waiting on me. Project name
+     * from cwd (human-readable); session id "abcd:9f" (4 head + 2 tail,
+     * the v2.7.0 uniqueness format) only as fallback. */
+    if (your_move && one) {
+        char chip[64];
         const char *base = cwd_basename(one->cwd);
-        char basetrunc[40];
         if (base) {
+            char basetrunc[27];   /* UTF-8-safe: never split a CJK folder name */
             cjk_utf8_lcpy(basetrunc, base, sizeof(basetrunc));
-            snprintf(proj, sizeof(proj), "%s%s  %s",
-                     prefix, short_kind(one->kind), basetrunc);
+            snprintf(chip, sizeof(chip), "%s  %s", short_kind(one->kind), basetrunc);
         } else {
-            snprintf(proj, sizeof(proj), "%s%s", prefix, short_kind(one->kind));
+            const char *sid = one->session_id;
+            size_t sid_len = strlen(sid);
+            if (sid_len <= 6) {
+                snprintf(chip, sizeof(chip), "%s  %s", short_kind(one->kind),
+                         sid[0] ? sid : "agent");
+            } else {
+                snprintf(chip, sizeof(chip), "%s  %.4s:%s", short_kind(one->kind),
+                         sid, sid + sid_len - 2);
+            }
         }
-        lv_label_set_text(d->ambient_proj, proj);
-
-        char act[112];
-        compose_activity(one, act, sizeof(act));
-        lv_label_set_text(d->ambient_act, act);
+        if (strncmp(chip, d->cached_chip, sizeof(d->cached_chip)) != 0) {
+            snprintf(d->cached_chip, sizeof(d->cached_chip), "%s", chip);
+            lv_label_set_text(d->ambient_chip, chip);
+        }
+        lv_obj_clear_flag(d->ambient_chip, LV_OBJ_FLAG_HIDDEN);
     } else {
-        /* v4 manual switching: snapshots no longer yank a 0-agent
-         * dashboard over to idle, so it must rest here presentably —
-         * name the emptiness instead of showing a bare "idle" pet. */
-        lv_label_set_text(d->ambient_proj, "暂无 agent");
-        lv_label_set_text(d->ambient_act, "");
+        lv_obj_add_flag(d->ambient_chip, LV_OBJ_FLAG_HIDDEN);
     }
+
+    ambient_slide_to(d, (your_move && one) ? AMBIENT_Y_CHIP : AMBIENT_Y_CENTERED,
+                     !st->motion_reduced);
 }
 
 static void render_ambient(dash_t *d, const agent_state_t *st)
 {
-    int active_now = st->running + st->waiting;
-    const char *verb = (st->running > 0) ? "思考中" :
-                       (active_now > 0)  ? "该你了" : "空闲";
-
-    /* Find the (single) live slot for project + activity detail. */
+    /* Find the (single) live slot for word + chip detail. */
     const agent_slot_t *one = NULL;
     for (int i = 0; i < AGENT_SLOT_MAX; ++i) {
         if (st->slots[i].in_use) { one = &st->slots[i]; break; }
     }
-    render_single(d, st, one, verb, 0, 0);
-}
-
-/* Key3 focus mode: pin the detail cluster to one slot of a 2+ fleet.
- * The verb comes from the pinned slot, not the aggregate totals. */
-static void render_focus(dash_t *d, const agent_state_t *st,
-                         const agent_slot_t *one)
-{
-    const char *verb =
-        (one->awaiting_kind != AWAITING_NONE)
-            ? awaiting_headline(one->awaiting_kind)
-        : (one->status == AGENT_STATUS_RUNNING) ? "思考中"
-        : (one->status == AGENT_STATUS_WAITING) ? "该你了"
-        : "空闲";
-
-    int pos = 0, live = 0;
-    for (int i = 0; i < AGENT_SLOT_MAX; ++i) {
-        if (!st->slots[i].in_use) continue;
-        live++;
-        if (&st->slots[i] <= one) pos++;
-    }
-    render_single(d, st, one, verb, pos, live);
+    render_single(d, st, one);
 }
 
 /* ── fleet (multi-agent) mode ────────────────────────────────────── */
@@ -480,7 +496,9 @@ static void tick(lv_timer_t *t)
         && st->slots[st->focused_slot].in_use) {
         focus = &st->slots[st->focused_slot];
     }
-    if (st->slot_count >= 2 && focus) render_focus(d, st, focus);
+    /* Key3 focus pins the single-agent pose to one slot of a 2+ fleet;
+     * the word/chip derive from the pinned slot, not aggregate totals. */
+    if (st->slot_count >= 2 && focus) render_single(d, st, focus);
     else if (st->slot_count >= 2)     render_fleet(d, st);
     else                              render_ambient(d, st);
     agent_state_unlock();
@@ -502,19 +520,56 @@ static void init(scene_t *s, lv_obj_t *parent)
 
     status_bar_create(parent, &d->sb);
 
-    /* ambient group (single-agent mode). 236 tall = pet box (96) + the
-     * tucked word/proj/act stack (to ~233); kept inside the safe band so
-     * the transparent container never reaches the footer. */
+    /* ambient group (single-agent mode). 224 tall = ring box (96) + 28
+     * gap + word line (63) + 14 gap + chip line (32); even at the chip
+     * pose's y 133 the transparent container ends at 357, clear of the
+     * footer numbers (392). */
     d->ambient_grp = lv_obj_create(parent);
     lv_obj_remove_style_all(d->ambient_grp);
-    lv_obj_set_size(d->ambient_grp, SCREEN_W, 236);
+    lv_obj_set_size(d->ambient_grp, SCREEN_W, 224);
     lv_obj_align(d->ambient_grp, LV_ALIGN_TOP_MID, 0, AMBIENT_Y_CENTERED);
     lv_obj_clear_flag(d->ambient_grp, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* v3.1: the abstract breathing ring became a per-agent pet — same
-     * 96x96 slot at the top of the ambient cluster. */
-    d->pet = pet_create(d->ambient_grp);
-    lv_obj_align(pet_obj(d->pet), LV_ALIGN_TOP_MID, 0, 0);
+    /* v5.3: the breathing pulse ring (awaiting's glyph, device-wide
+     * visual language) in the same 96x96 slot the pet used to hold. */
+    lv_obj_t *pbox = lv_obj_create(d->ambient_grp);
+    lv_obj_remove_style_all(pbox);
+    lv_obj_set_size(pbox, 96, 96);
+    lv_obj_align(pbox, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_clear_flag(pbox, LV_OBJ_FLAG_SCROLLABLE);
+
+    d->pulse_ring = lv_obj_create(pbox);
+    lv_obj_remove_style_all(d->pulse_ring);
+    lv_obj_set_size(d->pulse_ring, 72, 72);
+    lv_obj_align(d->pulse_ring, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_bg_opa(d->pulse_ring, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_color(d->pulse_ring, lv_color_hex(0x5A514A), 0);
+    lv_obj_set_style_border_width(d->pulse_ring, 2, 0);
+    lv_obj_set_style_radius(d->pulse_ring, LV_RADIUS_CIRCLE, 0);
+    lv_obj_clear_flag(d->pulse_ring, LV_OBJ_FLAG_SCROLLABLE);
+
+    d->pulse_dot = lv_obj_create(d->pulse_ring);
+    lv_obj_remove_style_all(d->pulse_dot);
+    lv_obj_set_size(d->pulse_dot, 18, 18);
+    lv_obj_align(d->pulse_dot, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_bg_color(d->pulse_dot, lv_color_hex(0x5A514A), 0);
+    lv_obj_set_style_bg_opa(d->pulse_dot, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(d->pulse_dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_clear_flag(d->pulse_dot, LV_OBJ_FLAG_SCROLLABLE);
+    d->pulse_color = 0x5A514A;
+
+    /* Same breath as the awaiting glyph: 14↔28 px, 2 s, infinite. A
+     * small solid dot — cheap per-frame redraw, no big-label overlap. */
+    lv_anim_t pa;
+    lv_anim_init(&pa);
+    lv_anim_set_var(&pa, d->pulse_dot);
+    lv_anim_set_values(&pa, 14, 28);
+    lv_anim_set_time(&pa, 2000);
+    lv_anim_set_playback_time(&pa, 2000);
+    lv_anim_set_repeat_count(&pa, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_path_cb(&pa, apple_ease_out);
+    lv_anim_set_exec_cb(&pa, dash_pulse_breath);
+    lv_anim_start(&pa);
 
     /* Status word — the scene's primary fact after the pet: TITLE tier
      * (52 px ≈ 22' of visual angle at 0.6 m). */
@@ -524,24 +579,14 @@ static void init(scene_t *s, lv_obj_t *parent)
     lv_label_set_text(d->ambient_lbl, "空闲");
     lv_obj_align(d->ambient_lbl, LV_ALIGN_TOP_MID, 0, AMBIENT_WORD_Y);
 
-    /* Project line ("cc  esp32-agent-dashboard") — BODY, DOT-truncated. */
-    d->ambient_proj = lv_label_create(d->ambient_grp);
-    lv_obj_set_size(d->ambient_proj, UI_CONTENT_W, ui_type_line(UI_T_BODY));
-    lv_obj_set_style_text_align(d->ambient_proj, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_long_mode(d->ambient_proj, LV_LABEL_LONG_DOT);
-    lv_obj_set_style_text_color(d->ambient_proj, lv_color_hex(COL_TEXT_DIM), 0);
-    lv_obj_set_style_text_font(d->ambient_proj, ui_type(UI_T_BODY), 0);
-    lv_label_set_text(d->ambient_proj, "");
-    lv_obj_align(d->ambient_proj, LV_ALIGN_TOP_MID, 0, AMBIENT_PROJ_Y);
-
-    d->ambient_act = lv_label_create(d->ambient_grp);
-    lv_obj_set_size(d->ambient_act, UI_CONTENT_W, ui_type_line(UI_T_LABEL));
-    lv_obj_set_style_text_align(d->ambient_act, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_long_mode(d->ambient_act, LV_LABEL_LONG_DOT);
-    lv_obj_set_style_text_color(d->ambient_act, lv_color_hex(COL_MUTE), 0);
-    lv_obj_set_style_text_font(d->ambient_act, ui_type(UI_T_LABEL), 0);
-    lv_label_set_text(d->ambient_act, "");
-    lv_obj_align(d->ambient_act, LV_ALIGN_TOP_MID, 0, AMBIENT_ACT_Y);
+    /* Project chip (v6.0, from the retired takeover) — LABEL tier under
+     * the word, gold-only, hidden until a slot wants the user. */
+    d->ambient_chip = lv_label_create(d->ambient_grp);
+    lv_obj_set_style_text_color(d->ambient_chip, lv_color_hex(COL_GOLD), 0);
+    lv_obj_set_style_text_font(d->ambient_chip, ui_type(UI_T_LABEL), 0);
+    lv_label_set_text(d->ambient_chip, "");
+    lv_obj_align(d->ambient_chip, LV_ALIGN_TOP_MID, 0, AMBIENT_CHIP_Y);
+    lv_obj_add_flag(d->ambient_chip, LV_OBJ_FLAG_HIDDEN);
 
     /* fleet rows (multi-agent mode) — created hidden */
     for (int i = 0; i < AGENT_SLOT_MAX; ++i) {

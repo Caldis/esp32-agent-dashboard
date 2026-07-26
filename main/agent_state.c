@@ -206,11 +206,12 @@ void agent_state_set_awaiting_options(agent_slot_t *slot,
 }
 
 /* v4.8: rotating "your turn" greetings for the CONTINUE takeover. All
- * GB2312 (device font subset), each ≤4 hanzi for the HERO-88 headline.
- * Matches the user-picked "精选混合" set. */
+ * GB2312 (device font subset). v5.7: uniformly THREE hanzi — the old
+ * 3/4-char mix made the HERO headline's width jump between takeovers,
+ * which the user read as "the main text keeps changing size". */
 static const char *const k_awaiting_greetings[AGENT_AWAITING_GREETING_COUNT] = {
-    "该你了", "到你啦", "你来吧", "欢迎回来",
-    "该你发挥", "接着来", "交给你", "该你出手",
+    "该你了", "到你啦", "你来吧", "轮到你",
+    "接着来", "交给你", "请接手", "该你咯",
 };
 
 const char *agent_awaiting_greeting(uint8_t idx)
