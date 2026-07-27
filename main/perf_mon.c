@@ -205,6 +205,20 @@ static int cmd_wxbreath(const console_args_t *args)
 static const console_cmd_t s_cmd_wxbreath = { "?wxbreath", cmd_wxbreath,
     "toggle the weather illustration accent breath (A/B): ?wxbreath 0|1" };
 
+/* ?ghost — 转场替身的几何自检。bad>0 就意味着转场收尾会看到元素跳位。 */
+static int cmd_ghost(const console_args_t *args)
+{
+    (void)args;
+    uint32_t made = 0, bad = 0; char last[128];
+    scene_trans_ghost_stats(&made, &bad, last, sizeof(last));
+    console_reply_ok("{\"baked\":%" PRIu32 ",\"mismatched\":%" PRIu32 ",\"last\":\"%s\"}",
+                     made, bad, last);
+    return 0;
+}
+
+static const console_cmd_t s_cmd_ghost = { "?ghost", cmd_ghost,
+    "transition sprite geometry self-check: baked/mismatched counts" };
+
 void perf_mon_init(lv_display_t *disp)
 {
     if (!disp) return;
@@ -231,4 +245,5 @@ void perf_mon_init(lv_display_t *disp)
     console_protocol_register(&s_cmd_bake);
     console_protocol_register(&s_cmd_refr);
     console_protocol_register(&s_cmd_wxbreath);
+    console_protocol_register(&s_cmd_ghost);
 }

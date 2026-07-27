@@ -80,6 +80,30 @@ Run `esp-harness cycle` after code changes (build + flash + verify).
   they bake; the dashboard's ambient cluster is a 466x224 container
   holding one 96 px ring and two short text lines -- mostly empty pixels
   -- and baking it cost 23%, so it deliberately does not.
+- Sprite ghosts must cover EXACTLY obj-expanded-by-ext_draw. The snapshot
+  buffer is `obj + 2*ext` and its content origin is `obj.coords.x1 - ext`
+  (lv_snapshot.c), but a ghost placed by copying align + style x/y follows
+  a different rule: under TOP_MID the extra 2*ext width splits evenly so x
+  lands right by luck, while TOP_* never compensates height, so y is off by
+  a whole ext. Symptom: elements JUMP the instant a transition hands back
+  to the real object, and only aligned labels do it (set_pos containers are
+  immune) — measured ext=10, 16 of 28 ghosts misplaced. Fixed by measuring
+  the delta after placement and folding it into style x/y, with the offset
+  kept as the ghost<->object coordinate conversion used by the animation
+  and the handback. `?ghost` reports baked/mismatched counts; it must stay
+  0. Derive ext from the buffer (`buf->header.w - obj_w) / 2`), not
+  lv_obj_get_ext_draw_size — that one lives in a private header.
+- The golden diff CANNOT catch this class of bug: it only ever sees
+  resting frames, and the defect exists only during the handoff frame.
+  Transient invariants need runtime self-checks (`?ghost`), not
+  screenshots. And log-only diagnostics are not enough — every console
+  invocation opens a fresh serial session, so anything logged from a
+  timer callback (i.e. all of intro/outro) is gone before the next
+  command reads. Make it queryable.
+- Capturing goldens with the bridge stopped: set `offline_clock_min` to 0
+  first and restore it after. Otherwise the device retreats to the clock
+  scene mid-capture (host silent >5 min) and you baseline the wrong scene
+  under the right name.
 - A snapshot colour format must be in BOTH whitelists: the switch in
   `lv_snapshot.c` AND `CONFIG_LV_DRAW_SW_SUPPORT_*`. RGB565A8 is only in
   the second, so `lv_snapshot_take` returns NULL for it -- which made

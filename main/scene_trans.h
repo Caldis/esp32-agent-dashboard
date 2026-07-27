@@ -1,5 +1,6 @@
 #pragma once
 #include "lvgl.h"
+#include <stddef.h>
 #include "harness/scene_framework.h"
 
 #ifdef __cplusplus
@@ -94,6 +95,8 @@ typedef struct {
     int16_t        rest_pos;    /* 内部：bind 时快照的 aligned y/x（sync_rest 可改写） */
     uint8_t        held;        /* 内部：本次转场判定为共享 */
     lv_obj_t      *ghost;       /* 内部：烘焙出的替身 image */
+    int16_t        ghost_dx;    /* 内部：替身 style 坐标相对本体的固定偏移 */
+    int16_t        ghost_dy;    /* （快照含 ext_draw 边距，见 ghost_begin） */
     lv_draw_buf_t *ghost_buf;   /* 内部：替身的像素 */
 } trans_actor_t;
 
@@ -131,6 +134,10 @@ bool scene_trans_busy(void);
  * 上来回切，跑够重复次数再下结论。 */
 void scene_trans_set_bake(bool on);
 bool scene_trans_get_bake(void);
+
+/* 替身几何自检结果。转场结束换回本体时元素“跳一下”就是这里失配的
+ * 症状；日志行会被串口会话轮换吃掉，所以做成可查询的。`?ghost`。 */
+void scene_trans_ghost_stats(uint32_t *made, uint32_t *bad, char *last, size_t cap);
 
 /* 动态刷新率：静止档周期（转场档固定为 REFR_MS_ACTIVE）。`?refr <ms>`。 */
 void     scene_trans_set_idle_refr(uint32_t ms);

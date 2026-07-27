@@ -18,6 +18,7 @@
 #include "perf_mon.h"
 
 #include <string.h>
+#include <stdio.h>
 
 #include "esp_log.h"
 
@@ -215,6 +216,18 @@ static lv_obj_t *actor_target(const trans_actor_t *a)
 
 static bool s_bake_on = true;
 
+/* 替身几何失配的可查询记录（见 ghost_begin 的检查）。 */
+static uint32_t s_ghost_n = 0;       /* 成功烘焙的替身总数 */
+static uint32_t s_ghost_bad_n = 0;   /* 其中几何与本体不重合的 */
+static char     s_ghost_bad[128];    /* 最近一次失配的细节 */
+
+void scene_trans_ghost_stats(uint32_t *made, uint32_t *bad, char *last, size_t cap)
+{
+    if (made) *made = s_ghost_n;
+    if (bad)  *bad  = s_ghost_bad_n;
+    if (last && cap) snprintf(last, cap, "%s", s_ghost_bad[0] ? s_ghost_bad : "-");
+}
+
 void scene_trans_set_bake(bool on) { s_bake_on = on; }
 bool scene_trans_get_bake(void)    { return s_bake_on; }
 
@@ -247,10 +260,70 @@ static bool ghost_begin(trans_actor_t *a)
     lv_obj_set_style_align(img, lv_obj_get_style_align(a->obj, LV_PART_MAIN), 0);
     lv_obj_set_pos(img, lv_obj_get_style_x(a->obj, LV_PART_MAIN),
                         lv_obj_get_style_y(a->obj, LV_PART_MAIN));
+    /* ── 对齐替身与快照内容 ─────────────────────────────────────────
+     * 快照缓冲不是本体那么大：尺寸是 obj + 2*ext_draw_size，内容原点是
+     * obj.coords.x1 - ext（见 lv_snapshot.c）。而替身是按 align + style
+     * x/y 摆的，两套定位规则并不等价——TOP_MID 居中时多出的 2*ext 宽度
+     * 正好左右各分 ext，x 轴凑巧对上；但 TOP_* 不补偿高度，y 轴就整整
+     * 差一个 ext。实测 ext=10 时替身内容比本体低 10px，转场收尾换回本体
+     * 那一帧元素当场跳一下（用户报的现象），而且只影响 aligned 的标签，
+     * 用 set_pos 定位的容器不受影响——现象和成因完全对得上。
+     *
+     * 不去推导每种 align 该怎么补，而是【量出来再纠正】：先按本体姿态
+     * 摆好，读实际坐标，与期望原点求差，把差值加回 style x/y。align 与
+     * 尺寸此时都已固定，所以 style 位移与实际位移是 1:1 的。
+     * 这个差值同时是替身与本体的坐标系换算常数，动画和收尾都要用它。
+     *
+     * 布局必须先刷新再读：lv_image_set_src 只把自身尺寸标脏，坐标要等
+     * 下一次 layout 才更新。 */
+    lv_obj_update_layout(img);
+    lv_area_t ga, oa;
+    lv_obj_get_coords(a->obj, &oa);
+    lv_obj_get_coords(img, &ga);
+    /* ext 从快照缓冲自身反推，而不是调 lv_obj_get_ext_draw_size——那个
+     * 在 lv_obj_draw_private.h 里。缓冲就是按 obj + 2*ext 开的，除回去
+     * 得到的值必然与 lv_snapshot 实际用的一致，也不绑私有 API。 */
+    int32_t ext_x = (buf->header.w - lv_area_get_width(&oa))  / 2;
+    int32_t ext_y = (buf->header.h - lv_area_get_height(&oa)) / 2;
+    int32_t dx = (oa.x1 - ext_x) - ga.x1;
+    int32_t dy = (oa.y1 - ext_y) - ga.y1;
+    if (dx || dy) {
+        lv_obj_set_pos(img,
+                       lv_obj_get_style_x(img, LV_PART_MAIN) + dx,
+                       lv_obj_get_style_y(img, LV_PART_MAIN) + dy);
+        lv_obj_update_layout(img);
+    }
+    a->ghost_dx = (int16_t)dx;
+    a->ghost_dy = (int16_t)dy;
+
+    /* 自检：替身现在必须正好覆盖 obj 外扩 ext 的那块区域。留着它是因为
+     * 这类错位在静止截图里完全看不出来——只有转场收尾那一帧才可见，而
+     * 金标准比对只看静止帧。计数可查（`?ghost`），日志会被串口会话轮换
+     * 吃掉。 */
+    lv_obj_get_coords(img, &ga);
+    if (ga.x1 != oa.x1 - ext_x || ga.y1 != oa.y1 - ext_y ||
+        lv_area_get_width(&ga)  != lv_area_get_width(&oa)  + 2 * ext_x ||
+        lv_area_get_height(&ga) != lv_area_get_height(&oa) + 2 * ext_y) {
+        /* 记住而不只是打日志：每次 console 调用都新开一次串口会话，
+         * 定时器回调里发出的日志行会在下一次会话打开时被丢掉——转场的
+         * intro 恰好全在定时器里。可查询的状态才测得到。`?ghost`。 */
+        s_ghost_bad_n++;
+        snprintf(s_ghost_bad, sizeof(s_ghost_bad),
+                 "%s obj=%d,%d %dx%d ghost=%d,%d %dx%d d=%+d,%+d",
+                 a->key ? a->key : "-",
+                 (int)oa.x1, (int)oa.y1,
+                 (int)lv_area_get_width(&oa), (int)lv_area_get_height(&oa),
+                 (int)ga.x1, (int)ga.y1,
+                 (int)lv_area_get_width(&ga), (int)lv_area_get_height(&ga),
+                 (int)(ga.x1 - oa.x1), (int)(ga.y1 - oa.y1));
+        ESP_LOGW(TAG, "ghost geometry mismatch: %s", s_ghost_bad);
+    }
+
     lv_obj_add_flag(a->obj, LV_OBJ_FLAG_HIDDEN);
 
     a->ghost     = img;
     a->ghost_buf = buf;
+    s_ghost_n++;
     return true;
 }
 
@@ -259,12 +332,15 @@ static bool ghost_begin(trans_actor_t *a)
 static void ghost_end(trans_actor_t *a)
 {
     if (!a->ghost) return;
-    int32_t x = lv_obj_get_style_x(a->ghost, LV_PART_MAIN);
-    int32_t y = lv_obj_get_style_y(a->ghost, LV_PART_MAIN);
+    /* 换算回本体坐标系再交还，否则本体会带着 ext 偏移落座。 */
+    int32_t x = lv_obj_get_style_x(a->ghost, LV_PART_MAIN) - a->ghost_dx;
+    int32_t y = lv_obj_get_style_y(a->ghost, LV_PART_MAIN) - a->ghost_dy;
     lv_obj_delete(a->ghost);
     lv_draw_buf_destroy(a->ghost_buf);
     a->ghost     = NULL;
     a->ghost_buf = NULL;
+    a->ghost_dx  = 0;
+    a->ghost_dy  = 0;
     lv_obj_set_pos(a->obj, x, y);
     lv_obj_clear_flag(a->obj, LV_OBJ_FLAG_HIDDEN);
 }
@@ -280,8 +356,9 @@ static void anim_actor_pos(void *var, int32_t v)
 {
     trans_actor_t *a = (trans_actor_t *)var;
     lv_obj_t *t = actor_target(a);
-    if (is_x_axis(a)) lv_obj_set_x(t, v);
-    else              lv_obj_set_y(t, v);
+    /* 动画值始终用【本体】的 style 坐标系；替身差一个固定偏移。 */
+    if (is_x_axis(a)) lv_obj_set_x(t, a->ghost ? v + a->ghost_dx : v);
+    else              lv_obj_set_y(t, a->ghost ? v + a->ghost_dy : v);
 }
 
 static void anim_actor_opa(void *var, int32_t v)
