@@ -54,6 +54,7 @@
 #define SCREEN_W    466
 #define CLOCK_PX    135   /* was 150; pulled to ~90% on user feedback */
 #define COL_TEXT    0xF3EEE2
+#define COL_DIM     0x8A807A
 
 /* Horizontal offset of the hours / minutes labels from the centred
  * colon: half the sum of a two-digit advance (2×660) and the colon
@@ -66,6 +67,11 @@
 /* Face group is tall enough to hold the 135px glyphs without clipping,
  * full-width so the ±108 labels never clip horizontally. */
 #define FACE_GRP_H  200
+
+/* v6.5 常驻天气行。face_grp 居中 200 高 -> 大钟墨迹约 166..300；footer
+ * 数字从 392 起。322 落在两者之间，LABEL(26) 行底 ~353，仍在
+ * UI_CHROME_BOT(382) 之上。 */
+#define WX_LINE_Y   322
 
 /* Colon blink: half-period decoupled from the tick rate. 1000 ms half
  * = 1 s on / 1 s off = 0.5 Hz — a calm pulse (1 Hz read as too fast).
@@ -123,6 +129,8 @@ typedef struct {
     uint32_t    show_ms;      /* on_show tick — blink phase + entrance gate */
     bool        motion_ok;    /* mirror of !motion_reduced from on_show */
     int         colon_on;     /* last applied colon state; -1 forces apply */
+    lv_obj_t   *wx_lbl;       /* v6.5: 常驻天气行（大钟下方） */
+    char        cached_wx[96];
 
     /* ── push subsystem ── */
     lv_obj_t   *push_grp;     /* centre card container (fade/slide as one) */
@@ -556,6 +564,15 @@ static void clock_tick(lv_timer_t *t)
      * finishes; then toggle it 1 Hz. Hold it solid when motion is
      * reduced or before the host time syncs (buf[0]=='-'). Deduped so
      * we only invalidate the tiny colon region on an actual change. */
+    /* 常驻天气行。缓存比较后再写：tiny_ttf 标签一次 set_text 就是一次
+     * 失效 + 重新排版，而这行每分钟最多变一次。 */
+    char wxline[96];
+    scene_weather_mini_line(wxline, sizeof(wxline));
+    if (strcmp(wxline, st->cached_wx) != 0) {
+        snprintf(st->cached_wx, sizeof(st->cached_wx), "%s", wxline);
+        lv_label_set_text(st->wx_lbl, wxline);
+    }
+
     /* v6.3: 转场期间不闪。冒号是 135px 的 tiny_ttf 字形，一次 opa 翻转
      * 就是一次大字形重绘；而大钟这时正在做尺寸档位变形，每一分渲染预算
      * 都要留给它。转场结束后 colon_on=-1 会强制重新应用相位。 */
@@ -686,10 +703,12 @@ static void clock_trans_from_consensus(scene_t *s, uint32_t ms)
     face_start_morph(st, 1000, ms, spring_disp);
 }
 
-static trans_actor_t s_clock_actors[STATUS_BAR_TRANS_ACTORS];
+#define CLOCK_A_WX  STATUS_BAR_TRANS_ACTORS
+#define CLOCK_ACTOR_N (STATUS_BAR_TRANS_ACTORS + 1)
+static trans_actor_t s_clock_actors[CLOCK_ACTOR_N];
 static trans_profile_t s_clock_profile = {
     .actors               = s_clock_actors,
-    .actor_n              = STATUS_BAR_TRANS_ACTORS,
+    .actor_n              = CLOCK_ACTOR_N,
     .clock_to_consensus   = clock_trans_to_consensus,
     .clock_from_consensus = clock_trans_from_consensus,
 };
@@ -737,6 +756,17 @@ static void clock_init(scene_t *s, lv_obj_t *parent)
     lv_obj_set_style_text_color(st->mm, lv_color_hex(COL_TEXT), 0);
     lv_label_set_text(st->mm, "--");
     lv_obj_align(st->mm, LV_ALIGN_CENTER, COLON_DX, 0);
+
+    /* v6.5 常驻天气行。以前这行只在 scene_weather 的 MODE_CLOCK 姿态里
+     * 出现（刻钟膨胀那 30 秒），所以"时钟下面有没有天气"取决于你当时在
+     * 哪个场景——两块屏幕长得都像大钟，行为却不同，而且大钟的实现被写
+     * 了两份。现在它常驻在这里，MODE_CLOCK 整套已从 scene_weather 删除。
+     * 内容由 scene_weather_mini_line() 组装：同一个事实只有一份翻译表。 */
+    st->wx_lbl = lv_label_create(parent);
+    lv_obj_set_style_text_font(st->wx_lbl, ui_type(UI_T_LABEL), 0);
+    lv_obj_set_style_text_color(st->wx_lbl, lv_color_hex(COL_DIM), 0);
+    lv_label_set_text(st->wx_lbl, "");
+    lv_obj_align(st->wx_lbl, LV_ALIGN_TOP_MID, 0, WX_LINE_Y);
 
     /* ── push card (agent start/end), on top of the face, hidden until
      * clock_push_trigger fires. Sized to its exact content height so the
@@ -815,6 +845,11 @@ static void clock_init(scene_t *s, lv_obj_t *parent)
      * 带共享 key —— 与 dashboard 之间 footer 原地不动）。大钟面不进
      * 演员表——它是时间锚点，由 to/from_consensus 变形。 */
     status_bar_trans_actors(&st->sb, s_clock_actors);
+    /* 天气行随 footer 一起从底部进出；它没有共享 key，因为只有
+     * 这个场景有它。 */
+    s_clock_actors[CLOCK_A_WX] = (trans_actor_t){
+        .obj = st->wx_lbl, .dir = TRANS_FROM_BOTTOM, .ch = TROPA_TEXT,
+        .base_opa = 255, .out_dist = 180, .delay_ms = 40 };
     scene_trans_bind("clock", &s_clock_profile);
 }
 

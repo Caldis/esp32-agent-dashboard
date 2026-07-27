@@ -42,6 +42,8 @@
 #include "../theme.h"
 #include "../tiny_json.h"
 #include "../button_router.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "../scenes/scenes.h"
 #include "../scene_trans.h"
 
@@ -570,6 +572,13 @@ static int cmd_health(const console_args_t *a)
 
 /* ── dash btn ───────────────────────────────────────────────────── */
 
+/* 见 cmd_btn：按真实处理任务的栈大小跑，模拟才有意义。 */
+static void btn_sim_task(void *arg)
+{
+    button_router_press(*(button_router_key_t *)arg);
+    vTaskDelete(NULL);
+}
+
 static int cmd_btn(const console_args_t *a)
 {
     if (a->argc < 3 || a->argv[2] == NULL) {
@@ -585,11 +594,31 @@ static int cmd_btn(const console_args_t *a)
         console_reply_err("unknown key: %s (boot|user|pwr)", k);
         return 0;
     }
-    /* Console task is a FreeRTOS task like the button tasks; the router
-     * takes the display lock where needed, so this is the SAME contract
-     * as a physical press. */
-    button_router_press(key);
-    console_reply_ok("{\"btn\":\"%s\"}", k);
+    /* Dispatch from a task with the SAME STACK as the real handlers.
+     *
+     * This used to call button_router_press() straight from the console
+     * task and claim it was "the same contract as a physical press". It
+     * is not, and the difference is not academic: the console task has a
+     * large stack, while PWR runs on pwr_key's 3072-byte poll task and
+     * BOOT/USER on the esp_timer task (CONFIG_ESP_TIMER_TASK_STACK_SIZE,
+     * 3584). Anything the router reaches that is stack-hungry — the LVGL
+     * render pipeline, via transition sprite baking — blows up on a real
+     * press and passes every time under `dash btn`. That is exactly how a
+     * weather-scene crash-on-keypress survived repeated simulated tests.
+     *
+     * BTN_SIM_STACK tracks the SMALLEST real handler stack, so the
+     * simulation is the worst case rather than a comfortable one. Keep it
+     * in sync with pwr_key.c if that task is ever resized. */
+    #define BTN_SIM_STACK 3072
+    static button_router_key_t s_sim_key;
+    s_sim_key = key;
+    BaseType_t ok = xTaskCreate(btn_sim_task, "btn_sim", BTN_SIM_STACK,
+                                &s_sim_key, 3, NULL);
+    if (ok != pdPASS) {
+        console_reply_err("btn: could not spawn sim task");
+        return 0;
+    }
+    console_reply_ok("{\"btn\":\"%s\",\"stack\":%d}", k, BTN_SIM_STACK);
     return 0;
 }
 

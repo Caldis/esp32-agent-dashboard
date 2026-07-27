@@ -1,4 +1,5 @@
 #pragma once
+#include <stddef.h>
 #include "harness/scene_framework.h"
 
 #ifdef __cplusplus
@@ -34,3 +35,10 @@ int scene_saver_consume(void);
  * `?wxbreath 0` 后测 idle render，再 `?wxbreath 1` 复测，差值即成本。 */
 void scene_weather_set_breath(bool on);
 bool scene_weather_get_breath(void);
+
+/* WMO 天气码 -> 中文短词。scene_clock 的常驻天气行要用同一份映射——
+ * 两个界面显示同一个事实，就不该有两份翻译表。 */
+const char *scene_weather_word(int code);
+
+/* 组装时钟下方的常驻天气行："31° 多云 · 深圳·福田"。无数据时写空串。 */
+void scene_weather_mini_line(char *buf, size_t cap);

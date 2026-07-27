@@ -248,7 +248,7 @@ static wx_class_t wx_classify(int code)
 }
 
 /* 天气词（全部 GB2312，设备字体子集内） */
-static const char *wx_word(int code)
+const char *scene_weather_word(int code)
 {
     switch (wx_classify(code)) {
     case WX_CLEAR:   return "晴";
@@ -579,6 +579,30 @@ static void mk_star(lv_obj_t *parent, int idx, int cx, int cy, int arm,
     }
 }
 
+/* 时钟场景下方那行常驻天气。定义放在这里而不是 scene_clock：天气码到
+ * 中文词的映射、以及"温度 天气 · 地名"的排版规则，都属于天气这一侧的
+ * 知识。scene_clock 只负责把它显示在合适的位置。
+ * v6.5 起这是天气在时钟视图里的唯一形态——原来 scene_weather 自己有一
+ * 套 MODE_CLOCK 大钟姿态（刻钟时膨胀 30 秒），于是"时钟下面有没有天气"
+ * 取决于你当时在哪个场景，两套几乎相同的大钟代码也各写了一份。整套
+ * MODE_CLOCK 已删除。 */
+void scene_weather_mini_line(char *buf, size_t cap)
+{
+    if (!buf || cap == 0) return;
+    buf[0] = '\0';
+    weather_state_t w;
+    agent_state_lock();
+    w = agent_state_get()->weather;
+    agent_state_unlock();
+    if (!w.valid) return;
+    if (w.loc[0])
+        snprintf(buf, cap, "%d° %s · %s",
+                 (int)w.cur_temp, scene_weather_word(w.cur_code), w.loc);
+    else
+        snprintf(buf, cap, "%d° %s",
+                 (int)w.cur_temp, scene_weather_word(w.cur_code));
+}
+
 /* ════ 过渡淡化表 ═══════════════════════════════════════════════════ */
 
 static void fade_walk(weather_scene_t *st, lv_obj_t *o)
@@ -788,7 +812,7 @@ static void render_weather(weather_scene_t *st, const weather_state_t *w)
 
     snprintf(buf, sizeof(buf), "%d°", (int)w->cur_temp);
     lv_label_set_text(st->temp_lbl, buf);
-    lv_label_set_text(st->cond_lbl, wx_word(w->cur_code));
+    lv_label_set_text(st->cond_lbl, scene_weather_word(w->cur_code));
     lv_label_set_text(st->loc_lbl, w->loc[0] ? w->loc : "");
     /* 权威值同时落到屏幕——render 只可能在天气可见态跑（tick 门），
      * 顺手把任何历史透明残留修正掉。 */
@@ -847,10 +871,10 @@ static void render_clock_info(weather_scene_t *st, const agent_state_t *s,
     if (w->valid) {
         if (w->loc[0])
             snprintf(mini, sizeof(mini), "%d° %s · %s",
-                     (int)w->cur_temp, wx_word(w->cur_code), w->loc);
+                     (int)w->cur_temp, scene_weather_word(w->cur_code), w->loc);
         else
             snprintf(mini, sizeof(mini), "%d° %s",
-                     (int)w->cur_temp, wx_word(w->cur_code));
+                     (int)w->cur_temp, scene_weather_word(w->cur_code));
     }
     if (strcmp(mini, st->cached_mini) != 0) {
         snprintf(st->cached_mini, sizeof(st->cached_mini), "%s", mini);
