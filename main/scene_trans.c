@@ -5,6 +5,10 @@
  * 推进用一次性 lv_timer；所有入口都在 display 锁 / LVGL task 上。
  * 演员动画：位移走 spring_disp（入场）/ apple_ease_in（出场），
  * 透明度走 spring_opa / apple_ease_in。HIDDEN 的演员整段跳过。
+ *
+ * v6.2 连续性层：出场/入场前先求 (from, to) 两侧演员的共享交集
+ * （mark_held）。同 key 同姿态的演员双方都不动，只被钉在 rest 上——
+ * 元素"原地等待"换页，而不是飞出去再飞回来。详见 scene_trans.h。
  */
 
 #include "scene_trans.h"
@@ -36,6 +40,8 @@ static int s_profile_n = 0;
 static int         s_state = ST_IDLE;
 static int         s_pending = -1;     /* 转场目标（可被覆盖） */
 static lv_timer_t *s_step = NULL;      /* 一次性推进器 */
+/* 出场那一侧的 profile：入场时拿它求共享元素交集（对称判定）。 */
+static trans_profile_t *s_from_p = NULL;
 
 /* ── profile 查找 ──────────────────────────────────────────────────── */
 
@@ -53,6 +59,7 @@ void scene_trans_bind(const char *scene_id, trans_profile_t *profile)
     /* rest 位置快照：对象此刻处于 align 后的静止姿态。 */
     for (int i = 0; i < profile->actor_n; ++i) {
         trans_actor_t *a = &profile->actors[i];
+        a->held = 0;
         if (!a->obj) continue;
         if (a->dir == TRANS_FROM_LEFT || a->dir == TRANS_FROM_RIGHT)
             a->rest_pos = (int16_t)lv_obj_get_style_x(a->obj, LV_PART_MAIN);
@@ -80,6 +87,48 @@ static int32_t out_pos_of(const trans_actor_t *a)
 static bool is_x_axis(const trans_actor_t *a)
 {
     return a->dir == TRANS_FROM_LEFT || a->dir == TRANS_FROM_RIGHT;
+}
+
+/* ── 共享元素：求 (from, to) 的交集 ────────────────────────────────
+ * key 相同只是"开发者说这是同一个东西"；姿态全等才是可验证的护栏。
+ * 两轴都比：动画轴用 rest_pos（对象可能正停在场外，屏幕坐标不可信），
+ * 另一轴转场从不改写，当前 style 值即静止值。 */
+
+static bool same_pose(const trans_actor_t *a, const trans_actor_t *b)
+{
+    if (a->dir != b->dir || a->ch != b->ch) return false;
+    if (a->base_opa != b->base_opa)         return false;
+    if (a->rest_pos != b->rest_pos)         return false;
+    if (lv_obj_get_style_align(a->obj, LV_PART_MAIN) !=
+        lv_obj_get_style_align(b->obj, LV_PART_MAIN)) return false;
+    int32_t ax = is_x_axis(a) ? lv_obj_get_style_y(a->obj, LV_PART_MAIN)
+                              : lv_obj_get_style_x(a->obj, LV_PART_MAIN);
+    int32_t bx = is_x_axis(b) ? lv_obj_get_style_y(b->obj, LV_PART_MAIN)
+                              : lv_obj_get_style_x(b->obj, LV_PART_MAIN);
+    return ax == bx;
+}
+
+/* 本次转场里，把与对侧同 key 同姿态的演员标为 held（原地待命）。
+ * 返回 held 的个数——日志里报出来，"共享判定是否命中"才是可观测的
+ * （姿态不等会静默退化成正常进出场，不看计数根本发现不了漂移）。 */
+static int mark_held(trans_profile_t *p, trans_profile_t *other)
+{
+    int n_held = 0;
+    if (!p) return 0;
+    for (int i = 0; i < p->actor_n; ++i) {
+        trans_actor_t *a = &p->actors[i];
+        a->held = 0;
+        if (!a->obj || !a->key || !other) continue;
+        if (lv_obj_has_flag(a->obj, LV_OBJ_FLAG_HIDDEN)) continue;
+        for (int j = 0; j < other->actor_n; ++j) {
+            trans_actor_t *b = &other->actors[j];
+            if (!b->obj || !b->key || strcmp(a->key, b->key) != 0) continue;
+            if (lv_obj_has_flag(b->obj, LV_OBJ_FLAG_HIDDEN)) break;
+            if (same_pose(a, b)) { a->held = 1; n_held++; }
+            break;                       /* key 唯一：命中即定论 */
+        }
+    }
+    return n_held;
 }
 
 static void actor_set_opa(const trans_actor_t *a, lv_opa_t v)
@@ -157,28 +206,48 @@ static void start_actor_anim(trans_actor_t *a, lv_anim_exec_xcb_t cb,
     lv_anim_start(&an);
 }
 
+/* 只统计真正会动的演员：held / HIDDEN 的不参与错峰基准，否则一屏全是
+ * 共享元素时还要白等一个 maxd。 */
 static uint16_t max_delay_of(const trans_profile_t *p)
 {
     uint16_t m = 0;
-    for (int i = 0; i < p->actor_n; ++i)
-        if (p->actors[i].delay_ms > m) m = p->actors[i].delay_ms;
+    for (int i = 0; i < p->actor_n; ++i) {
+        const trans_actor_t *a = &p->actors[i];
+        if (!a->obj || a->held) continue;
+        if (lv_obj_has_flag(a->obj, LV_OBJ_FLAG_HIDDEN)) continue;
+        if (a->delay_ms > m) m = a->delay_ms;
+    }
     return m;
+}
+
+/* held 演员：杀掉残留动画并钉死在 rest 姿态。瞬切帧上两侧像素级重合，
+ * 交接才不可见——这是整个共享元素机制的交接点。 */
+static void actor_park_at_rest(trans_actor_t *a)
+{
+    actor_kill_anims(a);
+    anim_actor_pos(a, a->rest_pos);
+    if (a->ch != TROPA_NONE) actor_set_opa(a, a->base_opa);
 }
 
 /* ── 出场 / 入场编排 ──────────────────────────────────────────────── */
 
 /* 出场：从 live 值加速离屏（后进先出：入场 delay 大的先走）。
  * 返回全部完成所需的毫秒数。 */
-static uint32_t play_outro(scene_t *sc, bool animate)
+static uint32_t play_outro(scene_t *sc, bool animate, trans_profile_t *other)
 {
     trans_profile_t *p = profile_of(sc);
     uint32_t total = 0;
 
     if (p) {
+        if (p->sync_rest) p->sync_rest(sc);
+        int n_held = mark_held(p, other);
+        ESP_LOGI(TAG, "outro %s: %d/%d held", sc->id, n_held, p->actor_n);
         uint16_t maxd = max_delay_of(p);
+        bool any = false;
         for (int i = 0; i < p->actor_n; ++i) {
             trans_actor_t *a = &p->actors[i];
             if (!a->obj) continue;
+            if (a->held) { actor_park_at_rest(a); continue; }
             actor_kill_anims(a);
             if (lv_obj_has_flag(a->obj, LV_OBJ_FLAG_HIDDEN)) continue;
             int32_t live_pos = is_x_axis(a) ? lv_obj_get_style_x(a->obj, LV_PART_MAIN)
@@ -189,6 +258,7 @@ static uint32_t play_outro(scene_t *sc, bool animate)
                 actor_set_opa(a, LV_OPA_TRANSP);
                 continue;
             }
+            any = true;
             if (a->dir != TRANS_FADE_ONLY)
                 start_actor_anim(a, anim_actor_pos, live_pos, out_pos_of(a),
                                  OUT_MS, d, apple_ease_in);
@@ -196,25 +266,35 @@ static uint32_t play_outro(scene_t *sc, bool animate)
                 start_actor_anim(a, anim_actor_opa, actor_get_opa(a),
                                  LV_OPA_TRANSP, OUT_MS, d, apple_ease_in);
         }
-        if (animate) total = OUT_MS + maxd;
-        if (p->clock_to_consensus)
+        if (animate && any) total = OUT_MS + maxd;
+        if (p->clock_to_consensus) {
             p->clock_to_consensus(sc, animate ? OUT_MS : 0);
+            /* 时间锚点也是"会动的东西"：全员 held 时它得独自撑住时长。 */
+            if (animate && total < OUT_MS) total = OUT_MS;
+        }
     }
     return total;
 }
 
 /* 入场：先摆到场外，再弹簧滑入。透明度先到位（IN_OPA_MS < IN_MS），
  * 元素"显形中落座"。 */
-static uint32_t play_intro(scene_t *sc, bool animate)
+static uint32_t play_intro(scene_t *sc, bool animate, trans_profile_t *other)
 {
     trans_profile_t *p = profile_of(sc);
     uint32_t total = 0;
 
     if (p) {
+        if (p->sync_rest) p->sync_rest(sc);
+        int n_held = mark_held(p, other);
+        ESP_LOGI(TAG, "intro %s: %d/%d held", sc->id, n_held, p->actor_n);
         uint16_t maxd = max_delay_of(p);
+        bool any = false;
         for (int i = 0; i < p->actor_n; ++i) {
             trans_actor_t *a = &p->actors[i];
             if (!a->obj) continue;
+            /* 共享：上一场景的同位对象刚刚就停在这个姿态上，瞬间钉住
+             * 即可——它在观众眼里"根本没离开过屏幕"。 */
+            if (a->held) { actor_park_at_rest(a); continue; }
             actor_kill_anims(a);
             if (lv_obj_has_flag(a->obj, LV_OBJ_FLAG_HIDDEN)) continue;
             if (!animate) {
@@ -222,6 +302,7 @@ static uint32_t play_intro(scene_t *sc, bool animate)
                 actor_set_opa(a, a->base_opa);
                 continue;
             }
+            any = true;
             if (a->dir != TRANS_FADE_ONLY) {
                 anim_actor_pos(a, out_pos_of(a));
                 start_actor_anim(a, anim_actor_pos, out_pos_of(a), a->rest_pos,
@@ -233,7 +314,7 @@ static uint32_t play_intro(scene_t *sc, bool animate)
                                  IN_OPA_MS, a->delay_ms, spring_opa);
             }
         }
-        if (animate) total = IN_MS + maxd;
+        if (animate && any) total = IN_MS + maxd;
         if (p->clock_from_consensus)
             p->clock_from_consensus(sc, animate ? IN_MS : 0);
         if (p->clock_from_consensus && animate && IN_MS > total) total = IN_MS;
@@ -259,13 +340,16 @@ static void do_switch_and_intro(void)
 {
     int target = s_pending;
     s_pending = -1;
-    if (target < 0) { s_state = ST_IDLE; return; }
+    if (target < 0) { s_state = ST_IDLE; s_from_p = NULL; return; }
+
+    trans_profile_t *from_p = s_from_p;
+    s_from_p = NULL;
 
     scene_fw_show_instant(target);
     const scene_t *sc = scene_fw_current();
 
     bool anim = motion_ok();
-    uint32_t in_total = play_intro((scene_t *)sc, anim);
+    uint32_t in_total = play_intro((scene_t *)sc, anim, from_p);
     if (anim && in_total > 0) {
         s_state = ST_INTRO;
         arm_step(in_total + STEP_GUARD_MS);
@@ -285,7 +369,9 @@ static void step_cb(lv_timer_t *t)
         if (s_pending >= 0) {
             scene_t *cur = (scene_t *)scene_fw_current();
             bool anim = motion_ok();
-            uint32_t out_total = play_outro(cur, anim);
+            s_from_p = profile_of(cur);
+            uint32_t out_total = play_outro(cur, anim,
+                                            profile_of(scene_fw_get(s_pending)));
             s_state = ST_OUTRO;
             arm_step(out_total + STEP_GUARD_MS);
         } else {
@@ -321,7 +407,9 @@ void scene_trans_switch(int target_idx)
         s_pending = target_idx;
         scene_t *cur = (scene_t *)scene_fw_current();
         bool anim = motion_ok();
-        uint32_t out_total = play_outro(cur, anim);
+        s_from_p = profile_of(cur);
+        uint32_t out_total = play_outro(cur, anim,
+                                        profile_of(scene_fw_get(target_idx)));
         if (anim && out_total > 0) {
             s_state = ST_OUTRO;
             arm_step(out_total + STEP_GUARD_MS);

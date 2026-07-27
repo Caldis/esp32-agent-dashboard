@@ -1,6 +1,7 @@
 #pragma once
 #include "lvgl.h"
 #include "agent_state.h"
+#include "scene_trans.h"
 
 /* Shared status bar — top time + bottom active/token, identical across every
  * scene. Each scene owns one on its root: call status_bar_create() in init()
@@ -21,6 +22,14 @@ typedef struct {
 
 void status_bar_create(lv_obj_t *parent, status_bar_t *sb);
 void status_bar_update(status_bar_t *sb, const agent_state_t *st);
+
+/* Footer 四件套的规范转场演员（v6.2）。footer 是跨场景的共享组件，所以
+ * 它的演员定义也只能有一处：每个带 footer 的场景都从这里取，姿态一致
+ * 由构造保证——共享元素判定要求两侧姿态全等，手抄一份迟早会漂移，
+ * 漂移的表现是 footer 又开始"飞出去再飞回来"。
+ * 填满 out[STATUS_BAR_TRANS_ACTORS]，返回填入个数。 */
+#define STATUS_BAR_TRANS_ACTORS 4
+int status_bar_trans_actors(const status_bar_t *sb, trans_actor_t *out);
 
 /* Format the host-synced wall clock as "HH:MM" ("--:--" until the host
  * pushes `dash time`). Shared by the status bar's top clock and

@@ -70,6 +70,13 @@
 #define STRIP_ICON_SZ 44
 #define STRIP_TEMP_Y 392
 static const int STRIP_DX[WEATHER_DAYS] = { -164, -82, 0, 82, 164 };
+/* 条带容器：从 name 行顶到屏底，三行 y 全部转成组内相对量。 */
+#define STRIP_GRP_H  (466 - STRIP_NAME_Y)
+/* 装饰星容器：刚好包住三颗星的包围盒（含 arm 与线宽余量）。 */
+#define STAR_GRP_X   190
+#define STAR_GRP_Y    76
+#define STAR_GRP_W    60
+#define STAR_GRP_H   190
 
 /* ── clock-major 布局 ──────────────────────────────────────────────── */
 #define CLOCK_PX     135
@@ -136,6 +143,11 @@ typedef struct {
 
     /* 天气主区 */
     lv_obj_t  *wx_grp;
+    /* 转场分组容器 (v6.2)：五天条带 15 个对象、装饰星 6 条线，各自并成
+     * 一个演员整体位移——15 条并行位移动画的脏矩形几乎覆盖全屏，而
+     * 一个容器只有一次并集重绘。 */
+    lv_obj_t  *strip_grp;
+    lv_obj_t  *star_grp;
     lv_obj_t  *loc_lbl;                     /* 左上角 "深圳·福田" */
     lv_obj_t  *temp_lbl;                    /* HERO "31°" */
     lv_obj_t  *cond_lbl;                    /* BODY "多云" */
@@ -1006,9 +1018,25 @@ static void wx_trans_from_consensus(scene_t *s, uint32_t ms)
     lv_anim_start(&a);
 }
 
+/* ── 转场演员 (v6.2) ──────────────────────────────────────────────
+ * 全部走 TROPA_NONE（纯位移，不碰透明度）：weather 的所有内容对象都在
+ * fade 表里（wx_mark 的权威 base_opa 驱动刻钟变形与数据换新），转场再
+ * 插一路 opa 动画就是两个系统抢同一个属性——而且 0 是 fade 系统的吸收
+ * 态，抢输一次就是永久隐形（v4.9 踩过）。位移已经把元素整个送出屏幕，
+ * 淡化本来也是多余的。
+ * 编排：左上地名与插画向左退，右列温度/天气词向右退，条带向下沉，
+ * 装饰星跟着插画往左——出场时后进先出自动反转。
+ * footer 不在表内：本场景砍掉了那一层级（对象 HIDDEN），因此也不参与
+ * 共享判定，dashboard 的 footer 与它之间照常进出场。 */
+enum {
+    WXA_LOC = 0, WXA_ICON, WXA_STARS, WXA_TEMP, WXA_COND,
+    WXA_STRIP, WXA_WAIT, WXA_N
+};
+static trans_actor_t s_wx_actors[WXA_N];
+
 static trans_profile_t s_wx_profile = {
-    .actors               = NULL,
-    .actor_n              = 0,
+    .actors               = s_wx_actors,
+    .actor_n              = WXA_N,
     .clock_to_consensus   = wx_trans_to_consensus,
     .clock_from_consensus = wx_trans_from_consensus,
 };
@@ -1059,29 +1087,34 @@ static void weather_init(scene_t *s, lv_obj_t *parent)
     wx_mark(st->cond_lbl, FADE_TEXT, 255);
 
     /* 留白处的复古小星：一颗补在顶行正中（时间挪去右上后的空缺），
-     * 另两颗散在插画与温度间的组间留白。 */
-    mk_star(st->wx_grp, 0, 233, 86, 5, 100);
-    mk_star(st->wx_grp, 1, 200, 148, 5, 110);
-    mk_star(st->wx_grp, 2, 214, 250, 4, 80);
+     * 另两颗散在插画与温度间的组间留白。三颗共用一个刚好包住它们的
+     * 小容器（STAR_GRP_*），转场时整组左移出屏 —— 坐标因此是组内相对，
+     * 屏幕绝对位置不变。 */
+    st->star_grp = mk_box(st->wx_grp, STAR_GRP_W, STAR_GRP_H);
+    lv_obj_set_pos(st->star_grp, STAR_GRP_X, STAR_GRP_Y);
+    mk_star(st->star_grp, 0, 233 - STAR_GRP_X,  86 - STAR_GRP_Y, 5, 100);
+    mk_star(st->star_grp, 1, 200 - STAR_GRP_X, 148 - STAR_GRP_Y, 5, 110);
+    mk_star(st->star_grp, 2, 214 - STAR_GRP_X, 250 - STAR_GRP_Y, 4, 80);
 
-    /* 五天条带 */
+    /* 五天条带 —— 整条带一个容器，三行 y 改为组内相对。 */
+    st->strip_grp = mk_box(st->wx_grp, SCREEN_W, STRIP_GRP_H);
+    lv_obj_set_pos(st->strip_grp, 0, STRIP_NAME_Y);
     for (int i = 0; i < WEATHER_DAYS; ++i) {
-        st->day_name[i] = mk_label(st->wx_grp,
+        st->day_name[i] = mk_label(st->strip_grp,
             i == 1 ? ui_type_bold(UI_T_LABEL) : ui_type(UI_T_LABEL),
             COL_DIM, "");
-        lv_obj_align(st->day_name[i], LV_ALIGN_TOP_MID, STRIP_DX[i],
-                     STRIP_NAME_Y);
+        lv_obj_align(st->day_name[i], LV_ALIGN_TOP_MID, STRIP_DX[i], 0);
         wx_mark(st->day_name[i], FADE_TEXT, 255);
 
-        st->day_icons[i].root = mk_box(st->wx_grp, STRIP_ICON_SZ,
+        st->day_icons[i].root = mk_box(st->strip_grp, STRIP_ICON_SZ,
                                        STRIP_ICON_SZ);
         lv_obj_align(st->day_icons[i].root, LV_ALIGN_TOP_MID, STRIP_DX[i],
-                     STRIP_ICON_Y);
+                     STRIP_ICON_Y - STRIP_NAME_Y);
 
-        st->day_temp[i] = mk_label(st->wx_grp, ui_type(UI_T_LABEL),
+        st->day_temp[i] = mk_label(st->strip_grp, ui_type(UI_T_LABEL),
                                    COL_TEXT, "");
         lv_obj_align(st->day_temp[i], LV_ALIGN_TOP_MID, STRIP_DX[i],
-                     STRIP_TEMP_Y);
+                     STRIP_TEMP_Y - STRIP_NAME_Y);
         wx_mark(st->day_temp[i], FADE_TEXT, 255);
     }
 
@@ -1116,6 +1149,28 @@ static void weather_init(scene_t *s, lv_obj_t *parent)
 
     st->timer = lv_timer_create(weather_tick, TICK_MS, st);
     lv_timer_pause(st->timer);
+
+    s_wx_actors[WXA_LOC] = (trans_actor_t){ .obj = st->loc_lbl,
+        .dir = TRANS_FROM_LEFT, .ch = TROPA_NONE, .out_dist = 260,
+        .delay_ms = 0 };
+    s_wx_actors[WXA_ICON] = (trans_actor_t){ .obj = st->big_icon.root,
+        .dir = TRANS_FROM_LEFT, .ch = TROPA_NONE, .out_dist = 200,
+        .delay_ms = 60 };
+    s_wx_actors[WXA_STARS] = (trans_actor_t){ .obj = st->star_grp,
+        .dir = TRANS_FROM_LEFT, .ch = TROPA_NONE,
+        .out_dist = STAR_GRP_X + STAR_GRP_W, .delay_ms = 30 };
+    s_wx_actors[WXA_TEMP] = (trans_actor_t){ .obj = st->temp_lbl,
+        .dir = TRANS_FROM_RIGHT, .ch = TROPA_NONE, .out_dist = 320,
+        .delay_ms = 60 };
+    s_wx_actors[WXA_COND] = (trans_actor_t){ .obj = st->cond_lbl,
+        .dir = TRANS_FROM_RIGHT, .ch = TROPA_NONE, .out_dist = 320,
+        .delay_ms = 100 };
+    s_wx_actors[WXA_STRIP] = (trans_actor_t){ .obj = st->strip_grp,
+        .dir = TRANS_FROM_BOTTOM, .ch = TROPA_NONE,
+        .out_dist = STRIP_GRP_H + 10, .delay_ms = 130 };
+    s_wx_actors[WXA_WAIT] = (trans_actor_t){ .obj = st->wait_lbl,
+        .dir = TRANS_FROM_BOTTOM, .ch = TROPA_NONE, .out_dist = 260,
+        .delay_ms = 60 };
 
     scene_trans_bind("weather", &s_wx_profile);
 }

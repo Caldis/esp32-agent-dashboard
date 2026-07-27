@@ -150,7 +150,42 @@ transform_scale stays banned) while position glides continuously on
 spring_disp. CLOCK_CACHE_MAX in cjk_font.c must hold every rung (12).
 Switching is async (~0.9 s); rapid re-targeting is coalesced. Scenes
 without a bound profile degrade to instant black-frame cuts — migrate
-by binding actors in init(). Notes: a stray "clock locked" toast after
+by binding actors in init().
+
+### Shared elements (v6.2 — the continuity layer)
+The time anchor was the first "element that survives a transition", but
+it needs morph callbacks because the two poses differ. The common case
+is two scenes whose element is IDENTICAL — dashboard and clock share the
+same status_bar footer, same coordinates. Such an element must NOT fly
+out and fly back; it waits in place (user call).
+Mechanism: `trans_actor_t.key` is a cross-scene identity. Before every
+outro AND intro the framework intersects the (from, to) actor tables:
+same key **and** fully equal pose (dir / opa channel / base_opa / align /
+BOTH axes, neither HIDDEN) ⇒ both sides mark the actor `held` and just
+pin it at rest. On the black frame the two objects coincide pixel for
+pixel — same principle as the time anchor, no callback needed. Key
+mismatch or pose drift degrades silently to a normal in/out, so
+`scene_trans` logs `outro <scene>: N/M held` per switch — that count is
+the only way to notice drift. Expected today: dashboard↔clock 4 held
+(footer), anything↔weather 0 (weather cuts the footer layer entirely and
+declares no footer actors).
+The footer's actor definition lives in ONE place —
+`status_bar_trans_actors()` — because pose equality is what the matcher
+tests; a hand-copied second definition would drift and silently bring
+the fly-out back.
+Dynamic rest poses: `trans_profile_t.sync_rest` is called before outro
+and before intro so a scene can write the CURRENT resting position into
+`actor->rest_pos` (dashboard's ambient cluster slides between its
+chip/no-chip poses; fleet card y depends on row count). Corollary:
+`ambient_slide_to()` must no-op while `scene_trans_busy()` — otherwise
+two animations fight over the same y.
+Actor design rules learned here: group many small objects into ONE
+container actor (weather's 5-day strip = 15 objects, the decorative
+stars = 6 lines) — 15 parallel position anims dirty nearly the whole
+screen, one container is a single union repaint. And on weather use
+displacement only (TROPA_NONE): every content object there is already
+driven by the wx_mark fade table, and a second writer on opa can lose a
+race into the absorbing 0 state. Notes: a stray "clock locked" toast after
 reflash is a leftover AXP2101 PWR IRQ polled on boot (pre-existing);
 `?dump` on the clock scene with SYNCED time can reboot the device if
 the minute rolls over (two 135px glyph re-rasters mid-dump rides the

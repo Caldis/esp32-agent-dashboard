@@ -27,6 +27,7 @@
 #include "status_bar.h"
 #include "cjk_font.h"   /* cjk_utf8_lcpy */
 #include "ui_type.h"
+#include "scene_trans.h"
 #include "anim/apple_ease.h"
 
 #include <stdio.h>
@@ -78,12 +79,25 @@
 #define AMBIENT_WORD_Y  112
 #define AMBIENT_CHIP_Y  189
 
+/* ── 转场演员布局 (v6.2) ──────────────────────────────────────────
+ * footer 四件套（共享 key，与 clock 之间原地不动）+ ambient 簇整组 +
+ * 每张 fleet 卡片。ambient 与 rows 互斥（HIDDEN），框架自动跳过隐藏的
+ * 那一半，所以同一张演员表覆盖两种密度。 */
+#define DASH_A_FOOTER0  0
+#define DASH_A_AMBIENT  (DASH_A_FOOTER0 + STATUS_BAR_TRANS_ACTORS)
+#define DASH_A_ROW0     (DASH_A_AMBIENT + 1)
+#define DASH_ACTOR_N    (DASH_A_ROW0 + AGENT_SLOT_MAX)
+/* ambient 簇 224 高、静止 y 最高 133 → 下沉 360 才让环的墨完全出屏。 */
+#define DASH_AMBIENT_OUT  360
+#define DASH_ROW_OUT      500
+
 typedef struct {
     lv_obj_t *card;
     lv_obj_t *dot;
     lv_obj_t *name_lbl;
     lv_obj_t *meta_lbl;
     lv_obj_t *act_lbl;
+    int16_t   rest_y;    /* layout_rows 排出的静止 y（转场 rest 姿态） */
 } fleet_row_t;
 
 typedef struct {
@@ -251,6 +265,9 @@ static void ambient_slide_to(dash_t *d, int target, bool motion_ok)
         lv_obj_set_y(d->ambient_grp, target);
         return;
     }
+    /* 转场进行中：簇正在场外飞，别在这条 y 上开第二条动画抢方向盘。
+     * 新的 target 已记下，dash_sync_rest 会把它交给入场的落点。 */
+    if (scene_trans_busy()) return;
     lv_anim_t a;
     lv_anim_init(&a);
     lv_anim_set_var(&a, d->ambient_grp);
@@ -388,6 +405,7 @@ static void layout_rows(dash_t *d, int n)
 
     for (int i = 0; i < n; ++i) {
         fleet_row_t *r = &d->rows[i];
+        r->rest_y = (int16_t)y;
         lv_obj_set_pos(r->card, ROW_X, y);
         lv_obj_set_size(r->card, ROW_W, h);
         lv_obj_set_pos(r->dot, 20, name_y + (name_h - 16) / 2);
@@ -502,6 +520,31 @@ static void tick(lv_timer_t *t)
     else if (st->slot_count >= 2)     render_fleet(d, st);
     else                              render_ambient(d, st);
     agent_state_unlock();
+}
+
+/* ── 转场 profile (v6.2) ─────────────────────────────────────────── */
+
+/* 两处静止姿态是"活"的：ambient 簇在 chip/无 chip 两个 pose 间滑动，
+ * fleet 卡片的 y 随行数重排。转场前把当前值交给框架，否则入场会把元素
+ * 弹回 bind 那一刻的旧位置。 */
+static void dash_sync_rest(scene_t *s);
+
+static trans_actor_t s_dash_actors[DASH_ACTOR_N];
+static trans_profile_t s_dash_profile = {
+    .actors    = s_dash_actors,
+    .actor_n   = DASH_ACTOR_N,
+    /* 时间已在共识姿态（顶部中央 48px 小钟）→ 无需变形回调。 */
+    .sync_rest = dash_sync_rest,
+};
+
+static void dash_sync_rest(scene_t *s)
+{
+    dash_t *d = (dash_t *)s->user_data;
+    if (!d) return;
+    s_dash_actors[DASH_A_AMBIENT].rest_pos = (int16_t)
+        (d->ambient_target_y ? d->ambient_target_y : AMBIENT_Y_CENTERED);
+    for (int i = 0; i < AGENT_SLOT_MAX; ++i)
+        s_dash_actors[DASH_A_ROW0 + i].rest_pos = d->rows[i].rest_y;
 }
 
 /* ── init ────────────────────────────────────────────────────────── */
@@ -626,6 +669,24 @@ static void init(scene_t *s, lv_obj_t *parent)
 
     d->timer = lv_timer_create(tick, 500, d);
     lv_timer_pause(d->timer);
+
+    /* ── 转场演员表 ──
+     * footer：来自 status_bar 的规范定义（共享 key）。
+     * ambient：整簇一个演员，从底部弹入/沉出——不要拆成环/词/chip 三个
+     *   演员各自动，那是三份大 tiny_ttf 重绘，也会跟 ambient_slide_to
+     *   争同一条 y。TROPA_NONE：位移已经把它整个送出屏幕，没必要再给
+     *   TITLE 52 的词加逐帧 text_opa。
+     * rows：每张卡错峰 50ms，后进先出地退场。 */
+    status_bar_trans_actors(&d->sb, &s_dash_actors[DASH_A_FOOTER0]);
+    s_dash_actors[DASH_A_AMBIENT] = (trans_actor_t){
+        .obj = d->ambient_grp, .dir = TRANS_FROM_BOTTOM, .ch = TROPA_NONE,
+        .out_dist = DASH_AMBIENT_OUT, .delay_ms = 90 };
+    for (int i = 0; i < AGENT_SLOT_MAX; ++i) {
+        s_dash_actors[DASH_A_ROW0 + i] = (trans_actor_t){
+            .obj = d->rows[i].card, .dir = TRANS_FROM_BOTTOM, .ch = TROPA_NONE,
+            .out_dist = DASH_ROW_OUT, .delay_ms = (uint16_t)(50 * i) };
+    }
+    scene_trans_bind("dashboard", &s_dash_profile);
 }
 
 static void on_show(scene_t *s)

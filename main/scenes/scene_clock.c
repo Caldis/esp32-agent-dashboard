@@ -683,10 +683,10 @@ static void clock_trans_from_consensus(scene_t *s, uint32_t ms)
     face_start_morph(st, 1000, ms, spring_disp);
 }
 
-static trans_actor_t s_clock_actors[4];
+static trans_actor_t s_clock_actors[STATUS_BAR_TRANS_ACTORS];
 static trans_profile_t s_clock_profile = {
     .actors               = s_clock_actors,
-    .actor_n              = 4,
+    .actor_n              = STATUS_BAR_TRANS_ACTORS,
     .clock_to_consensus   = clock_trans_to_consensus,
     .clock_from_consensus = clock_trans_from_consensus,
 };
@@ -808,20 +808,10 @@ static void clock_init(scene_t *s, lv_obj_t *parent)
     lv_timer_pause(st->timer);
     clock_tick(st->timer);
 
-    /* v5.0 转场演员：footer 两列从底部屏幕外入/出（token 列晚一拍）。
-     * 大钟面不进演员表——它是时间锚点，由 to/from_consensus 变形。 */
-    s_clock_actors[0] = (trans_actor_t){ .obj = st->sb.active_num,
-        .dir = TRANS_FROM_BOTTOM, .ch = TROPA_TEXT, .base_opa = 255,
-        .out_dist = 150, .delay_ms = 0 };
-    s_clock_actors[1] = (trans_actor_t){ .obj = st->sb.active_cap,
-        .dir = TRANS_FROM_BOTTOM, .ch = TROPA_TEXT, .base_opa = 255,
-        .out_dist = 150, .delay_ms = 0 };
-    s_clock_actors[2] = (trans_actor_t){ .obj = st->sb.token_num,
-        .dir = TRANS_FROM_BOTTOM, .ch = TROPA_TEXT, .base_opa = 255,
-        .out_dist = 150, .delay_ms = 70 };
-    s_clock_actors[3] = (trans_actor_t){ .obj = st->sb.token_cap,
-        .dir = TRANS_FROM_BOTTOM, .ch = TROPA_TEXT, .base_opa = 255,
-        .out_dist = 150, .delay_ms = 70 };
+    /* v5.0 转场演员：footer 两列（定义由 status_bar 统一提供，v6.2 起
+     * 带共享 key —— 与 dashboard 之间 footer 原地不动）。大钟面不进
+     * 演员表——它是时间锚点，由 to/from_consensus 变形。 */
+    status_bar_trans_actors(&st->sb, s_clock_actors);
     scene_trans_bind("clock", &s_clock_profile);
 }
 

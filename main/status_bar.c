@@ -124,6 +124,29 @@ void status_bar_create(lv_obj_t *parent, status_bar_t *sb)
     sb->conn_state = -1;   /* force first update to apply */
 }
 
+/* 两列从底部屏幕外进/出，token 列晚一拍（70ms）。out_dist 150 足够让
+ * 20px 的 caption 行（底墨 ~462）整体退出 466 的屏幕。 */
+int status_bar_trans_actors(const status_bar_t *sb, trans_actor_t *out)
+{
+    static const struct { const char *key; uint16_t delay; } SPEC[] = {
+        { TRANS_KEY_SB_ACTIVE_NUM,  0 },
+        { TRANS_KEY_SB_ACTIVE_CAP,  0 },
+        { TRANS_KEY_SB_TOKEN_NUM,  70 },
+        { TRANS_KEY_SB_TOKEN_CAP,  70 },
+    };
+    lv_obj_t *objs[STATUS_BAR_TRANS_ACTORS] = {
+        sb->active_num, sb->active_cap, sb->token_num, sb->token_cap,
+    };
+    for (int i = 0; i < STATUS_BAR_TRANS_ACTORS; ++i) {
+        out[i] = (trans_actor_t){
+            .obj = objs[i], .dir = TRANS_FROM_BOTTOM, .ch = TROPA_TEXT,
+            .base_opa = 255, .out_dist = 150,
+            .delay_ms = SPEC[i].delay, .key = SPEC[i].key,
+        };
+    }
+    return STATUS_BAR_TRANS_ACTORS;
+}
+
 void status_bar_update(status_bar_t *sb, const agent_state_t *st)
 {
     char buf[16];
