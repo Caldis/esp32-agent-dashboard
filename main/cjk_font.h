@@ -1,4 +1,15 @@
 #pragma once
+
+/* Line-box geometry that cjk_font applies to every tiny_ttf instance
+ * (see normalise_line_box in cjk_font.c for WHY it is rebalanced).
+ * Exposed only so ui_type.c can _Static_assert that its 1.2 em line
+ * budget still covers the real box — the two are tuned in different
+ * files and CAPTION has zero slack. */
+#define CJK_LINE_ABOVE_PERMIL  880
+#define CJK_LINE_BELOW_PERMIL  310
+#define CJK_LINE_ABOVE_OF(px)  (((px) * CJK_LINE_ABOVE_PERMIL + 500) / 1000)
+#define CJK_LINE_BELOW_OF(px)  (((px) * CJK_LINE_BELOW_PERMIL + 500) / 1000)
+
 #include "lvgl.h"
 
 /* ══ FRAMEWORK-INTERNAL — app code must NOT call these ═══════════════

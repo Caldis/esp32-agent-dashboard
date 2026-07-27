@@ -29,3 +29,8 @@ int scene_saver_consume(void);
 #ifdef __cplusplus
 }
 #endif
+
+/* 天气插画 accent 呼吸波形开关（默认开）。用于量化它的渲染成本：
+ * `?wxbreath 0` 后测 idle render，再 `?wxbreath 1` 复测，差值即成本。 */
+void scene_weather_set_breath(bool on);
+bool scene_weather_get_breath(void);

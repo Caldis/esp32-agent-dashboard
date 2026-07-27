@@ -676,14 +676,21 @@ static void init(scene_t *s, lv_obj_t *parent)
      *   演员各自动，那是三份大 tiny_ttf 重绘，也会跟 ambient_slide_to
      *   争同一条 y。TROPA_NONE：位移已经把它整个送出屏幕，没必要再给
      *   TITLE 52 的词加逐帧 text_opa。
-     * rows：每张卡错峰 50ms，后进先出地退场。 */
+     * rows：每张卡错峰 50ms，后进先出地退场。
+     *
+     * 不开 .bake（v6.4 实测）：烘焙让 dashboard 转场从 21.8ms 变成
+     * 26.6ms，慢 23%。规律是烘焙只在【内容成本/面积】比值高时划算——
+     * ambient 簇是 466x224 的容器，里面只有一个 96px 圆环和两行字，
+     * 绝大部分是空像素；烘焙它等于每帧从 PSRAM 搬 417KB 几乎全透明的
+     * ARGB8888，去替代画三个廉价对象。weather 的演员正相反（30 条
+     * 抗锯齿线段、15 个标签），那边烘焙省 17%。 */
     status_bar_trans_actors(&d->sb, &s_dash_actors[DASH_A_FOOTER0]);
     s_dash_actors[DASH_A_AMBIENT] = (trans_actor_t){
-        .obj = d->ambient_grp, .dir = TRANS_FROM_BOTTOM, .ch = TROPA_NONE, .bake = 1,
+        .obj = d->ambient_grp, .dir = TRANS_FROM_BOTTOM, .ch = TROPA_NONE,
         .out_dist = DASH_AMBIENT_OUT, .delay_ms = 90 };
     for (int i = 0; i < AGENT_SLOT_MAX; ++i) {
         s_dash_actors[DASH_A_ROW0 + i] = (trans_actor_t){
-            .obj = d->rows[i].card, .dir = TRANS_FROM_BOTTOM, .ch = TROPA_NONE, .bake = 1,
+            .obj = d->rows[i].card, .dir = TRANS_FROM_BOTTOM, .ch = TROPA_NONE,
             .out_dist = DASH_ROW_OUT, .delay_ms = (uint16_t)(50 * i) };
     }
     scene_trans_bind("dashboard", &s_dash_profile);

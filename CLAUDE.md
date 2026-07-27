@@ -15,7 +15,11 @@ Run `esp-harness cycle` after code changes (build + flash + verify).
 ## Verification
 - `esp-harness screenshot --size 466` -- full-panel capture (safe since
   v6.4; do NOT settle for 320, it hides glyph/alignment bugs)
-- `esp-harness verify` -- screenshot + visual regression
+- `esp-harness verify` -- screenshot + REAL golden diff (v6.4). Creates
+  `.harness/golden/<scene>.png` on first run, then fails with exit 50
+  and writes a *-diff.png when mean abs channel diff exceeds
+  --tolerance (default 1.5, absorbs clock-digit churn). Before v6.4
+  it captured a 128px image and unconditionally printed "pass".
 - `esp-harness console --cmd "?stat" --json` -- device health. `fps` here
   is REAL since v6.4 (LV_EVENT_RENDER_READY); before that it was a 33 ms
   timer counting itself and reported 30 no matter what.
@@ -29,7 +33,8 @@ Run `esp-harness cycle` after code changes (build + flash + verify).
 - `harness.json` -- project config (board=esp32_s3_touch_amoled_2_16, port=COM9, modules)
 - `main/esp32_agent_dashboard_main.c` -- entry point
 - `main/scenes/` -- UI scenes (dashboard, weather, clock). Retired,
-  sources kept unbuilt: overview + prompt (v5.2; `dash idle` aliases to
+  sources moved to `attic/` in v6.4 (see attic/README.md) --
+  overview + prompt (v5.2; `dash idle` aliases to
   dashboard, `dash prompt` is a no-op ACK; prompt_active must stay
   false forever -- see agent_snapshot_apply.c) and awaiting (v6.0 --
   see below). BOOT cycles dashboard <-> weather. v6.0: the dashboard
@@ -60,6 +65,27 @@ Run `esp-harness cycle` after code changes (build + flash + verify).
 - `tools/hook_dispatch.py` -- Claude Code hook forwarder
 
 ## Rendering performance (hard-won, do not regress)
+- MEASURE FIRST, with `?perf`. Three optimisations that were "obviously"
+  right made things WORSE on this board and are recorded as dead ends in
+  place (sdkconfig.defaults, scene_trans.c): a second SW draw unit
+  (render 21.7->30.8 ms and a reboot), transition-window full-screen
+  coalescing (14.7->29.7 ms), and sprite-baking the dashboard's ambient
+  cluster (21.8->26.6 ms). The recurring lesson:
+  **render cost tracks the CONTENT that must be regenerated, not the
+  dirty area.** Batching the weather breath's 12 invalidations into one
+  cut dirty pixels 4.3x (115k -> 27k) and moved render time by 6%.
+- `trans_actor_t.bake` (transition sprite baking) pays ONLY when an
+  actor's content is expensive relative to its area. Measured: weather's
+  actors (30 antialiased lines + 15 labels) 38.5 -> 32.0 ms/frame, so
+  they bake; the dashboard's ambient cluster is a 466x224 container
+  holding one 96 px ring and two short text lines -- mostly empty pixels
+  -- and baking it cost 23%, so it deliberately does not.
+- A snapshot colour format must be in BOTH whitelists: the switch in
+  `lv_snapshot.c` AND `CONFIG_LV_DRAW_SW_SUPPORT_*`. RGB565A8 is only in
+  the second, so `lv_snapshot_take` returns NULL for it -- which made
+  sprite baking silently do NOTHING for a whole release while an A/B
+  "measured" a 5-15% win that was pure drift. ARGB8888 is in both. If a
+  feature has a silent fallback, log it at WARN.
 - NEVER per-frame animate size/transform_scale/widget-opa on big tiny_ttf
   labels or containers overlapping them (marquee freeze, clock plan A,
   overview ring breath, prompt pulse -- all bisected to this). Use

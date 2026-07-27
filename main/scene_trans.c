@@ -224,9 +224,18 @@ static bool ghost_begin(trans_actor_t *a)
     if (!a->bake || a->ghost || a->ch != TROPA_NONE) return false;
     if (!a->obj || lv_obj_has_flag(a->obj, LV_OBJ_FLAG_HIDDEN)) return false;
 
-    lv_draw_buf_t *buf = lv_snapshot_take(a->obj, LV_COLOR_FORMAT_RGB565A8);
+    /* 格式必须同时在两张白名单里：
+     *   lv_snapshot_take_to_draw_buf 的 switch（lv_snapshot.c）
+     *   CONFIG_LV_DRAW_SW_SUPPORT_* （渲染器能不能画）
+     * RGB565A8 只满足第二张——snapshot 直接返回 INVALID。v6.3 用的就是它，
+     * 于是每次烘焙都静默失败降级，"精灵烘焙"整个特性从未真正运行过，而
+     * ?bake 的 A/B 两条臂跑的是同一份代码路径（那 5~15% 的"收益"是漂移）。
+     * ARGB8888 两张白名单都在。代价是 4 B/px 而不是 3。 */
+    lv_draw_buf_t *buf = lv_snapshot_take(a->obj, LV_COLOR_FORMAT_ARGB8888);
     if (!buf) {
-        ESP_LOGW(TAG, "bake failed, falling back to live actor");
+        /* WARN, not DEBUG: silent fallback is how this feature spent a
+         * whole release doing nothing while an A/B "measured" its win. */
+        ESP_LOGW(TAG, "bake failed (snapshot returned NULL) — live actor");
         return false;
     }
     lv_obj_t *img = lv_image_create(lv_obj_get_parent(a->obj));
@@ -573,8 +582,24 @@ void scene_trans_switch(int target_idx)
         return;
     }
 
-    /* 转场中：覆盖目标。OUTRO 阶段自然转向新目标；INTRO 阶段由
-     * step_cb 在收尾时发现 pending 并立刻反向出场。 */
+    /* 转场中：覆盖目标。INTRO 阶段由 step_cb 在收尾时发现 pending 并
+     * 立刻反向出场。 */
+    int prev_pending = s_pending;
     s_pending = target_idx;
     ESP_LOGI(TAG, "retarget to %d (state=%d)", target_idx, s_state);
+
+    /* OUTRO 阶段重定向时，held 判定是按【旧目标】算的，必须重算。
+     * 具体症状：clock→dashboard 途中改判去 weather——footer 与 dashboard
+     * 共享所以正原地待命，而 weather 根本没有 footer 层级，于是它在黑幕
+     * 瞬切那一刻凭空消失，而不是滑出去。只在快速连按时出现，一帧，但它
+     * 是"共享元素"契约的破口：元素要么滑出去，要么留下，不能蒸发。
+     * 重跑 outro 即可：play_outro 会杀掉旧动画并从当前实际位置重新起步，
+     * 已经在飞的演员只是换了个起点继续飞，新失去 held 的演员开始滑出。 */
+    if (s_state == ST_OUTRO && target_idx != prev_pending) {
+        scene_t *cur = (scene_t *)scene_fw_current();
+        bool anim = motion_ok();
+        uint32_t out_total = play_outro(cur, anim,
+                                        profile_of(scene_fw_get(target_idx)));
+        arm_step((out_total ? out_total : 0) + STEP_GUARD_MS);
+    }
 }

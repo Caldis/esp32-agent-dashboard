@@ -15,6 +15,7 @@
 #include "esp_timer.h"
 #include "harness/console_protocol.h"
 #include "scene_trans.h"
+#include "scenes/scenes.h"
 
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 
@@ -193,6 +194,17 @@ static int cmd_refr(const console_args_t *args)
 static const console_cmd_t s_cmd_refr = { "?refr", cmd_refr,
     "idle-tier refresh period ms: ?refr 66" };
 
+/* ?wxbreath [0|1] — 天气插画呼吸波形开关。见 scenes.h。 */
+static int cmd_wxbreath(const console_args_t *args)
+{
+    if (args->argc >= 2) scene_weather_set_breath(args->argv[1][0] != '0');
+    console_reply_ok("{\"breath\":%d}", scene_weather_get_breath() ? 1 : 0);
+    return 0;
+}
+
+static const console_cmd_t s_cmd_wxbreath = { "?wxbreath", cmd_wxbreath,
+    "toggle the weather illustration accent breath (A/B): ?wxbreath 0|1" };
+
 void perf_mon_init(lv_display_t *disp)
 {
     if (!disp) return;
@@ -218,4 +230,5 @@ void perf_mon_init(lv_display_t *disp)
     console_protocol_register(&s_cmd_perf);
     console_protocol_register(&s_cmd_bake);
     console_protocol_register(&s_cmd_refr);
+    console_protocol_register(&s_cmd_wxbreath);
 }

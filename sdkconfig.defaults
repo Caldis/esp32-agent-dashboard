@@ -95,3 +95,28 @@ CONFIG_ESP_TASK_WDT_PANIC=y
 # internal heap that only has ~56 KB steady-state headroom.
 # The bottleneck is pixel volume, not core count: transitions dirty
 # 300k-760k px/frame against a 217k-px screen.
+
+# == MEASURED NON-ISSUES (v6.4) -- do not reopen without new evidence ==
+# Two items sat on the tech-debt list on the theory that they cost RAM
+# or flash. Both were measured; neither does.
+#
+#  * 'WiFi is compiled in but never used (the host link is USB-CDC and
+#    transport_wifi.c is not in SRCS); turning it off frees internal RAM
+#    for a bigger draw buffer.' It does not. Static DRAM is .data 14 KB +
+#    .bss 13 KB TOTAL -- -ffunction-sections/-fdata-sections had already
+#    dropped every unreferenced WiFi static. Flipping ESP_WIFI_ENABLED
+#    changed the image by ZERO bytes (2939541 either way), and the symbol
+#    is re-derived by the dependency graph, so an sdkconfig line does not
+#    even stick.
+#  * 'Eight LV_FONT_MONTSERRAT sizes enabled, four referenced, the rest
+#    waste flash.' They do not: the unreferenced glyph tables are absent
+#    from the .map entirely. Kconfig-enabled != linked.
+#
+# What DOES hold internal RAM: CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL (16384)
+# sends every allocation <=16 KB to INTERNAL, and LVGL objects plus
+# tiny_ttf cache blocks are all under that. Boot ~186 KB free -> ~32 KB
+# steady, and FLAT across scene visits (measured: no leak). Lowering it
+# would push LVGL objects into slower PSRAM and still would not help the
+# draw buffer, which is allocated early while internal RAM is uncontended.
+# 56 rows stays the practical ceiling: two 107 KB buffers need ~215 KB
+# contiguous and only ~211 KB exists at that moment.

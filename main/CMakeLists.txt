@@ -1,23 +1,20 @@
 idf_component_register(
     SRCS
+        # Retired scenes and the pet live in ../attic (unbuilt, with the
+        # reason each was retired). Everything listed here is live.
         "esp32_agent_dashboard_main.c"
         "agent_state.c"
         "buttons.c"
         "pwr_key.c"
         "button_router.c"
-        # pet.c retired in v5.3 (source kept; the pulse ring is the one
-        # status glyph device-wide)
         "theme.c"
         "tiny_json.c"
         "tool_icons.c"
         "harness/agent_commands.c"
         "harness/agent_snapshot_apply.c"
         "scenes/scene_dashboard.c"
-        # scene_overview.c retired in v5.2 (source kept for reference)
         "scenes/scene_weather.c"
         "scenes/scene_clock.c"
-        # scene_prompt.c retired in v5.2 (source kept for reference)
-        # scene_awaiting.c retired in v6.0 (dashboard gold pose absorbed it)
         "anim/apple_ease.c"
         "anim/spring.c"
         "scene_trans.c"

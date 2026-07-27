@@ -50,14 +50,14 @@ extern const uint8_t zh_ttf_end[]   asm("_binary_zh_ttf_end");
  *
  * 不动 clock_digits.ttf：它基线以上有 1.075 em、墨迹只要 0.74 em，本来就
  * 宽裕，而大钟的档位变形布局是按它现有度量调出来的。 */
-#define LINE_ABOVE_PERMIL  880   /* 基线以上 0.880 em > 汉字需要的 0.8594 */
-#define LINE_BELOW_PERMIL  310   /* 基线以下 0.310 em > 拉丁需要的 0.3022 */
+
+
 
 static void normalise_line_box(lv_font_t *f, int px)
 {
     if (!f) return;
-    int32_t below = (px * LINE_BELOW_PERMIL + 500) / 1000;
-    int32_t above = (px * LINE_ABOVE_PERMIL + 500) / 1000;
+    int32_t below = CJK_LINE_BELOW_OF(px);
+    int32_t above = CJK_LINE_ABOVE_OF(px);
     f->base_line   = below;
     f->line_height = above + below;
 }

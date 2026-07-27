@@ -42,6 +42,12 @@
 
 #include "lvgl.h"
 
+/* 见 weather_tick 里的用法。默认开——它是设计的一部分，不是调试开关。 */
+static bool s_breath_on = true;
+void scene_weather_set_breath(bool on) { s_breath_on = on; }
+bool scene_weather_get_breath(void)    { return s_breath_on; }
+
+
 #define SCREEN_W     466
 
 /* ── palette (repo family colours) ─────────────────────────────────── */
@@ -875,12 +881,13 @@ static void weather_tick(lv_timer_t *t)
     agent_state_unlock();
 
     uint32_t now = lv_tick_get();
-    /* trans_until_ms = 刻钟变形窗口；scene_trans_busy = 场景转场窗口。
-     * v6.3 起后者也算 in_trans：转场时插画正在滑动，呼吸波形每步要写 12
-     * 个对象的 opa（实测天气 idle 每帧 115k 脏像素几乎全来自它），而这
-     * 0.24s 里人眼根本看不见呼吸——纯烧渲染预算。 */
-    bool in_trans = (int32_t)(now - st->trans_until_ms) < 0
-                 || scene_trans_busy();
+    /* 两个不同的"正在动"窗口，v6.3 合并时曾共用一个 in_trans，名字骗人。
+     *   in_morph  = 刻钟大钟变形窗口（本场景内部的 plan-B 零缩放变形）
+     *   in_switch = 场景间转场窗口（scene_trans 状态机）
+     * 二者都要抑制内容重绘，但触发源和生命周期完全不同，分开命名。 */
+    bool in_morph  = (int32_t)(now - st->trans_until_ms) < 0;
+    bool in_switch = scene_trans_busy();
+    bool in_trans  = in_morph || in_switch;
 
     /* 刻钟状态机：主机时间未同步时永远停在天气态。 */
     int want = (synced && in_quarter_window(tz_epoch)) ? MODE_CLOCK
@@ -921,12 +928,32 @@ static void weather_tick(lv_timer_t *t)
     /* 插画 accent 动画：16 步 / 3s 周期，仅天气态 + 过渡窗口外。
      * BREATH = 相位偏移三角波（呼吸/流动/闪烁），FLASH = 爆闪
      * （前 2 步全亮、1 步半亮、其余低亮——打闪节奏）。 */
+    /* s_breath_on: 运行时开关，只为量化"插画呼吸到底值多少渲染预算"。
+     * 关掉它测一次 idle render，再开回来测一次，差值就是这套波形的成本
+     * ——这个数决定要不要把插画做成 16 帧预烘焙位图。`?wxbreath 0|1`。 */
     if (st->mode == MODE_WEATHER && !in_trans && st->motion_ok
-        && st->accent_n > 0) {
+        && s_breath_on && st->accent_n > 0) {
         uint32_t ph = now % BREATH_MS;
         int step = (int)(ph * 16u / BREATH_MS);
         if (step != st->breath_step) {
             st->breath_step = step;
+            /* ── 批量失效 (v6.4) ────────────────────────────────────
+             * 每次 opa 写入都会各自触发一次 lv_obj_invalidate，12 个
+             * accent 对象散布在插画里，于是插画区域被反复重合成 12 次：
+             * 实测每帧脏 115k 像素，而插画本身只有 140x148 = 20.7k。
+             * 呼吸因此吃掉天气空闲渲染的 73%（11.0ms vs 关掉后 2.97ms）。
+             *
+             * lv_obj_enable_style_refresh(false) 让这批写入不各自失效，
+             * 写完再对插画容器失效【一次】。对 line/arc/border/bg 的 opa
+             * 来说这是安全的：lv_obj_refresh_style 在关闭时只跳过
+             * invalidate，而这些属性都不带 LAYOUT/EXT_DRAW/LAYER 标志，
+             * 没有别的副作用要补。
+             *
+             * 注意边界：这一招只在【容器紧紧包住那批对象】时成立。同样
+             * 的批量化不能套到 fade_apply 上——它的对象散布在整个 wx_grp
+             * (466x466)，一次容器失效就等于整屏重绘，而整屏重绘实测比
+             * 多个小矩形更慢（见 scene_trans.c 的反例之二）。 */
+            lv_obj_enable_style_refresh(false);
             for (int i = 0; i < st->accent_n; ++i) {
                 int base = st->accent[i].base;
                 int s16 = (step + st->accent[i].phase) % 16;
@@ -941,6 +968,8 @@ static void weather_tick(lv_timer_t *t)
                 }
                 wx_set_opa_by_mark(st->accent[i].o, v);
             }
+            lv_obj_enable_style_refresh(true);
+            if (st->big_icon.root) lv_obj_invalidate(st->big_icon.root);
         }
     }
 }
