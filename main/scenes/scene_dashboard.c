@@ -679,11 +679,11 @@ static void init(scene_t *s, lv_obj_t *parent)
      * rows：每张卡错峰 50ms，后进先出地退场。 */
     status_bar_trans_actors(&d->sb, &s_dash_actors[DASH_A_FOOTER0]);
     s_dash_actors[DASH_A_AMBIENT] = (trans_actor_t){
-        .obj = d->ambient_grp, .dir = TRANS_FROM_BOTTOM, .ch = TROPA_NONE,
+        .obj = d->ambient_grp, .dir = TRANS_FROM_BOTTOM, .ch = TROPA_NONE, .bake = 1,
         .out_dist = DASH_AMBIENT_OUT, .delay_ms = 90 };
     for (int i = 0; i < AGENT_SLOT_MAX; ++i) {
         s_dash_actors[DASH_A_ROW0 + i] = (trans_actor_t){
-            .obj = d->rows[i].card, .dir = TRANS_FROM_BOTTOM, .ch = TROPA_NONE,
+            .obj = d->rows[i].card, .dir = TRANS_FROM_BOTTOM, .ch = TROPA_NONE, .bake = 1,
             .out_dist = DASH_ROW_OUT, .delay_ms = (uint16_t)(50 * i) };
     }
     scene_trans_bind("dashboard", &s_dash_profile);

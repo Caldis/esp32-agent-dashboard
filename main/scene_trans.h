@@ -87,8 +87,14 @@ typedef struct {
      * 在这次转场里"原地待命"（不出、不进）。用 TRANS_KEY_* 常量，别
      * 手写字面量——比较是字符串比较，拼错=静默退化。 */
     const char    *key;
+    /* 1 = 转场期间烘焙成位图精灵（见 scene_trans.c 的 ghost_*）。给内容
+     * 昂贵的演员开：抗锯齿线段、圆环、圆角卡片、大字。只对 TROPA_NONE
+     * 的演员生效（纯位移；带淡化的演员留在常规路径上）。 */
+    uint8_t        bake;
     int16_t        rest_pos;    /* 内部：bind 时快照的 aligned y/x（sync_rest 可改写） */
     uint8_t        held;        /* 内部：本次转场判定为共享 */
+    lv_obj_t      *ghost;       /* 内部：烘焙出的替身 image */
+    lv_draw_buf_t *ghost_buf;   /* 内部：替身的像素 */
 } trans_actor_t;
 
 typedef struct {
@@ -119,6 +125,16 @@ void scene_trans_bind(const char *scene_id, trans_profile_t *profile);
 void scene_trans_switch(int target_idx);
 
 bool scene_trans_busy(void);
+
+/* 精灵烘焙总开关（默认开）。存在的理由是 A/B：单次转场的渲染耗时噪声
+ * 能到 60%，靠反复烧录两个固件比不出可信差异。`?bake 0|1` 在同一块板子
+ * 上来回切，跑够重复次数再下结论。 */
+void scene_trans_set_bake(bool on);
+bool scene_trans_get_bake(void);
+
+/* 动态刷新率：静止档周期（转场档固定为 REFR_MS_ACTIVE）。`?refr <ms>`。 */
+void     scene_trans_set_idle_refr(uint32_t ms);
+uint32_t scene_trans_get_idle_refr(void);
 
 #ifdef __cplusplus
 }

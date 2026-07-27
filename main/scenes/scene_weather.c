@@ -875,7 +875,12 @@ static void weather_tick(lv_timer_t *t)
     agent_state_unlock();
 
     uint32_t now = lv_tick_get();
-    bool in_trans = (int32_t)(now - st->trans_until_ms) < 0;
+    /* trans_until_ms = 刻钟变形窗口；scene_trans_busy = 场景转场窗口。
+     * v6.3 起后者也算 in_trans：转场时插画正在滑动，呼吸波形每步要写 12
+     * 个对象的 opa（实测天气 idle 每帧 115k 脏像素几乎全来自它），而这
+     * 0.24s 里人眼根本看不见呼吸——纯烧渲染预算。 */
+    bool in_trans = (int32_t)(now - st->trans_until_ms) < 0
+                 || scene_trans_busy();
 
     /* 刻钟状态机：主机时间未同步时永远停在天气态。 */
     int want = (synced && in_quarter_window(tz_epoch)) ? MODE_CLOCK
@@ -1151,25 +1156,25 @@ static void weather_init(scene_t *s, lv_obj_t *parent)
     lv_timer_pause(st->timer);
 
     s_wx_actors[WXA_LOC] = (trans_actor_t){ .obj = st->loc_lbl,
-        .dir = TRANS_FROM_LEFT, .ch = TROPA_NONE, .out_dist = 260,
+        .dir = TRANS_FROM_LEFT, .ch = TROPA_NONE, .bake = 1, .out_dist = 260,
         .delay_ms = 0 };
     s_wx_actors[WXA_ICON] = (trans_actor_t){ .obj = st->big_icon.root,
-        .dir = TRANS_FROM_LEFT, .ch = TROPA_NONE, .out_dist = 200,
+        .dir = TRANS_FROM_LEFT, .ch = TROPA_NONE, .bake = 1, .out_dist = 200,
         .delay_ms = 60 };
     s_wx_actors[WXA_STARS] = (trans_actor_t){ .obj = st->star_grp,
-        .dir = TRANS_FROM_LEFT, .ch = TROPA_NONE,
+        .dir = TRANS_FROM_LEFT, .ch = TROPA_NONE, .bake = 1,
         .out_dist = STAR_GRP_X + STAR_GRP_W, .delay_ms = 30 };
     s_wx_actors[WXA_TEMP] = (trans_actor_t){ .obj = st->temp_lbl,
-        .dir = TRANS_FROM_RIGHT, .ch = TROPA_NONE, .out_dist = 320,
+        .dir = TRANS_FROM_RIGHT, .ch = TROPA_NONE, .bake = 1, .out_dist = 320,
         .delay_ms = 60 };
     s_wx_actors[WXA_COND] = (trans_actor_t){ .obj = st->cond_lbl,
-        .dir = TRANS_FROM_RIGHT, .ch = TROPA_NONE, .out_dist = 320,
+        .dir = TRANS_FROM_RIGHT, .ch = TROPA_NONE, .bake = 1, .out_dist = 320,
         .delay_ms = 100 };
     s_wx_actors[WXA_STRIP] = (trans_actor_t){ .obj = st->strip_grp,
-        .dir = TRANS_FROM_BOTTOM, .ch = TROPA_NONE,
+        .dir = TRANS_FROM_BOTTOM, .ch = TROPA_NONE, .bake = 1,
         .out_dist = STRIP_GRP_H + 10, .delay_ms = 130 };
     s_wx_actors[WXA_WAIT] = (trans_actor_t){ .obj = st->wait_lbl,
-        .dir = TRANS_FROM_BOTTOM, .ch = TROPA_NONE, .out_dist = 260,
+        .dir = TRANS_FROM_BOTTOM, .ch = TROPA_NONE, .bake = 1, .out_dist = 260,
         .delay_ms = 60 };
 
     scene_trans_bind("weather", &s_wx_profile);

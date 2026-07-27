@@ -37,6 +37,7 @@
 
 #include "scenes/scenes.h"
 #include "scene_trans.h"
+#include "perf_mon.h"
 #include "agent_state.h"
 #include "buttons.h"
 #include "pwr_key.h"
@@ -229,7 +230,7 @@ void app_main(void)
         nvs_flash_init();
     }
 
-    bsp_display_start();
+    lv_display_t *disp = bsp_display_start();
 
     agent_state_init();
     theme_init();
@@ -250,6 +251,9 @@ void app_main(void)
      * arriving pre-scene-registration simply skips the auto-switch). */
     harness_default_register();
     agent_commands_register();
+    /* ?perf — real render/flush timing. Registered here so it obeys the
+     * same register-then-listen rule as every other command. */
+    perf_mon_init(disp);
     console_protocol_init();
 
     bsp_display_lock(-1);

@@ -15,6 +15,7 @@
 #include "agent_state.h"
 #include "anim/spring.h"
 #include "anim/apple_ease.h"
+#include "perf_mon.h"
 
 #include <string.h>
 
@@ -42,6 +43,21 @@ static int         s_pending = -1;     /* 转场目标（可被覆盖） */
 static lv_timer_t *s_step = NULL;      /* 一次性推进器 */
 /* 出场那一侧的 profile：入场时拿它求共享元素交集（对称判定）。 */
 static trans_profile_t *s_from_p = NULL;
+
+/* ── 实测反例之二：转场期间整屏合并 ────────────────────────────────
+ * 试过并撤销：在 LV_EVENT_REFR_START 里 lv_obj_invalidate(screen)，把一帧
+ * 里 20+ 个互不重叠的脏矩形折成一个整屏区域。动机是"每帧脏像素 34~83 万
+ * vs 整屏 21.7 万，整屏画一次应该更便宜"。
+ * 结果反而更慢：render 14.7→29.7ms（clock）、20.9→32.6ms（weather），
+ * overrun 1→17。
+ *
+ * 教训——渲染成本不与"脏区面积"成正比，而与"要重新生成的内容"成正比。
+ * 脏矩形小的时候，落在里面的对象少；整屏失效等于强制把屏幕上每一个对象
+ * 都重画一遍，包括天气那 30 条抗锯齿线段、圆环、圆角卡片这些昂贵图元。
+ * 面积只是账单的一半，另一半是"这块面积上压着多少个要重新光栅化的东西"。
+ *
+ * 这条反例直接指向了正解：贵的是【重新生成内容】，那就别每帧重新生成
+ * ——把运动中的演员烤成位图（见下面的 ghost 精灵）。 */
 
 /* ── profile 查找 ──────────────────────────────────────────────────── */
 
@@ -172,12 +188,91 @@ static lv_opa_t actor_get_opa(const trans_actor_t *a)
     }
 }
 
-/* anim exec：var = 演员条目（static 数组，指针恒有效）。 */
+/* ── 精灵烘焙 (v6.3) ───────────────────────────────────────────────
+ * 运动开始前把演员（含其所有子对象）光栅化成一张位图，转场期间移动这张
+ * 位图，结束后换回本体。
+ *
+ * 为什么有效：实测证明每帧的成本来自【重新生成内容】——天气插画的 30
+ * 条抗锯齿线段、脉冲圆环、fleet 卡片的圆角、TITLE 52 的汉字，每一帧、
+ * 每一个缓冲分块都要重画一遍。烤成位图之后每帧只剩一次图像 blit：没有
+ * 几何、没有抗锯齿、没有圆角遮罩，纯内存搬运。同样的画面、同样的运动
+ * 曲线，成本降一个数量级。这就是掌机时代 sprite 的老办法。
+ *
+ * 一次性成本：转场开始时每个演员一次快照（约等于它一帧的渲染成本），
+ * 发生在元素还静止的时候，之后 20+ 帧全部受益。
+ *
+ * 内存：RGB565A8（3 B/px）。保留 alpha 是为了不赌背景——不透明 RGB565
+ * 会把容器的透明区域烤成纯黑方块，在 AMOLED 上纯黑与背景 0x0B0A09 的
+ * 差别肉眼可见，而且演员之间有重叠（weather 的星群与大温度）。大块自动
+ * 落在 PSRAM（>16KB 的分配走 SPIRAM），weather 全部演员合计约 400KB。
+ *
+ * 失败即降级：快照失败（内存不足）就返回 false，该演员走常规路径。 */
+
+static lv_obj_t *actor_target(const trans_actor_t *a)
+{
+    return a->ghost ? a->ghost : a->obj;
+}
+
+static bool s_bake_on = true;
+
+void scene_trans_set_bake(bool on) { s_bake_on = on; }
+bool scene_trans_get_bake(void)    { return s_bake_on; }
+
+static bool ghost_begin(trans_actor_t *a)
+{
+    if (!s_bake_on) return false;
+    if (!a->bake || a->ghost || a->ch != TROPA_NONE) return false;
+    if (!a->obj || lv_obj_has_flag(a->obj, LV_OBJ_FLAG_HIDDEN)) return false;
+
+    lv_draw_buf_t *buf = lv_snapshot_take(a->obj, LV_COLOR_FORMAT_RGB565A8);
+    if (!buf) {
+        ESP_LOGW(TAG, "bake failed, falling back to live actor");
+        return false;
+    }
+    lv_obj_t *img = lv_image_create(lv_obj_get_parent(a->obj));
+    if (!img) { lv_draw_buf_destroy(buf); return false; }
+    lv_obj_remove_style_all(img);
+    lv_obj_clear_flag(img, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_image_set_src(img, buf);
+    /* 与本体同姿态：align 是持久属性，x/y 是它上面的偏移，两者都照抄。 */
+    lv_obj_set_style_align(img, lv_obj_get_style_align(a->obj, LV_PART_MAIN), 0);
+    lv_obj_set_pos(img, lv_obj_get_style_x(a->obj, LV_PART_MAIN),
+                        lv_obj_get_style_y(a->obj, LV_PART_MAIN));
+    lv_obj_add_flag(a->obj, LV_OBJ_FLAG_HIDDEN);
+
+    a->ghost     = img;
+    a->ghost_buf = buf;
+    return true;
+}
+
+/* 替身落幕：把它的最终姿态交还本体，再销毁。本体在整个转场里没动过，
+ * 所以这一步就是"位置交接"——观众看到的仍是同一个东西。 */
+static void ghost_end(trans_actor_t *a)
+{
+    if (!a->ghost) return;
+    int32_t x = lv_obj_get_style_x(a->ghost, LV_PART_MAIN);
+    int32_t y = lv_obj_get_style_y(a->ghost, LV_PART_MAIN);
+    lv_obj_delete(a->ghost);
+    lv_draw_buf_destroy(a->ghost_buf);
+    a->ghost     = NULL;
+    a->ghost_buf = NULL;
+    lv_obj_set_pos(a->obj, x, y);
+    lv_obj_clear_flag(a->obj, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void profile_ghosts_end(trans_profile_t *p)
+{
+    if (!p) return;
+    for (int i = 0; i < p->actor_n; ++i) ghost_end(&p->actors[i]);
+}
+
+/* anim exec：var = 演员条目（static 数组，指针恒有效）。目标可能是替身。 */
 static void anim_actor_pos(void *var, int32_t v)
 {
     trans_actor_t *a = (trans_actor_t *)var;
-    if (is_x_axis(a)) lv_obj_set_x(a->obj, v);
-    else              lv_obj_set_y(a->obj, v);
+    lv_obj_t *t = actor_target(a);
+    if (is_x_axis(a)) lv_obj_set_x(t, v);
+    else              lv_obj_set_y(t, v);
 }
 
 static void anim_actor_opa(void *var, int32_t v)
@@ -225,6 +320,7 @@ static uint16_t max_delay_of(const trans_profile_t *p)
 static void actor_park_at_rest(trans_actor_t *a)
 {
     actor_kill_anims(a);
+    ghost_end(a);                     /* 共享元素不动，替身没有存在的理由 */
     anim_actor_pos(a, a->rest_pos);
     if (a->ch != TROPA_NONE) actor_set_opa(a, a->base_opa);
 }
@@ -250,14 +346,19 @@ static uint32_t play_outro(scene_t *sc, bool animate, trans_profile_t *other)
             if (a->held) { actor_park_at_rest(a); continue; }
             actor_kill_anims(a);
             if (lv_obj_has_flag(a->obj, LV_OBJ_FLAG_HIDDEN)) continue;
-            int32_t live_pos = is_x_axis(a) ? lv_obj_get_style_x(a->obj, LV_PART_MAIN)
-                                            : lv_obj_get_style_y(a->obj, LV_PART_MAIN);
-            uint32_t d = maxd - a->delay_ms;      /* 反转：后到的先走 */
             if (!animate) {
+                ghost_end(a);
                 anim_actor_pos(a, out_pos_of(a));
                 actor_set_opa(a, LV_OPA_TRANSP);
                 continue;
             }
+            /* 先烤再读姿态：替身生于本体当前位置，读谁都一样；重定向
+             * 打断时替身已存在，ghost_begin 让位，出场直接接手它。 */
+            ghost_begin(a);
+            lv_obj_t *tgt = actor_target(a);
+            int32_t live_pos = is_x_axis(a) ? lv_obj_get_style_x(tgt, LV_PART_MAIN)
+                                            : lv_obj_get_style_y(tgt, LV_PART_MAIN);
+            uint32_t d = maxd - a->delay_ms;      /* 反转：后到的先走 */
             any = true;
             if (a->dir != TRANS_FADE_ONLY)
                 start_actor_anim(a, anim_actor_pos, live_pos, out_pos_of(a),
@@ -298,10 +399,12 @@ static uint32_t play_intro(scene_t *sc, bool animate, trans_profile_t *other)
             actor_kill_anims(a);
             if (lv_obj_has_flag(a->obj, LV_OBJ_FLAG_HIDDEN)) continue;
             if (!animate) {
+                ghost_end(a);
                 anim_actor_pos(a, a->rest_pos);
                 actor_set_opa(a, a->base_opa);
                 continue;
             }
+            ghost_begin(a);
             any = true;
             if (a->dir != TRANS_FADE_ONLY) {
                 anim_actor_pos(a, out_pos_of(a));
@@ -322,6 +425,42 @@ static uint32_t play_intro(scene_t *sc, bool animate, trans_profile_t *other)
     return total;
 }
 
+/* ── 动态刷新率 (v6.3) ─────────────────────────────────────────────
+ * 静止低刷省电、运动高刷保顺滑——两种取向，两个档位，跟着转场状态机走。
+ *
+ * 为什么必须做：实测转场期间 render ≈ 20ms，而刷新周期是 33ms。也就是
+ * 每帧画完还要空等 13ms 才允许画下一帧——帧率被封在 30fps 并不是因为
+ * 画不动，是因为没人让它画。把转场窗口的周期压到 REFR_MS_ACTIVE，帧就
+ * 以渲染器的真实速度连续产出。
+ *
+ * 反过来，静止时屏幕上只有呼吸点/冒号这种低频动画，33ms 是纯粹的浪费：
+ * 每次刷新周期到点 LVGL 都要走一遍脏区检查。IDLE 档把它拉长，代价只是
+ * 呼吸动画的时间分辨率——2s 一个呼吸周期在 66ms 步进下仍有 30 级，肉眼
+ * 看不出台阶。
+ *
+ * 档位在 IDLE<->转场之间切换，不做更细的分级：唯一的高刷需求就是转场
+ * 和它带动的锚点变形，而那正好由这个状态机界定。 */
+#define REFR_MS_ACTIVE  16          /* 转场：~60Hz 上限，实际由渲染器决定 */
+static uint32_t s_refr_idle_ms = 66;   /* 静止：~15Hz，可用 ?refr 调 */
+
+static void refr_rate(uint32_t ms)
+{
+    lv_display_t *d = lv_display_get_default();
+    if (!d) return;
+    lv_timer_t *t = lv_display_get_refr_timer(d);
+    if (t) lv_timer_set_period(t, ms);
+    perf_mon_set_period(ms);        /* overrun 阈值要跟着档位走 */
+}
+
+void scene_trans_set_idle_refr(uint32_t ms)
+{
+    if (ms < 8) ms = 8;
+    s_refr_idle_ms = ms;
+    if (s_state == ST_IDLE) refr_rate(ms);
+}
+
+uint32_t scene_trans_get_idle_refr(void) { return s_refr_idle_ms; }
+
 /* ── 状态机推进 ───────────────────────────────────────────────────── */
 
 static bool motion_ok(void)
@@ -340,10 +479,15 @@ static void do_switch_and_intro(void)
 {
     int target = s_pending;
     s_pending = -1;
-    if (target < 0) { s_state = ST_IDLE; s_from_p = NULL; return; }
+    if (target < 0) { s_state = ST_IDLE; s_from_p = NULL;
+                      refr_rate(s_refr_idle_ms); return; }
 
     trans_profile_t *from_p = s_from_p;
     s_from_p = NULL;
+
+    /* 出场结束：替身在黑幕瞬切【之前】落幕，把离屏姿态交还本体，并释放
+     * 像素。晚一步就会随场景容器一起被隐藏，缓冲泄漏在 PSRAM 里。 */
+    profile_ghosts_end(from_p);
 
     scene_fw_show_instant(target);
     const scene_t *sc = scene_fw_current();
@@ -354,7 +498,9 @@ static void do_switch_and_intro(void)
         s_state = ST_INTRO;
         arm_step(in_total + STEP_GUARD_MS);
     } else {
+        profile_ghosts_end(profile_of(sc));
         s_state = ST_IDLE;
+        refr_rate(s_refr_idle_ms);
     }
 }
 
@@ -375,7 +521,11 @@ static void step_cb(lv_timer_t *t)
             s_state = ST_OUTRO;
             arm_step(out_total + STEP_GUARD_MS);
         } else {
+            /* 入场收尾：替身落幕，本体回到 rest 并重新接管（呼吸、闪烁、
+             * 内容刷新都要作用在真身上）。 */
+            profile_ghosts_end(profile_of(scene_fw_current()));
             s_state = ST_IDLE;
+            refr_rate(s_refr_idle_ms);
         }
     }
 }
@@ -404,6 +554,8 @@ void scene_trans_switch(int target_idx)
 
     if (s_state == ST_IDLE) {
         if (target_idx == scene_fw_current_index()) return;
+        /* 抬到高刷【在出场动画开始之前】——晚一帧就是可见的第一帧卡顿。 */
+        refr_rate(REFR_MS_ACTIVE);
         s_pending = target_idx;
         scene_t *cur = (scene_t *)scene_fw_current();
         bool anim = motion_ok();

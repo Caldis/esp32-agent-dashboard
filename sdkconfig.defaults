@@ -76,3 +76,22 @@ CONFIG_LV_TINY_TTF_CACHE_GLYPH_CNT=256
 # Task-WDT starvation (render wedge) must self-heal: panic -> reboot -> bridge
 # force-resyncs within seconds. Better a 15s blip than a frozen panel.
 CONFIG_ESP_TASK_WDT_PANIC=y
+
+# ── Render throughput (v6.3) ─────────────────────────────────────────
+# Measured on device with `?perf`: during scene transitions rendering
+# costs 21-39 ms/frame (peak 77) while the QSPI flush wait is only
+# 0.4-0.6 ms. The panel bus is NOT the bottleneck — software rasterising
+# is, by ~40x. So the lever is the draw path, not the pixel clock.
+#
+# MEASURED DEAD END — do not retry without new evidence:
+# CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=2 (use the second core for drawing)
+# made things WORSE and unstable. Render time per transition frame rose
+# 21.7->30.8 ms (clock), 38.9->53.9 ms (weather), 21.5->29.5 ms
+# (dashboard), fps fell ~15%, and the device rebooted mid-measurement.
+# Reason: with a 28-row partial buffer each refresh is chopped into many
+# small chunks, so the per-chunk draw tasks are tiny — cross-thread
+# dispatch and the LVGL task's wait on both units cost more than the
+# parallelism returns, and the extra 8 KB draw-thread stack squeezes an
+# internal heap that only has ~56 KB steady-state headroom.
+# The bottleneck is pixel volume, not core count: transitions dirty
+# 300k-760k px/frame against a 217k-px screen.

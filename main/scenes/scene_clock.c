@@ -556,8 +556,11 @@ static void clock_tick(lv_timer_t *t)
      * finishes; then toggle it 1 Hz. Hold it solid when motion is
      * reduced or before the host time syncs (buf[0]=='-'). Deduped so
      * we only invalidate the tiny colon region on an actual change. */
+    /* v6.3: 转场期间不闪。冒号是 135px 的 tiny_ttf 字形，一次 opa 翻转
+     * 就是一次大字形重绘；而大钟这时正在做尺寸档位变形，每一分渲染预算
+     * 都要留给它。转场结束后 colon_on=-1 会强制重新应用相位。 */
     uint32_t elapsed = lv_tick_get() - st->show_ms;
-    if (!st->push_active && elapsed >= ENTRY_MS) {
+    if (!st->push_active && elapsed >= ENTRY_MS && !scene_trans_busy()) {
         bool blink = st->motion_ok && (buf[0] != '-');
         int want = (!blink || ((elapsed / BLINK_MS) % 2 == 0)) ? 1 : 0;
         if (want != st->colon_on) {
