@@ -140,7 +140,12 @@ static int cmd_perf(const console_args_t *args)
     char buf[416];
     snprintf(buf, sizeof(buf),
              "{\"win_ms\":%" PRId64 ",\"period_ms\":%" PRIu32 ","
-             "\"fps\":%.1f,\"refr\":%" PRIu32 ",\"drawn\":%" PRIu32 ","
+             /* frame_ms = 平均每帧间隔 = 真正的帧率倒数。别再报 window
+              * 平均 fps：窗口里只要混进转场结束后的空闲段，帧数就被一段
+              * 根本不该计入的时间除稀，读数会比实际慢一半（v6.3 的转场
+              * 实测 refr_avg 21ms≈47fps，窗口 fps 却显示 15）。 */
+             "\"frame_ms\":%.1f,\"fps_win\":%.1f,"
+             "\"refr\":%" PRIu32 ",\"drawn\":%" PRIu32 ","
              "\"flush\":%" PRIu32 ",\"overrun\":%" PRIu32 ","
              "\"busy_pct\":%.1f,"
              "\"refr_avg_us\":%" PRIu32 ",\"refr_max_us\":%" PRIu32 ","
@@ -149,6 +154,7 @@ static int cmd_perf(const console_args_t *args)
              "\"inval_px_per_frame\":%" PRIu32 ","
              "\"inval_n_per_frame\":%.1f,\"inval_max_px\":%" PRIu32 "}",
              win_us / 1000, s_period_ms,
+             w.draw_n ? (float)w.refr_us / (float)w.draw_n / 1000.0f : 0.0f,
              (float)w.draw_n * 1000000.0f / (float)win_us,
              w.refr_n, w.draw_n, w.flush_n, w.overrun,
              (float)w.refr_us * 100.0f / (float)win_us,

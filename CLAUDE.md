@@ -13,9 +13,17 @@ Run `esp-harness cycle` after code changes (build + flash + verify).
 - New module: `esp-harness add <module>`
 
 ## Verification
-- `esp-harness screenshot` -- capture device screen
+- `esp-harness screenshot --size 466` -- full-panel capture (safe since
+  v6.4; do NOT settle for 320, it hides glyph/alignment bugs)
 - `esp-harness verify` -- screenshot + visual regression
-- `esp-harness console --cmd "?stat" --json` -- device health
+- `esp-harness console --cmd "?stat" --json` -- device health. `fps` here
+  is REAL since v6.4 (LV_EVENT_RENDER_READY); before that it was a 33 ms
+  timer counting itself and reported 30 no matter what.
+- `esp-harness console --cmd "?perf" --json` -- render vs flush-wait vs
+  dirty-pixel timing, windowed (read-and-reset). Read `frame_ms`, not
+  `fps_win`: the window average gets diluted by any idle tail. Companion
+  A/B switches: `?bake 0|1` (transition sprite baking), `?refr <ms>`
+  (idle-tier refresh period).
 
 ## Key Files
 - `harness.json` -- project config (board=esp32_s3_touch_amoled_2_16, port=COM9, modules)
@@ -56,9 +64,13 @@ Run `esp-harness cycle` after code changes (build + flash + verify).
   labels or containers overlapping them (marquee freeze, clock plan A,
   overview ring breath, prompt pulse -- all bisected to this). Use
   low-frequency stepped styles from the scene tick instead.
-- Full-size `esp-harness screenshot --size 466` streams ~5 s and rides the
-  TWDT edge; any extra render load mid-dump reboots the device. Verify
-  with `--size 320` (~2.5 s, safe).
+- (FIXED in v6.4 — was: full-size `--size 466` rides the TWDT edge and
+  reboots on extra render load, so verify at `--size 320`.) The `?dump`
+  emit loop now yields every 200 ms, so full-panel capture is safe on
+  every scene: 5 consecutive 466 dumps across dashboard/weather/clock
+  with no reboot, ~4.7 s each. **Verify at 466** — 320 downsampling hides
+  exactly the class of bug you are looking for (it hid the clipped-glyph
+  font bug, and it renders 今天/明天 as illegible mush).
 
 ## Bridge (self-healing)
 The bridge occupies COM9 while running. To use `esp-harness screenshot` or `esp-harness flash` directly, stop the bridge first.
@@ -90,6 +102,15 @@ USE THE WRAPPER: `pwsh tools/dev_flash.ps1` does the whole dance in one
 shot -- hook cooldown, bridge kill, `esp-harness cycle` (with PYTHONUTF8=1),
 cooldown removal, bridge restart (`-NoBridge` to skip the restart). Prefer
 it over hand-rolling the steps below.
+
+For ANYTHING ELSE that needs the port (screenshots, `?perf` sampling,
+console sweeps), use `& ./tools/with_port.ps1 { ...block... }` -- same
+dance, wraps an arbitrary script block, and restores the bridge even if
+the block throws. Call it with `&` from an existing pwsh session, NOT as
+`pwsh tools/with_port.ps1 {...}` (the CLI mangles the script block).
+This matters more than it looks: a hook firing mid-run auto-starts a
+bridge that grabs COM9 and kills the measurement -- it destroyed three
+separate `?perf` sampling runs during the v6.3 work before this existed.
 
 Background (what the wrapper automates): `idf.py flash` needs exclusive
 COM9, but stopping the bridge makes the next tool-call hook auto-start a
@@ -187,9 +208,9 @@ displacement only (TROPA_NONE): every content object there is already
 driven by the wx_mark fade table, and a second writer on opa can lose a
 race into the absorbing 0 state. Notes: a stray "clock locked" toast after
 reflash is a leftover AXP2101 PWR IRQ polled on boot (pre-existing);
-`?dump` on the clock scene with SYNCED time can reboot the device if
-the minute rolls over (two 135px glyph re-rasters mid-dump rides the
-TWDT) — screenshot the clock early in the minute, or while "--:--".
+(the old "`?dump` on the clock scene with SYNCED time can reboot the
+device if the minute rolls over" hazard is FIXED in v6.4 — the dump emit
+loop yields; verified with repeated 466 captures on the clock.)
 
 ### Your-turn pull (v6.0, replaces the v4.9 dismissable takeover)
 scene_awaiting is retired -- it and the dashboard gold pose were two

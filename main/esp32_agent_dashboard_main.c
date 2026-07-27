@@ -68,12 +68,6 @@ static void heap_watchdog_cb(lv_timer_t *t)
     console_send_evt("low_heap free=%u", (unsigned)free);
 }
 
-static void frame_cb(lv_timer_t *t)
-{
-    (void)t;
-    harness_record_frame();
-}
-
 static void on_scene_changed(int idx, const scene_t *current)
 {
     if (current) {
@@ -253,6 +247,9 @@ void app_main(void)
     agent_commands_register();
     /* ?perf — real render/flush timing. Registered here so it obeys the
      * same register-then-listen rule as every other command. */
+    /* ?stat's fps now counts REAL rendered frames (was a 33 ms timer
+     * counting itself, i.e. a hard-coded 30). */
+    harness_stat_bind_display(disp);
     perf_mon_init(disp);
     console_protocol_init();
 
@@ -287,7 +284,6 @@ void app_main(void)
      * instead). Source kept at scenes/scene_awaiting.c, out of the
      * build — same convention as prompt/overview/pet. */
 
-    lv_timer_create(frame_cb, 33, NULL);
     lv_timer_create(heap_watchdog_cb, HEAP_WD_PERIOD_MS, NULL);
 
     /* auto-switch: poll agent_state every 500ms; v6.0 — a fresh
