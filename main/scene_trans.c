@@ -214,7 +214,29 @@ static lv_obj_t *actor_target(const trans_actor_t *a)
     return a->ghost ? a->ghost : a->obj;
 }
 
-static bool s_bake_on = true;
+/* DEFAULT OFF (v6.5) — 实测会让设备 panic 重启。
+ *
+ * 复现：天气场景上 PWR 往返（weather<->clock），350ms 间隔，第 1 轮就崩，
+ * reset_reason=panic。二分证据是干净的：`?bake 0` 撑过 20 轮，`?bake 1`
+ * 第 1 轮崩，同一块板子同一固件来回切。
+ *
+ * 为什么偏偏是 clock<->weather：那是唯一【两侧都有时间锚点变形回调】
+ * 的配对（dashboard 没有 clock_to/from_consensus），于是烘焙的 6 张
+ * ARGB8888 快照要和对侧的字号档位变形并发。dashboard<->weather 同样烘焙
+ * 却不崩，dashboard<->clock 有变形却不烘焙也不崩——两个条件缺一不可。
+ * 根因未定位到具体那一行：panic 文本在崩溃瞬间就发上了线，而那时没人
+ * 在监听串口，重开端口只能抓到重启后的 banner。
+ *
+ * 为什么是关掉而不是继续查：这个特性至今的账是【收益 17%，只在 weather
+ * 一个场景】（38.5->32.0ms），而它已经造成两个严重缺陷——先是快照含
+ * ext_draw 边距导致元素在转场收尾跳位，现在是能秒复现的 panic。它还
+ * 整整一个版本从未真正运行过（RGB565A8 不在 snapshot 白名单里），那期间
+ * 的 A/B "收益"是噪声。这样的性价比不配默认开启。
+ *
+ * 代价：weather 转场每帧 30.6 -> ~38ms（33 -> 26 fps）。其余场景不受影响
+ * ——它们本来就没有 .bake 演员。
+ * 代码和 `?bake 1` 保留：要重启这条线时，先复现上面那个 panic 再谈优化。 */
+static bool s_bake_on = false;
 
 /* 替身几何失配的可查询记录（见 ghost_begin 的检查）。 */
 static uint32_t s_ghost_n = 0;       /* 成功烘焙的替身总数 */
@@ -625,6 +647,12 @@ static void arm_step(uint32_t ms)
     lv_timer_set_period(s_step, ms);
     lv_timer_reset(s_step);
     lv_timer_resume(s_step);
+}
+
+int scene_trans_target(void)
+{
+    if (s_state != ST_IDLE && s_pending >= 0) return s_pending;
+    return scene_fw_current_index();
 }
 
 bool scene_trans_busy(void)

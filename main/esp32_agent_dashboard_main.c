@@ -38,6 +38,7 @@
 #include "scenes/scenes.h"
 #include "scene_trans.h"
 #include "perf_mon.h"
+#include "scene_flash.h"
 #include "agent_state.h"
 #include "buttons.h"
 #include "pwr_key.h"
@@ -301,6 +302,7 @@ void app_main(void)
     /* PWR (AXP2101) is best-effort: if the PMU doesn't answer, the other
      * two keys still route. */
     pwr_key_init();
+    scene_flash_init();
     button_router_init();
 
     /* If config picked a non-default starting scene, honour it. */

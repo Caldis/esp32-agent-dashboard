@@ -18,6 +18,7 @@ idf_component_register(
         "anim/apple_ease.c"
         "anim/spring.c"
         "scene_trans.c"
+        "scene_flash.c"
         "cjk_font.c"
         "ui_type.c"
         "status_bar.c"

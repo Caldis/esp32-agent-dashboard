@@ -129,6 +129,12 @@ void scene_trans_switch(int target_idx);
 
 bool scene_trans_busy(void);
 
+/* 设备【将要】停在哪个场景。转场是异步的——scene_fw_current_index() 在
+ * 黑幕瞬切之前一直返回旧场景，所以任何“我现在在哪、于是下一步去哪”
+ * 的判断都必须用这个，否则在转场窗口内连按会基于过时的现状做决策。
+ * 空闲时等价于 scene_fw_current_index()。 */
+int scene_trans_target(void);
+
 /* 精灵烘焙总开关（默认开）。存在的理由是 A/B：单次转场的渲染耗时噪声
  * 能到 60%，靠反复烧录两个固件比不出可信差异。`?bake 0|1` 在同一块板子
  * 上来回切，跑够重复次数再下结论。 */

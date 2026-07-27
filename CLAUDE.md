@@ -37,7 +37,12 @@ Run `esp-harness cycle` after code changes (build + flash + verify).
   overview + prompt (v5.2; `dash idle` aliases to
   dashboard, `dash prompt` is a no-op ACK; prompt_active must stay
   false forever -- see agent_snapshot_apply.c) and awaiting (v6.0 --
-  see below). BOOT cycles dashboard <-> weather. v6.0: the dashboard
+  see below). v6.6: three keys, three views, direct — BOOT=dashboard,
+  USER=weather, PWR=clock. Pressing the key for the view you are
+  already on flashes a border highlight (scene_flash) instead of
+  switching. Replaces the v4 multi-modal scheme (BOOT cycling,
+  PWR clock-lock toggle, USER focus cycling); USER's focus cycling
+  has no physical key any more. v6.0: the dashboard
   gold pose IS the "your turn" view -- ring + TITLE greeting word
   (8-word rotation for CONTINUE, fixed word for approve/pick/type/
   clarify) + project chip ("cc esp32-agent-dashboard"); the word is
@@ -121,6 +126,28 @@ Run `esp-harness cycle` after code changes (build + flash + verify).
   with no reboot, ~4.7 s each. **Verify at 466** — 320 downsampling hides
   exactly the class of bug you are looking for (it hid the clipped-glyph
   font bug, and it renders 今天/明天 as illegible mush).
+
+### Keys and the border highlight (v6.6)
+- Decide against `scene_trans_target()`, NEVER `scene_fw_current_index()`.
+  Transitions are async: the current index still reports the OLD scene
+  until the black frame ~370 ms in, so a second press inside that window
+  reasons about a stale present. The retired PWR toggle died exactly
+  there — it re-entered its "I'm on the clock" branch, found the
+  remembered previous scene already consumed to -1, and fell back to
+  index 0, which is what "PWR should return me to weather but sometimes
+  jumps to the dashboard" actually was.
+- scene_flash's ring lives on lv_layer_top() and its bounding box is the
+  WHOLE screen, so a plain border_opa change repaints every scene object
+  underneath: measured 53.4 ms/frame (19 fps), 7 overruns per flash. Fix
+  is the same batching trick the weather breath uses — suppress the
+  automatic invalidate and hand-invalidate the four edge bands instead.
+  18.5 ms/frame (53 fps) after.
+- A short motion window needs the fast refresh tier just like a
+  transition does: at the 66 ms idle period a 33 ms envelope step is
+  faster than the display refreshes and frames are simply dropped. The
+  flash raises the period for its duration and hands it back — but only
+  if `!scene_trans_busy()`, so it never steals the tier from a running
+  transition.
 
 ## Bridge (self-healing)
 The bridge occupies COM9 while running. To use `esp-harness screenshot` or `esp-harness flash` directly, stop the bridge first.
