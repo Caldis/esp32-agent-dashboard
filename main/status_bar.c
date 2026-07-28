@@ -6,6 +6,7 @@
 #include "lvgl.h"
 #include "cjk_font.h"   /* clock_font — the rounded digits face */
 #include "ui_type.h"
+#include "ui_glow.h"
 
 #define COL_TEXT       0xF3EEE2
 #define COL_TEXT_DIM   0x8A807A
@@ -115,20 +116,8 @@ void status_bar_create(lv_obj_t *parent, status_bar_t *sb)
     sb->token_cap  = mk(parent, ui_type(UI_T_CAPTION),
                         COL_TEXT_DIM, FOOTER_RIGHT_DX, FOOTER_CAP_Y, "tokens");
 
-    /* Connection-health dot, top-center above the clock. Deliberately
-     * quiet — the link state is secondary info; the CONN_DOT_D disc
-     * (≈1.3 mm at 305 ppi) reads as a status LED at desk distance
-     * without shouting text at the user. Amber = waiting for host,
-     * red = host disconnected. Hidden while healthy. */
-    sb->conn_dot = lv_obj_create(parent);
-    lv_obj_remove_style_all(sb->conn_dot);
-    lv_obj_set_size(sb->conn_dot, CONN_DOT_D, CONN_DOT_D);
-    lv_obj_set_style_radius(sb->conn_dot, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_opa(sb->conn_dot, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(sb->conn_dot, lv_color_hex(COL_DANGER), 0);
-    lv_obj_clear_flag(sb->conn_dot, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(sb->conn_dot, LV_ALIGN_TOP_MID, CONN_DOT_DX, CONN_DOT_Y);
-    lv_obj_add_flag(sb->conn_dot, LV_OBJ_FLAG_HIDDEN);
+    /* v6.9: 链路状态的小圆点已移除，改用整圈边缘辉光（见
+     * status_bar_update）。conn_state 仍然缓存，避免每 tick 重复调用。 */
     sb->conn_state = -1;   /* force first update to apply */
 }
 
@@ -180,12 +169,13 @@ void status_bar_update(status_bar_t *sb, const agent_state_t *st)
     }
     if (conn != sb->conn_state) {
         sb->conn_state = conn;
-        if (conn == CONN_OK) {
-            lv_obj_add_flag(sb->conn_dot, LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_set_style_bg_color(sb->conn_dot,
-                lv_color_hex(conn == CONN_WAITING ? COL_WARN : COL_DANGER), 0);
-            lv_obj_clear_flag(sb->conn_dot, LV_OBJ_FLAG_HIDDEN);
-        }
+        /* v6.9: 链路状态从"顶部一颗小圆点"改成【整圈边缘辉光】。小圆点
+         * 太容易被忽略——它和顶部其它指示点长得一样，而"主机断了"是需要
+         * 一眼看到的事。辉光走窄扩散（UI_GLOW_* 的 spread），常驻但静止，
+         * 不持有高刷档，所以不额外耗电。
+         * 颜色语义不变：琥珀=从未连上，红=主机断开。 */
+        if (conn == CONN_OK)           ui_glow_sustain_clear();
+        else if (conn == CONN_WAITING) ui_glow_sustain(&UI_GLOW_WAITING);
+        else                           ui_glow_sustain(&UI_GLOW_LOST);
     }
 }

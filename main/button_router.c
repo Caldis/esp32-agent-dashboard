@@ -20,7 +20,7 @@
 #include "pwr_key.h"
 #include "scenes/scenes.h"
 #include "scene_trans.h"
-#include "scene_flash.h"
+#include "ui_glow.h"
 
 static const char *TAG = "btn_router";
 
@@ -56,7 +56,7 @@ static void go_scene(const char *id)
     if (idx < 0) { bsp_display_unlock(); return; }
 
     if (scene_trans_target() == idx) {
-        scene_flash_ping();          /* 已经在这儿了 */
+        ui_glow_ping(&UI_GLOW_KEY);          /* 已经在这儿了 */
     } else {
         scene_trans_switch(idx);
     }

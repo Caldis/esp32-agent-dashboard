@@ -38,7 +38,7 @@
 #include "scenes/scenes.h"
 #include "scene_trans.h"
 #include "perf_mon.h"
-#include "scene_flash.h"
+#include "ui_glow.h"
 #include "nav_dots.h"
 #include "ui_motion.h"
 #include "agent_state.h"
@@ -258,6 +258,13 @@ void app_main(void)
     console_protocol_init();
 
     bsp_display_lock(-1);
+    /* 覆盖层设施必须在场景【注册之前】就位：场景一 show 就开始 tick，
+     * 而首个 tick 会锁存链路状态并据此调 ui_glow_sustain()。晚一步的话
+     * 那次调用打在空指针上被静默丢弃，而状态已经锁存，之后不再变化——
+     * 表现就是掉线辉光永远不出现。 */
+    ui_motion_init(66);
+    ui_glow_init();
+
 
     lv_obj_t *scr = lv_screen_active();
     const theme_palette_t *pal = theme_current();
@@ -305,8 +312,6 @@ void app_main(void)
     /* PWR (AXP2101) is best-effort: if the PMU doesn't answer, the other
      * two keys still route. */
     pwr_key_init();
-    ui_motion_init(66);
-    scene_flash_init();
     nav_dots_init();
     button_router_init();
 
