@@ -40,6 +40,7 @@
 #include "perf_mon.h"
 #include "scene_flash.h"
 #include "nav_dots.h"
+#include "ui_motion.h"
 #include "agent_state.h"
 #include "buttons.h"
 #include "pwr_key.h"
@@ -304,6 +305,7 @@ void app_main(void)
     /* PWR (AXP2101) is best-effort: if the PMU doesn't answer, the other
      * two keys still route. */
     pwr_key_init();
+    ui_motion_init(66);
     scene_flash_init();
     nav_dots_init();
     button_router_init();

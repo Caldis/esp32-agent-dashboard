@@ -4,7 +4,7 @@
 
 #include "scene_flash.h"
 #include "theme.h"
-#include "scene_trans.h"
+#include "ui_motion.h"
 
 #include "lvgl.h"
 
@@ -19,7 +19,21 @@
  * 注意：其余 UI 用 LV_ALIGN_TOP_MID 对齐，中心在 240 而不是可见中心
  * 233，即整体偏右 7px。那是既有的全局约定（footer 的对称性就是照它调
  * 的），不在本文件的职责范围内——这里只保证发光贴合可见边缘。 */
-#define VIS_W         466      /* 可见区宽高，锚在 (0,0) */
+#define VIS_W         466      /* 可见区宽高 */
+
+/* 面板原点还有一个【没被任何配置写明】的小偏移。驱动的 x_gap/y_gap 从未
+ * 设置（都是 0），MADCTL=0xA0 带 MY|MV 的镜像/换轴，所以 466 的可见区在
+ * 480 的地址空间里究竟从哪一列开始，只能从现象反推：
+ *   环摆在 7..472（居中）时，右/下被切  ->  a + 465 < 472  ->  a < 7
+ *   环摆在 0..465 时，左上角缺一点      ->  a > 0
+ * 即 a ∈ [1, 6]。渲染帧本身四角完全对称（各 431 个发光像素、首个墨迹都在
+ * 17px），已经排除了代码不对称的可能——缺口来自面板原点，不是绘制。
+ *
+ * 取上界 6 作为内缩量：对 a 的整个可能区间都保证环完整落在可见区内，
+ * 最坏情况下四边的余量差 6px，对一圈柔和的辉光来说看不出来。
+ * 若日后实测出确切的 a，把这里改成 a 即可让辉光重新贴合物理边缘。 */
+#define VIS_INSET       6
+#define GLOW_W        (VIS_W - 2 * VIS_INSET)
 /* 面板圆角，实测调定（v6.7：72 -> 60）。挑大了四角会与黑边露缝，挑小了
  * 高光会切进内容区。 */
 #define RING_RADIUS    60
@@ -52,10 +66,9 @@ static const uint8_t ENV_SP[] = { 255, 255, 255, 255, 255, 255,
                                   235, 210, 180, 150, 120,  90,  60,  30, 0 };
 #define ENVELOPE_N  (sizeof(ENV_G) / sizeof(ENV_G[0]))
 
-/* 高光期间也要高刷。静止档是 66ms/帧，而包络步进 33ms —— 不抬档的话步比
- * 帧还快，动画会被直接丢帧，实测就是"闪一下但不顺"。 */
-#define FLASH_REFR_MS  16
-
+/* 高光期间也要高刷：静止档 66ms/帧比 33ms 的包络步进还慢，不抬档动画会被
+ * 直接丢帧（实测就是"闪一下但不顺"）。档位由 ui_motion 引用计数管理，本
+ * 文件只负责成对 hold/release，不需要知道转场是否也在跑。 */
 /* 只失效边缘环带，而不是环的包围盒（整屏）。对 border_opa 关闭自动刷新
  * 是安全的：lv_obj_refresh_style 在关闭时只跳过 invalidate，而 opa 不带
  * LAYOUT/EXT_DRAW/LAYER 标志。实测：不批量 53.4ms/帧（19fps），批量后
@@ -69,36 +82,27 @@ static const uint8_t ENV_SP[] = { 255, 255, 255, 255, 255, 255,
  * 比 21 深。四个角的内层环因此从不被失效，留下上一帧的残影——看起来正是
  * 一圈发光在拐角处断开。 */
 #define RING_INNER_R  (RING_RADIUS - (RING_N - 1) * RING_STEP - RING_WIDTH)
-#define BAND          (RING_RADIUS - (RING_INNER_R * 707) / 1000 + 5)
+#define BAND          (RING_RADIUS - (RING_INNER_R * 707) / 1000 + 5 + VIS_INSET)
 
 static lv_obj_t   *s_ring[RING_N];
 static lv_timer_t *s_timer;
 static int         s_step;
+/* 是否持有高刷档。连按会重启包络，但只能持有一份——多 hold 一次
+ * 就再也放不回低刷了。 */
+static bool        s_holding;
 
-static void scene_flash_refr(uint32_t ms)
-{
-    lv_display_t *d = lv_display_get_default();
-    if (!d) return;
-    lv_timer_t *t = lv_display_get_refr_timer(d);
-    if (t) lv_timer_set_period(t, ms);
-}
-
-static void invalidate_ring_band(void)
-{
-    static const lv_area_t BANDS[4] = {
+static const lv_area_t BANDS[4] = {
         { 0,          0,          VIS_W - 1, BAND - 1  },
         { 0,          VIS_W-BAND, VIS_W - 1, VIS_W - 1  },
         { 0,          0,          BAND - 1,  VIS_W - 1  },
         { VIS_W-BAND, 0,          VIS_W - 1, VIS_W - 1  },
-    };
-    for (int i = 0; i < 4; ++i) lv_obj_invalidate_area(s_ring[0], &BANDS[i]);
-}
+};
 
 /* sp 决定还有几层亮着，由内向外熄灭。边界那一层用线性权重过渡，否则
  * 层的熄灭是可见的台阶。 */
 static void glow_apply(uint8_t g, uint8_t sp)
 {
-    lv_obj_enable_style_refresh(false);
+    ui_motion_batch_begin();
     for (int i = 0; i < RING_N; ++i) {
         int w = (int)sp * RING_N - i * 255;   /* 该层落在扩散范围内的比例 */
         if (w < 0)   w = 0;
@@ -106,8 +110,7 @@ static void glow_apply(uint8_t g, uint8_t sp)
         int v = (int)RING_BASE[i] * g / 255 * w / 255;
         lv_obj_set_style_border_opa(s_ring[i], (lv_opa_t)v, 0);
     }
-    lv_obj_enable_style_refresh(true);
-    invalidate_ring_band();
+    ui_motion_batch_end(s_ring[0], BANDS, 4);
 }
 
 static void step_cb(lv_timer_t *t)
@@ -117,10 +120,9 @@ static void step_cb(lv_timer_t *t)
     if (s_step >= (int)ENVELOPE_N) {
         for (int i = 0; i < RING_N; ++i)
             lv_obj_add_flag(s_ring[i], LV_OBJ_FLAG_HIDDEN);
-        invalidate_ring_band();
+        ui_motion_batch_end(s_ring[0], BANDS, 4);   /* 隐藏也要自己失效 */
         lv_timer_pause(s_timer);
-        /* 交还低刷档。转场正在跑时不要抢——它自己会在结束时收回。 */
-        if (!scene_trans_busy()) scene_flash_refr(scene_trans_get_idle_refr());
+        if (s_holding) { ui_motion_release(); s_holding = false; }
         return;
     }
     glow_apply(ENV_G[s_step], ENV_SP[s_step]);
@@ -135,9 +137,9 @@ void scene_flash_init(void)
         int inset = i * RING_STEP;
         s_ring[i] = lv_obj_create(lv_layer_top());
         lv_obj_remove_style_all(s_ring[i]);
-        lv_obj_set_size(s_ring[i], VIS_W - 2 * inset, VIS_W - 2 * inset);
-        /* 锚左上角，不居中——见文件头 VIS_W 的说明。 */
-        lv_obj_set_pos(s_ring[i], inset, inset);
+        lv_obj_set_size(s_ring[i], GLOW_W - 2 * inset, GLOW_W - 2 * inset);
+        /* 锚左上角 + VIS_INSET，不居中——见文件头的说明。 */
+        lv_obj_set_pos(s_ring[i], VIS_INSET + inset, VIS_INSET + inset);
         /* 半径同步内缩，四角才保持同心，否则内层会显得更方。 */
         lv_obj_set_style_radius(s_ring[i], RING_RADIUS - inset, 0);
         lv_obj_set_style_bg_opa(s_ring[i], LV_OPA_TRANSP, 0);
@@ -166,8 +168,8 @@ void scene_flash_ping(void)
 
     /* 重复按键：从头开始，不叠加。上一轮还在收就直接接回峰值——连按的
      * 手感应该是"更亮"，不是"排队等前一次放完"。 */
+    if (!s_holding) { ui_motion_hold(); s_holding = true; }
     s_step = 0;
-    scene_flash_refr(FLASH_REFR_MS);
     glow_apply(ENV_G[0], ENV_SP[0]);
     lv_timer_reset(s_timer);
     lv_timer_resume(s_timer);

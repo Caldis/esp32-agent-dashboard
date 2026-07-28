@@ -20,6 +20,7 @@ idf_component_register(
         "scene_trans.c"
         "scene_flash.c"
         "nav_dots.c"
+        "ui_motion.c"
         "cjk_font.c"
         "ui_type.c"
         "status_bar.c"

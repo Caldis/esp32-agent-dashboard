@@ -88,9 +88,9 @@ void button_router_press(button_router_key_t key)
         /* 物理排列（左->右）是 BOOT, PWR, USER —— 不是命名顺序。顶部的
          * nav_dots 按物理位置排，所以映射必须跟着物理走，否则指示点会
          * 指向错误的键。 */
-        case ROUTER_KEY_BOOT: go_scene("dashboard"); break;  /* 左  25% */
-        case ROUTER_KEY_PWR:  go_scene("weather");   break;  /* 中  50% */
-        case ROUTER_KEY_USER: go_scene("clock");     break;  /* 右  75% */
+        case ROUTER_KEY_BOOT: go_scene("dashboard"); break;  /* 左 */
+        case ROUTER_KEY_PWR:  go_scene("clock");     break;  /* 中 */
+        case ROUTER_KEY_USER: go_scene("weather");   break;  /* 右 */
         default: break;
     }
 }

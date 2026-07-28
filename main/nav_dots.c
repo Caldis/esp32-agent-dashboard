@@ -33,7 +33,7 @@
  * 纵向不会撞到时钟：顶钟在 y=56 起（48px），指示点 22..32 收在它上面；
  * 天气场景的地名/角钟都在 y>=64。
  * 横向 ±26 的跨度很窄，即使面板按圆形算（y=22 处半宽约 100px）也安全。 */
-static const char *DOT_SCENE[DOT_N] = { "dashboard", "weather", "clock" };
+static const char *DOT_SCENE[DOT_N] = { "dashboard", "clock", "weather" };
 
 static lv_obj_t *s_dot[DOT_N];
 static int       s_active = -1;

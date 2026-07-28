@@ -15,7 +15,7 @@
 #include "agent_state.h"
 #include "anim/spring.h"
 #include "anim/apple_ease.h"
-#include "perf_mon.h"
+#include "ui_motion.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -533,41 +533,25 @@ static uint32_t play_intro(scene_t *sc, bool animate, trans_profile_t *other)
     return total;
 }
 
-/* ── 动态刷新率 (v6.3) ─────────────────────────────────────────────
- * 静止低刷省电、运动高刷保顺滑——两种取向，两个档位，跟着转场状态机走。
- *
- * 为什么必须做：实测转场期间 render ≈ 20ms，而刷新周期是 33ms。也就是
- * 每帧画完还要空等 13ms 才允许画下一帧——帧率被封在 30fps 并不是因为
- * 画不动，是因为没人让它画。把转场窗口的周期压到 REFR_MS_ACTIVE，帧就
- * 以渲染器的真实速度连续产出。
- *
- * 反过来，静止时屏幕上只有呼吸点/冒号这种低频动画，33ms 是纯粹的浪费：
- * 每次刷新周期到点 LVGL 都要走一遍脏区检查。IDLE 档把它拉长，代价只是
- * 呼吸动画的时间分辨率——2s 一个呼吸周期在 66ms 步进下仍有 30 级，肉眼
- * 看不出台阶。
- *
- * 档位在 IDLE<->转场之间切换，不做更细的分级：唯一的高刷需求就是转场
- * 和它带动的锚点变形，而那正好由这个状态机界定。 */
-#define REFR_MS_ACTIVE  16          /* 转场：~60Hz 上限，实际由渲染器决定 */
-static uint32_t s_refr_idle_ms = 66;   /* 静止：~15Hz，可用 ?refr 调 */
+/* ── 刷新档位 ──────────────────────────────────────────────────────
+ * 转场窗口内持有高刷，结束时归还。档位本身由 ui_motion 引用计数管理，
+ * 所以这里不需要知道别的动画（比如按键辉光）是否也在跑——v6.6 那套
+ * `if (!scene_trans_busy())` 的手工协调已经废弃。
+ * s_refr_held 保证一次转场只持有一份：转场中被重定向不会重复 hold。 */
+static bool s_refr_held = false;
 
-static void refr_rate(uint32_t ms)
+static void refr_hold(void)
 {
-    lv_display_t *d = lv_display_get_default();
-    if (!d) return;
-    lv_timer_t *t = lv_display_get_refr_timer(d);
-    if (t) lv_timer_set_period(t, ms);
-    perf_mon_set_period(ms);        /* overrun 阈值要跟着档位走 */
+    if (!s_refr_held) { ui_motion_hold(); s_refr_held = true; }
 }
 
-void scene_trans_set_idle_refr(uint32_t ms)
+static void refr_drop(void)
 {
-    if (ms < 8) ms = 8;
-    s_refr_idle_ms = ms;
-    if (s_state == ST_IDLE) refr_rate(ms);
+    if (s_refr_held) { ui_motion_release(); s_refr_held = false; }
 }
 
-uint32_t scene_trans_get_idle_refr(void) { return s_refr_idle_ms; }
+void scene_trans_set_idle_refr(uint32_t ms) { ui_motion_set_idle_period(ms); }
+uint32_t scene_trans_get_idle_refr(void)    { return ui_motion_get_idle_period(); }
 
 /* ── 状态机推进 ───────────────────────────────────────────────────── */
 
@@ -588,7 +572,7 @@ static void do_switch_and_intro(void)
     int target = s_pending;
     s_pending = -1;
     if (target < 0) { s_state = ST_IDLE; s_from_p = NULL;
-                      refr_rate(s_refr_idle_ms); return; }
+                      refr_drop(); return; }
 
     trans_profile_t *from_p = s_from_p;
     s_from_p = NULL;
@@ -608,7 +592,7 @@ static void do_switch_and_intro(void)
     } else {
         profile_ghosts_end(profile_of(sc));
         s_state = ST_IDLE;
-        refr_rate(s_refr_idle_ms);
+        refr_drop();
     }
 }
 
@@ -633,7 +617,7 @@ static void step_cb(lv_timer_t *t)
              * 内容刷新都要作用在真身上）。 */
             profile_ghosts_end(profile_of(scene_fw_current()));
             s_state = ST_IDLE;
-            refr_rate(s_refr_idle_ms);
+            refr_drop();
         }
     }
 }
@@ -669,7 +653,7 @@ void scene_trans_switch(int target_idx)
     if (s_state == ST_IDLE) {
         if (target_idx == scene_fw_current_index()) return;
         /* 抬到高刷【在出场动画开始之前】——晚一帧就是可见的第一帧卡顿。 */
-        refr_rate(REFR_MS_ACTIVE);
+        refr_hold();
         s_pending = target_idx;
         scene_t *cur = (scene_t *)scene_fw_current();
         bool anim = motion_ok();
