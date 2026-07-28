@@ -8,7 +8,18 @@
 
 #include "lvgl.h"
 
-#define SCREEN_W      466
+/* LVGL 的坐标空间是 480x480（BSP_LCD_H_RES），而物理面板只有 466x466。
+ * 面板地址窗口 0x2A/0x2B 都设成 0..0x01DF 且没有偏移，所以【可见区是
+ * 左上角对齐的 0..465】，右侧和底部各有 14px 落在屏外。
+ *
+ * 这正是发光"右边和底部显示不全"的原因：环原来按 466 宽 lv_obj_center()
+ * 摆放，在 480 空间里落在 7..472 —— 左/上边缘正好可见，右/下边缘 472
+ * 超出 465，被切掉。所以环必须锚在 (0,0) 而不是居中。
+ *
+ * 注意：其余 UI 用 LV_ALIGN_TOP_MID 对齐，中心在 240 而不是可见中心
+ * 233，即整体偏右 7px。那是既有的全局约定（footer 的对称性就是照它调
+ * 的），不在本文件的职责范围内——这里只保证发光贴合可见边缘。 */
+#define VIS_W         466      /* 可见区宽高，锚在 (0,0) */
 /* 面板圆角，实测调定（v6.7：72 -> 60）。挑大了四角会与黑边露缝，挑小了
  * 高光会切进内容区。 */
 #define RING_RADIUS    60
@@ -75,10 +86,10 @@ static void scene_flash_refr(uint32_t ms)
 static void invalidate_ring_band(void)
 {
     static const lv_area_t BANDS[4] = {
-        { 0,             0,             SCREEN_W - 1, BAND - 1     },
-        { 0,             SCREEN_W-BAND, SCREEN_W - 1, SCREEN_W - 1 },
-        { 0,             0,             BAND - 1,     SCREEN_W - 1 },
-        { SCREEN_W-BAND, 0,             SCREEN_W - 1, SCREEN_W - 1 },
+        { 0,          0,          VIS_W - 1, BAND - 1  },
+        { 0,          VIS_W-BAND, VIS_W - 1, VIS_W - 1  },
+        { 0,          0,          BAND - 1,  VIS_W - 1  },
+        { VIS_W-BAND, 0,          VIS_W - 1, VIS_W - 1  },
     };
     for (int i = 0; i < 4; ++i) lv_obj_invalidate_area(s_ring[0], &BANDS[i]);
 }
@@ -124,8 +135,9 @@ void scene_flash_init(void)
         int inset = i * RING_STEP;
         s_ring[i] = lv_obj_create(lv_layer_top());
         lv_obj_remove_style_all(s_ring[i]);
-        lv_obj_set_size(s_ring[i], SCREEN_W - 2 * inset, SCREEN_W - 2 * inset);
-        lv_obj_center(s_ring[i]);
+        lv_obj_set_size(s_ring[i], VIS_W - 2 * inset, VIS_W - 2 * inset);
+        /* 锚左上角，不居中——见文件头 VIS_W 的说明。 */
+        lv_obj_set_pos(s_ring[i], inset, inset);
         /* 半径同步内缩，四角才保持同心，否则内层会显得更方。 */
         lv_obj_set_style_radius(s_ring[i], RING_RADIUS - inset, 0);
         lv_obj_set_style_bg_opa(s_ring[i], LV_OPA_TRANSP, 0);
