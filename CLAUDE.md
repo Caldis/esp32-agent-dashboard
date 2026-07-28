@@ -37,8 +37,10 @@ Run `esp-harness cycle` after code changes (build + flash + verify).
   overview + prompt (v5.2; `dash idle` aliases to
   dashboard, `dash prompt` is a no-op ACK; prompt_active must stay
   false forever -- see agent_snapshot_apply.c) and awaiting (v6.0 --
-  see below). v6.6: three keys, three views, direct — BOOT=dashboard,
-  USER=weather, PWR=clock. Pressing the key for the view you are
+  see below). v6.6: three keys, three views, direct. The physical
+  left-to-right order is BOOT, PWR, USER — NOT the naming order — so the
+  mapping is BOOT=dashboard, PWR=weather, USER=clock, and nav_dots at
+  25/50/75% of the width mirror the physical keys. Pressing the key for the view you are
   already on flashes a border highlight (scene_flash) instead of
   switching. Replaces the v4 multi-modal scheme (BOOT cycling,
   PWR clock-lock toggle, USER focus cycling); USER's focus cycling

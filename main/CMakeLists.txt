@@ -19,6 +19,7 @@ idf_component_register(
         "anim/spring.c"
         "scene_trans.c"
         "scene_flash.c"
+        "nav_dots.c"
         "cjk_font.c"
         "ui_type.c"
         "status_bar.c"

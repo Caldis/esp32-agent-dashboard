@@ -39,6 +39,7 @@
 #include "scene_trans.h"
 #include "perf_mon.h"
 #include "scene_flash.h"
+#include "nav_dots.h"
 #include "agent_state.h"
 #include "buttons.h"
 #include "pwr_key.h"
@@ -72,6 +73,7 @@ static void heap_watchdog_cb(lv_timer_t *t)
 static void on_scene_changed(int idx, const scene_t *current)
 {
     if (current) {
+        nav_dots_set_scene(current->id);
         ESP_LOGI(TAG, "scene_changed idx=%d id=%s", idx, current->id);
         console_send_evt("scene_changed idx=%d id=%s", idx, current->id);
     }
@@ -303,6 +305,7 @@ void app_main(void)
      * two keys still route. */
     pwr_key_init();
     scene_flash_init();
+    nav_dots_init();
     button_router_init();
 
     /* If config picked a non-default starting scene, honour it. */

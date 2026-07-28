@@ -41,6 +41,14 @@ enum { CONN_OK = 0, CONN_WAITING, CONN_STALE };
 #define CONN_DOT_D      16   /* connection dot diameter (~1.3 mm @305 ppi) */
 #define CONN_DOT_Y      24   /* sits in the band the old text pill used,
                               * clear of the 48 px clock at HEADER_Y */
+/* v6.6: shifted off centre. The nav_dots key indicators now own the
+ * top-centre slot, and the middle one sits exactly where this used to
+ * be. v6.6 final: the dots moved UP to y 8..18 instead, so this stays
+ * where it has always been (top-centre, y 24..40) with 6px of clearance
+ * below them. Separating by ROW beats separating by column — the conn
+ * dot is health, the nav dots are position, and stacking them keeps each
+ * row meaning one thing. */
+#define CONN_DOT_DX      0
 #define FOOTER_Y       392   /* numbers row (36 px line ends ≈435) */
 #define FOOTER_CAP_Y   438   /* captions row (20 px line ends ≈462) */
 #define FOOTER_LEFT_DX  (-77)   /* active column centre (x156) */
@@ -119,7 +127,7 @@ void status_bar_create(lv_obj_t *parent, status_bar_t *sb)
     lv_obj_set_style_bg_opa(sb->conn_dot, LV_OPA_COVER, 0);
     lv_obj_set_style_bg_color(sb->conn_dot, lv_color_hex(COL_DANGER), 0);
     lv_obj_clear_flag(sb->conn_dot, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(sb->conn_dot, LV_ALIGN_TOP_MID, 0, CONN_DOT_Y);
+    lv_obj_align(sb->conn_dot, LV_ALIGN_TOP_MID, CONN_DOT_DX, CONN_DOT_Y);
     lv_obj_add_flag(sb->conn_dot, LV_OBJ_FLAG_HIDDEN);
     sb->conn_state = -1;   /* force first update to apply */
 }
