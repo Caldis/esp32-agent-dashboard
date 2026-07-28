@@ -68,10 +68,21 @@
  * full-width so the ±108 labels never clip horizontally. */
 #define FACE_GRP_H  200
 
-/* v6.5 常驻天气行。face_grp 居中 200 高 -> 大钟墨迹约 166..300；footer
- * 数字从 392 起。322 落在两者之间，LABEL(26) 行底 ~353，仍在
- * UI_CHROME_BOT(382) 之上。 */
-#define WX_LINE_Y   322
+/* v6.7: 时间+天气行整体上移 4% 屏高（466*0.04≈19px）。
+ *
+ * 目的不是"把它放高"，而是把【视觉重心】拉回正中：大钟本来是几何居中的，
+ * 但 v6.5 在它下面加了一行常驻天气，墨迹重心因此整体下沉，读起来偏低。
+ * 补的量约等于那行墨迹给重心带来的位移，所以 4% 而不是更多——15% 试过，
+ * 那是把整块内容搬上去，底部会空出一大块。
+ *
+ * face_grp 是 CENTER 对齐，所以 rest 的 y 偏移不再是 0 而是 -FACE_RISE；
+ * 天气行同步上移相同量，两者作为一个视觉整体一起动。 */
+#define FACE_RISE    19
+#define FACE_REST_Y  (-FACE_RISE)
+
+/* 常驻天气行。原 322：face_grp 居中 200 高 -> 大钟墨迹约 166..300，footer
+ * 数字从 392 起，322 落在两者之间。上移后同步减 FACE_RISE。 */
+#define WX_LINE_Y   (322 - FACE_RISE)
 
 /* Colon blink: half-period decoupled from the tick rate. 1000 ms half
  * = 1 s on / 1 s off = 0.5 Hz — a calm pulse (1 Hz read as too fast).
@@ -168,6 +179,14 @@ static void set_group_text_opa(lv_obj_t *grp, lv_opa_t opa)
         lv_obj_set_style_text_opa(lv_obj_get_child(grp, i), opa, 0);
 }
 
+/* 天气行的淡入淡出。它跟着大钟一起让位给 push 卡：卡片墨迹到 y~338，
+ * 天气行在 252..283，两者重叠——大钟退到顶部而天气行留在原地的话，卡片
+ * 会直接压在它上面（用户报的"日期概要和切过去的界面重叠"）。 */
+static void anim_wxline_opa(void *obj, int32_t v)
+{
+    lv_obj_set_style_text_opa((lv_obj_t *)obj, (lv_opa_t)v, 0);
+}
+
 static void anim_grp_y(void *obj, int32_t v)
 {
     lv_obj_set_y((lv_obj_t *)obj, v);
@@ -186,9 +205,11 @@ static void clock_entrance(clock_state_t *st, bool motion_ok)
     lv_anim_delete(st->face_grp, anim_grp_y);
     lv_anim_delete(st->face_grp, anim_grp_opa);
 
+    lv_anim_delete(st->wx_lbl, anim_wxline_opa);
     if (!motion_ok) {
-        lv_obj_set_y(st->face_grp, 0);
+        lv_obj_set_y(st->face_grp, FACE_REST_Y);
         set_group_text_opa(st->face_grp, LV_OPA_COVER);
+        lv_obj_set_style_text_opa(st->wx_lbl, LV_OPA_COVER, 0);
         return;
     }
 
@@ -201,12 +222,19 @@ static void clock_entrance(clock_state_t *st, bool motion_ok)
     lv_anim_set_time(&a, ENTRY_MS);
     lv_anim_set_path_cb(&a, apple_ease_out);
 
-    lv_anim_set_values(&a, ENTRY_Y, 0);
+    lv_anim_set_values(&a, ENTRY_Y, FACE_REST_Y);
     lv_anim_set_exec_cb(&a, anim_grp_y);
     lv_anim_start(&a);
 
     lv_anim_set_values(&a, LV_OPA_TRANSP, LV_OPA_COVER);
     lv_anim_set_exec_cb(&a, anim_grp_opa);
+    lv_anim_start(&a);
+
+    /* 天气行与大钟同进同退（见 anim_wxline_opa）。 */
+    lv_anim_delete(st->wx_lbl, anim_wxline_opa);
+    lv_obj_set_style_text_opa(st->wx_lbl, LV_OPA_TRANSP, 0);
+    lv_anim_set_var(&a, st->wx_lbl);
+    lv_anim_set_exec_cb(&a, anim_wxline_opa);
     lv_anim_start(&a);
 }
 
@@ -294,6 +322,7 @@ static void anim_topclock_out(void *obj, int32_t v)
     if (v == 0) lv_obj_add_flag((lv_obj_t *)obj, LV_OBJ_FLAG_HIDDEN);
 }
 
+
 /* Orbit: the dot walks a circle about the glyph-zone centre. deg10 is
  * tenths of a degree; −90° start puts it at 12 o'clock. A single small
  * lv_obj position update per frame — no layer, no big-label re-raster. */
@@ -331,10 +360,12 @@ static void retreat_clock(clock_state_t *st)
     lv_anim_delete(st->sb.time_lbl, anim_topclock_in);
     lv_anim_delete(st->sb.time_lbl, anim_topclock_out);
 
+    lv_anim_delete(st->wx_lbl, anim_wxline_opa);
     if (!st->motion_ok) {
         lv_obj_set_y(st->face_grp, ENTRY_Y);
         set_group_text_opa(st->face_grp, LV_OPA_TRANSP);
         lv_obj_set_style_text_opa(st->sb.time_lbl, LV_OPA_COVER, 0);
+        lv_obj_set_style_text_opa(st->wx_lbl, LV_OPA_TRANSP, 0);
         return;
     }
 
@@ -348,6 +379,10 @@ static void retreat_clock(clock_state_t *st)
     lv_anim_start(&a);
     lv_anim_set_values(&a, LV_OPA_COVER, LV_OPA_TRANSP);
     lv_anim_set_exec_cb(&a, anim_grp_opa);
+    lv_anim_start(&a);
+
+    lv_anim_set_var(&a, st->wx_lbl);
+    lv_anim_set_exec_cb(&a, anim_wxline_opa);
     lv_anim_start(&a);
 
     lv_anim_t b;
@@ -630,8 +665,10 @@ static void anim_face_morph(void *var, int32_t v)
     clock_state_t *st = (clock_state_t *)lv_obj_get_user_data((lv_obj_t *)var);
     if (!st) return;
     st->morph_v = v;
-    lv_obj_set_y(st->face_grp,
-                 CONSENSUS_GRP_Y - (int32_t)CONSENSUS_GRP_Y * v / 1000);
+    /* v=0 共识槽位, v=1000 静止姿态。静止不再是 0——大钟整体上移了
+     * FACE_RISE，插值终点必须跟着走，否则变形会把它拉回旧位置。 */
+    lv_obj_set_y(st->face_grp, CONSENSUS_GRP_Y
+                 + (int32_t)(FACE_REST_Y - CONSENSUS_GRP_Y) * v / 1000);
     int px = FACE_PX_MIN + (CLOCK_PX - FACE_PX_MIN) * v / 1000;
     int best = FACE_RUNGS[0];
     for (int i = 1; i < FACE_RUNG_N; ++i)

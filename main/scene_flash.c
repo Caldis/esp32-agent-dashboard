@@ -49,7 +49,16 @@ static const uint8_t ENV_SP[] = { 255, 255, 255, 255, 255, 255,
  * 是安全的：lv_obj_refresh_style 在关闭时只跳过 invalidate，而 opa 不带
  * LAYOUT/EXT_DRAW/LAYER 标志。实测：不批量 53.4ms/帧（19fps），批量后
  * 18.5ms/帧（53fps）。 */
-#define BAND  (RING_N * RING_STEP + RING_WIDTH + 6)
+/* 带宽必须按【圆角】算，不能按直边算——这是发光"断裂"的根因。
+ *
+ * 直边处墨迹只深入 RING_N*RING_STEP + RING_WIDTH = 21px；但四个角是圆弧，
+ * 所有环的弧心都落在距屏角 (RING_RADIUS, RING_RADIUS) 处，最内层墨迹半径
+ * 只有 RING_INNER_R，于是它在 45° 方向上距屏边
+ *     RING_RADIUS - RING_INNER_R/√2 = 60 - 48/1.414 = 26.1px
+ * 比 21 深。四个角的内层环因此从不被失效，留下上一帧的残影——看起来正是
+ * 一圈发光在拐角处断开。 */
+#define RING_INNER_R  (RING_RADIUS - (RING_N - 1) * RING_STEP - RING_WIDTH)
+#define BAND          (RING_RADIUS - (RING_INNER_R * 707) / 1000 + 5)
 
 static lv_obj_t   *s_ring[RING_N];
 static lv_timer_t *s_timer;
