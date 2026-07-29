@@ -74,24 +74,32 @@ Run `esp-harness cycle` after code changes (build + flash + verify).
 - `tools/hook_dispatch.py` -- Claude Code hook forwarder
 
 ## Rendering performance (hard-won, do not regress)
-- (v7.1) Weather icon PRE-COMPOSITING, default on (`?wxcomp 0|1` A/B):
-  the big illustration (~35 vectors) and 5 strip icons live on an
-  off-screen stage (parked outside the parent clip); at rest they are
-  baked via lv_snapshot into ARGB8888 lv_images (wx_compose), so
-  transition frames blit 6 bitmaps instead of re-rasterising ~70
-  vectors. Paired A/B: weather-family render_avg −10~−14%
-  (c→w 39.2→33.9 ms), idle breath repaint 8.6→5.5 ms (−36%).
-  ARGB8888 is the ONLY alpha format in BOTH snapshot and sw-blend
-  whitelists on LVGL 9.4 (ARGB8565 is snapshot-only — surveyed, do
-  not retry). Content-identity cache (big_code/day_code) skips
-  recomposition when codes are unchanged — on_show force-redraws and
-  re-pushes would otherwise pay 6 synchronous off-screen renders
-  (~30-50 ms stall) for nothing; if the stage was borrowed by a day
-  icon rebuild the big icon MUST rebuild (accent registry points at
-  stage children — stale skip = use-after-free). Compose failure
-  reverts to live vectors loudly (WARN). Bench methodology additions
-  (glow settle 15 s, weather pre-warm after arm switch, arm-order
-  counterbalancing, row-1 flash pollution): docs/PERF_TRANSITIONS.md.
+- (v7.1/v7.2) Weather PRE-COMPOSITING, default on (`?wxcomp 0|1` A/B):
+  vector content lives on off-screen stages (parked outside the parent
+  clip) and is baked AT REST via lv_snapshot into lv_images
+  (wx_compose) — transition frames blit bitmaps instead of
+  re-rasterising ~90 vector objects. v7.2 form: OPAQUE RGB565 with the
+  scene background baked in (2 B/px, no-alpha copy path), and the
+  whole 5-day strip (15 labels + 5 icons) moves house to a strip stage
+  (strip_set_home) and bakes as ONE 466×160 bitmap. Paired A/B vs live
+  vectors: c→w render 40.0→29.3 ms (−27%), d→w −30%, w→c −19%; idle
+  breath repaint 8.6→4.1 ms (−53%); drawn +3~5/transition. Key facts:
+  the effective background under scenes is the scene root's OPAQUE
+  BLACK (scene_framework.c paints it for the black-frame switch) — NOT
+  theme->bg, which never shows through; wx_effective_bg walks up to
+  the first covering ancestor instead of hardcoding either. An opaque
+  bake with stage ext_draw != 0 would show a black ring (buffer
+  cleared, not bg) — wx_compose guards and reverts loudly. ARGB8565 is
+  snapshot-only on LVGL 9.4 and esp_lvgl_port's S3 SIMD asm covers
+  only plain fill + no-alpha RGB565 copy (~3% fill share here) — both
+  surveyed, do not retry. Content-identity caches (big_code,
+  strip_sig) skip recomposition when content is unchanged — on_show
+  force-redraws would otherwise pay synchronous off-screen renders for
+  nothing; theme switches invalidate identities (bg is baked in).
+  Compose failure reverts to live vectors loudly (WARN). Bench
+  methodology (glow settle 15 s, pre-warm after arm switch, arm-order
+  counterbalancing, row-1 flash pollution, duplicate-bridge / USB-reset
+  environment artifacts): docs/PERF_TRANSITIONS.md.
 - (v7.0) LVGL's anim timer runs at compile-time LV_DEF_REFR_PERIOD
   (33 ms) and does NOT follow the display refr timer — raising the
   refresh tier alone leaves motion sampled at 30 Hz with half the
