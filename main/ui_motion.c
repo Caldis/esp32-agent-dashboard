@@ -21,6 +21,13 @@ static void apply_period(uint32_t ms)
     if (!d) return;
     lv_timer_t *t = lv_display_get_refr_timer(d);
     if (t) lv_timer_set_period(t, ms);
+    /* 动画计时器也要跟档：lv_anim 的步进周期是编译期的
+     * LV_DEF_REFR_PERIOD（33ms），不随 refr timer 走。只抬显示刷新的话
+     * 高刷档一半的周期找不到脏区——运动采样被硬锁在 30fps，实测转场
+     * drawn 帧数正好卡在 33ms 节拍上。动画按时间插值，改周期只改采样
+     * 密度不改时长；渲染跟不上时 timer 迟到自动降频，无过载风险。 */
+    t = lv_anim_get_timer();
+    if (t) lv_timer_set_period(t, ms);
     /* overrun 的判定阈值要跟着档位走，否则低刷档会被按高刷的预算误判成
      * 满屏掉帧。 */
     perf_mon_set_period(ms);

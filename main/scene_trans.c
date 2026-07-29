@@ -214,28 +214,24 @@ static lv_obj_t *actor_target(const trans_actor_t *a)
     return a->ghost ? a->ghost : a->obj;
 }
 
-/* DEFAULT OFF (v6.5) — 实测会让设备 panic 重启。
+/* DEFAULT OFF — v7.0 起理由是【性价比】，不再是崩溃。
  *
- * 复现：天气场景上 PWR 往返（weather<->clock），350ms 间隔，第 1 轮就崩，
- * reset_reason=panic。二分证据是干净的：`?bake 0` 撑过 20 轮，`?bake 1`
- * 第 1 轮崩，同一块板子同一固件来回切。
+ * v6.5 的 panic 已根治（见 button_router.c）：崩的不是烘焙本身，而是
+ * 烘焙跑错了栈。play_outro 的 ghost_begin 在【调用者的任务】上执行
+ * lv_snapshot_take——一次完整软渲染——真实按键的调用者是 3072~3584B 的
+ * 小栈任务，栈深随天气图标线段数浮动，慢按第 1 轮就爆。之前 350ms 快速
+ * 往返反而测不出：转场从未完成，每次按键都变成 retarget，出/入场全在
+ * step_cb（LVGL 大栈）里跑。当初"clock<->weather 独崩、变形并发"的推理
+ * 是巧合相关：慢按才走小栈路径，与哪对场景无关。按键切换 async 化到
+ * LVGL 任务后，慢按 + 快速 retarget 各 25 轮、49 张替身、0 失配、0 崩。
  *
- * 为什么偏偏是 clock<->weather：那是唯一【两侧都有时间锚点变形回调】
- * 的配对（dashboard 没有 clock_to/from_consensus），于是烘焙的 6 张
- * ARGB8888 快照要和对侧的字号档位变形并发。dashboard<->weather 同样烘焙
- * 却不崩，dashboard<->clock 有变形却不烘焙也不崩——两个条件缺一不可。
- * 根因未定位到具体那一行：panic 文本在崩溃瞬间就发上了线，而那时没人
- * 在监听串口，重开端口只能抓到重启后的 banner。
- *
- * 为什么是关掉而不是继续查：这个特性至今的账是【收益 17%，只在 weather
- * 一个场景】（38.5->32.0ms），而它已经造成两个严重缺陷——先是快照含
- * ext_draw 边距导致元素在转场收尾跳位，现在是能秒复现的 panic。它还
- * 整整一个版本从未真正运行过（RGB565A8 不在 snapshot 白名单里），那期间
- * 的 A/B "收益"是噪声。这样的性价比不配默认开启。
- *
- * 代价：weather 转场每帧 30.6 -> ~38ms（33 -> 26 fps）。其余场景不受影响
- * ——它们本来就没有 .bake 演员。
- * 代码和 `?bake 1` 保留：要重启这条线时，先复现上面那个 panic 再谈优化。 */
+ * 为什么还是不默认开：动画计时器与高刷档同步（ui_motion）之后，转场
+ * 采样 33ms -> 16ms，每帧位移减半、脏区并集缩小，烘焙能省下的"重新
+ * 生成内容"本来就少了，而 6 张 ARGB8888 快照的一次性成本（≈6 帧渲染，
+ * 吃掉出场窗口一大截）和 PSRAM 4B/px 的 blit 带宽照付。实测 A/B
+ * （v7.0，16ms 采样）：weather 系转场 render_avg 差在 ±2ms 内，噪声级。
+ * v6.3 那笔 17% 的账（38.5->32.0ms）是 33ms 采样时代的。
+ * 代码和 `?bake 1` 保留：如果将来出现"单帧内容极贵"的新场景，先量。 */
 static bool s_bake_on = false;
 
 /* 替身几何失配的可查询记录（见 ghost_begin 的检查）。 */

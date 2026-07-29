@@ -1,6 +1,7 @@
 #include "status_bar.h"
 
 #include <stdio.h>
+#include <string.h>
 #include <time.h>
 
 #include "lvgl.h"
@@ -144,18 +145,28 @@ int status_bar_trans_actors(const status_bar_t *sb, trans_actor_t *out)
     return STATUS_BAR_TRANS_ACTORS;
 }
 
+/* lv_label_set_text 不比较内容，同文重设也会 realloc + 全域失效。这三个
+ * 标签每 tick 都被推一次，内容却一分钟才变一次——转场窗口里这就是每帧
+ * 白挨的三块脏矩形。先比后写。 */
+static void label_set_if_changed(lv_obj_t *l, const char *txt)
+{
+    const char *cur = lv_label_get_text(l);
+    if (cur && strcmp(cur, txt) == 0) return;
+    lv_label_set_text(l, txt);
+}
+
 void status_bar_update(status_bar_t *sb, const agent_state_t *st)
 {
     char buf[16];
     status_bar_format_time(buf, sizeof(buf), st);
-    lv_label_set_text(sb->time_lbl, buf);
+    label_set_if_changed(sb->time_lbl, buf);
 
     char left[16];
     snprintf(left, sizeof(left), "%d", st->running + st->waiting);
-    lv_label_set_text(sb->active_num, left);
+    label_set_if_changed(sb->active_num, left);
 
     fmt_tokens(buf, sizeof(buf), st->tokens_today);
-    lv_label_set_text(sb->token_num, buf);
+    label_set_if_changed(sb->token_num, buf);
 
     /* Connection health. Only touch the label when the state changes, so we
      * don't re-invalidate every tick. */

@@ -1,5 +1,10 @@
 # Performance baseline — v0.6 going into v0.7.0
 
+> **2026-07-29:** this file is the v0.6-era full-stack baseline
+> (bridge / wire / heap) and is kept as history. For the CURRENT
+> transition-render baseline and its regression gate, see
+> [PERF_TRANSITIONS.md](PERF_TRANSITIONS.md).
+
 This is PERF1's pre-cycle snapshot of where every layer of the
 dashboard stack sits, what dominates at each layer, and the
 shortest path to the v0.7.0 north star:

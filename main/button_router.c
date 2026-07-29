@@ -49,17 +49,35 @@ void button_router_screen_wake(void) {}
  *
  * 代价：USER 键原来的"轮换聚焦 agent"没有了。焦点仍可由主机侧设置，
  * 只是不再有物理键入口——三个界面直达比它更常用。 */
-static void go_scene(const char *id)
+/* 真正的切换在 LVGL 任务上执行。按键回调跑在各自的小栈任务上
+ * （BOOT/USER=esp_timer 3584、PWR=pwr_key 3072），而 scene_trans_switch
+ * 的出场编排里藏着整条渲染管线——精灵烘焙的 lv_snapshot_take 就是一次
+ * 完整软渲染，栈深随场景内容（天气图标的线段数）浮动。在小栈上直接跑
+ * 正是 agent_commands.c 记录过的缺陷类别：真按键崩、模拟按键测不出；
+ * v6.5 那个"weather<->clock 第 1 轮必崩、今天 25 轮不崩"的 bake panic
+ * 与它的症状完全吻合。挪上大栈后所有触发路径共用一条执行路径。
+ * 判断"是否已在目标"也一并挪进回调：两次连按都入队时，第二次必须看到
+ * 第一次已经生效后的 target，在小栈侧判断就又是拿过时现状做决定。 */
+static void go_scene_cb(void *arg)
 {
-    bsp_display_lock(-1);
-    int idx = scene_fw_find_by_id(id);
-    if (idx < 0) { bsp_display_unlock(); return; }
-
+    /* async 回调在 lv_timer_handler 里执行，显示锁已被 LVGL 任务持有
+     * ——这里不再加锁。 */
+    int idx = scene_fw_find_by_id((const char *)arg);
+    if (idx < 0) return;
     if (scene_trans_target() == idx) {
         ui_glow_ping(&UI_GLOW_KEY);          /* 已经在这儿了 */
     } else {
         scene_trans_switch(idx);
     }
+}
+
+static void go_scene(const char *id)
+{
+    /* 只为入队持锁：lv_async_call 会碰 LVGL 内部链表，不是线程安全 API
+     * （无锁调用正是当年冻结三连环里的次要真 bug）。id 全部是静态字面量，
+     * 跨任务传裸指针安全。 */
+    bsp_display_lock(-1);
+    lv_async_call(go_scene_cb, (void *)id);
     bsp_display_unlock();
 }
 

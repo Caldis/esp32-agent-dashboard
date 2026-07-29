@@ -39,7 +39,9 @@ Run `esp-harness cycle` after code changes (build + flash + verify).
   false forever -- see agent_snapshot_apply.c) and awaiting (v6.0 --
   see below). v6.6: three keys, three views, direct. The physical
   left-to-right order is BOOT, PWR, USER — NOT the naming order — so the
-  mapping is BOOT=dashboard, PWR=weather, USER=clock, and nav_dots at
+  mapping is BOOT=dashboard, PWR=clock, USER=weather (device-verified
+  v7.0 via `dash btn` + scene_trans logs; an earlier revision of this
+  file had PWR/USER swapped), and nav_dots at
   25/50/75% of the width mirror the physical keys. Pressing the key for the view you are
   already on flashes a border highlight (scene_flash) instead of
   switching. Replaces the v4 multi-modal scheme (BOOT cycling,
@@ -72,6 +74,37 @@ Run `esp-harness cycle` after code changes (build + flash + verify).
 - `tools/hook_dispatch.py` -- Claude Code hook forwarder
 
 ## Rendering performance (hard-won, do not regress)
+- (v7.0) LVGL's anim timer runs at compile-time LV_DEF_REFR_PERIOD
+  (33 ms) and does NOT follow the display refr timer — raising the
+  refresh tier alone leaves motion sampled at 30 Hz with half the
+  refresh cycles finding nothing dirty. ui_motion's apply_period now
+  sets `lv_anim_get_timer()` to the same period as the display. Side
+  effect measured: at 16 ms steps the per-frame displacement halves, so
+  dirty unions shrink — weather-transition render_avg fell 34→24-26 ms
+  from this change alone, and drawn frames per transition rose 15-35%.
+- (v7.0) The v6.5 bake panic is root-caused and fixed: ghost_begin's
+  lv_snapshot_take (a full SW render) ran on the CALLER's task —
+  physical keys = 3072-3584 B stacks, stack depth varies with weather
+  icon content. Slow presses crash round 1; rapid presses never crash
+  because mid-transition retargets run outro/intro in step_cb on the
+  LVGL task. button_router now defers the switch via lv_async_call
+  (queue under bsp_display_lock; the callback must NOT re-lock), so
+  every trigger path shares the LVGL-task stack. `dash btn` and real
+  keys are now the same class again. Bake itself STAYS DEFAULT OFF: at
+  16 ms sampling its A/B is ±2 ms (the old 17% figure was measured
+  under 33 ms sampling); see the ledger in scene_trans.c.
+- (v7.0) status_bar_update no longer calls lv_label_set_text
+  unconditionally per tick (LVGL never compares text — same-text sets
+  still realloc + invalidate); it compares first. Scene ticks are
+  500 ms so this is idle hygiene, not a transition lever.
+- (v7.0) Transition baseline + regression gate:
+  `& ./tools/with_port.ps1 { python tools/perf/trans_bench.py --compare baseline }`
+  — exit 1 on >15% frame_ms/render regression, exit 2 on invariant
+  break (mid-run reboot / `?ghost` mismatch / held-count drift /
+  drawn=0). Numbers + methodology + next-lever ranking:
+  docs/PERF_TRANSITIONS.md. Caveat: weather-pair rows vary ±20% with
+  the LIVE weather's icon complexity — A/B two arms back-to-back,
+  don't compare across weather changes.
 - MEASURE FIRST, with `?perf`. Three optimisations that were "obviously"
   right made things WORSE on this board and are recorded as dead ends in
   place (sdkconfig.defaults, scene_trans.c): a second SW draw unit

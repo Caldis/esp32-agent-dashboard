@@ -8,6 +8,24 @@ Project-level milestones. Per-component notes live in:
 
 ## [Unreleased]
 
+**Transition render optimization round (internal v7.0) — 2026-07-29**
+
+Motion was hard-capped at 30 fps: LVGL's anim timer runs at compile-time
+`LV_DEF_REFR_PERIOD` (33 ms) and never followed the refresh tier that
+transitions raise to 16 ms — ui_motion now syncs both timers. Drawn
+frames per transition rose 15-60% and weather-pair render_avg fell
+(denser sampling → smaller per-frame dirty unions). The v6.5
+sprite-bake panic is root-caused and fixed: `lv_snapshot_take` ran on
+the pressing task's 3072-3584 B stack (slow presses crash; rapid
+presses masked it because mid-transition retargets run on the LVGL
+task) — key switches now defer via `lv_async_call`. Bake itself stays
+default-off: at 16 ms sampling its A/B benefit is ±2 ms. status_bar
+labels now compare text before set (LVGL never dedups). New
+reproducible benchmark + regression gate `tools/perf/trans_bench.py`
+with a committed baseline; numbers and next-lever ranking in
+`docs/PERF_TRANSITIONS.md`. Also fixed a long-standing CLAUDE.md error:
+the physical key mapping is BOOT=dashboard, PWR=clock, USER=weather.
+
 ## [2.9.0] — 2026-05-24
 
 **Agent kind expansion — Cursor, Aider, Windsurf, Copilot, Qwen-Code**
