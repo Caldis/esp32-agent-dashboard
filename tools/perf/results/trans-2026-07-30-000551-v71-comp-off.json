@@ -1,0 +1,275 @@
+{
+  "schema": "trans_bench.v1",
+  "started_local": "2026-07-30T00:05:51",
+  "git": "v2.9.0-108-gb4b2e6a-dirty",
+  "port": "COM9",
+  "settle_s": 1.6,
+  "bake": {
+    "bake": 0
+  },
+  "start_stat": {
+    "fps": 5.7,
+    "frame": 1010,
+    "heap_free": 7780776,
+    "heap_min": 6899660,
+    "psram_free": 7780760,
+    "int_free": 30991,
+    "int_largest": 30720,
+    "uptime_ms": 120525,
+    "scene_idx": 0,
+    "scene_id": "dashboard",
+    "scene_count": 3,
+    "reset_reason": "unknown"
+  },
+  "end_stat": {
+    "fps": 33.4,
+    "frame": 1228,
+    "heap_free": 7780776,
+    "heap_min": 6899660,
+    "psram_free": 7780760,
+    "int_free": 30991,
+    "int_largest": 30720,
+    "uptime_ms": 134444,
+    "scene_idx": 0,
+    "scene_id": "dashboard",
+    "scene_count": 3,
+    "reset_reason": "unknown"
+  },
+  "rows": [
+    {
+      "transition": "dashboard->clock",
+      "key": "pwr",
+      "perf": {
+        "win_ms": 1814,
+        "period_ms": 66,
+        "frame_ms": 19.6,
+        "fps_win": 18.2,
+        "refr": 46,
+        "drawn": 33,
+        "flush": 117,
+        "overrun": 21,
+        "busy_pct": 35.7,
+        "refr_avg_us": 19627,
+        "refr_max_us": 47831,
+        "render_avg_us": 17527,
+        "render_max_us": 43230,
+        "wait_avg_us": 304,
+        "wait_max_us": 3553,
+        "inval_px_per_frame": 516782,
+        "inval_n_per_frame": 17.5,
+        "inval_max_px": 230400
+      },
+      "held": [
+        {
+          "phase": "outro",
+          "scene": "dashboard",
+          "held": 4,
+          "actors": 9
+        },
+        {
+          "phase": "intro",
+          "scene": "clock",
+          "held": 4,
+          "actors": 5
+        }
+      ]
+    },
+    {
+      "transition": "clock->weather",
+      "key": "user",
+      "perf": {
+        "win_ms": 1817,
+        "period_ms": 66,
+        "frame_ms": 44.3,
+        "fps_win": 12.7,
+        "refr": 33,
+        "drawn": 23,
+        "flush": 148,
+        "overrun": 18,
+        "busy_pct": 56.0,
+        "refr_avg_us": 44268,
+        "refr_max_us": 98548,
+        "render_avg_us": 38507,
+        "render_max_us": 80021,
+        "wait_avg_us": 507,
+        "wait_max_us": 3604,
+        "inval_px_per_frame": 724031,
+        "inval_n_per_frame": 74.6,
+        "inval_max_px": 230400
+      },
+      "held": [
+        {
+          "phase": "outro",
+          "scene": "clock",
+          "held": 0,
+          "actors": 5
+        },
+        {
+          "phase": "intro",
+          "scene": "weather",
+          "held": 0,
+          "actors": 7
+        }
+      ]
+    },
+    {
+      "transition": "weather->dashboard",
+      "key": "boot",
+      "perf": {
+        "win_ms": 1813,
+        "period_ms": 66,
+        "frame_ms": 23.2,
+        "fps_win": 19.9,
+        "refr": 44,
+        "drawn": 36,
+        "flush": 161,
+        "overrun": 21,
+        "busy_pct": 46.0,
+        "refr_avg_us": 23173,
+        "refr_max_us": 69172,
+        "render_avg_us": 20652,
+        "render_max_us": 63380,
+        "wait_avg_us": 460,
+        "wait_max_us": 3818,
+        "inval_px_per_frame": 288535,
+        "inval_n_per_frame": 20.9,
+        "inval_max_px": 230400
+      },
+      "held": [
+        {
+          "phase": "outro",
+          "scene": "weather",
+          "held": 0,
+          "actors": 7
+        },
+        {
+          "phase": "intro",
+          "scene": "dashboard",
+          "held": 0,
+          "actors": 9
+        }
+      ]
+    },
+    {
+      "transition": "dashboard->weather",
+      "key": "user",
+      "perf": {
+        "win_ms": 1818,
+        "period_ms": 66,
+        "frame_ms": 33.3,
+        "fps_win": 15.9,
+        "refr": 42,
+        "drawn": 29,
+        "flush": 138,
+        "overrun": 17,
+        "busy_pct": 53.0,
+        "refr_avg_us": 33259,
+        "refr_max_us": 98408,
+        "render_avg_us": 29423,
+        "render_max_us": 79972,
+        "wait_avg_us": 219,
+        "wait_max_us": 3306,
+        "inval_px_per_frame": 331102,
+        "inval_n_per_frame": 53.2,
+        "inval_max_px": 230400
+      },
+      "held": [
+        {
+          "phase": "outro",
+          "scene": "dashboard",
+          "held": 0,
+          "actors": 9
+        },
+        {
+          "phase": "intro",
+          "scene": "weather",
+          "held": 0,
+          "actors": 7
+        }
+      ]
+    },
+    {
+      "transition": "weather->clock",
+      "key": "pwr",
+      "perf": {
+        "win_ms": 1811,
+        "period_ms": 66,
+        "frame_ms": 27.4,
+        "fps_win": 16.6,
+        "refr": 41,
+        "drawn": 30,
+        "flush": 145,
+        "overrun": 18,
+        "busy_pct": 45.3,
+        "refr_avg_us": 27375,
+        "refr_max_us": 68612,
+        "render_avg_us": 23733,
+        "render_max_us": 63041,
+        "wait_avg_us": 396,
+        "wait_max_us": 3817,
+        "inval_px_per_frame": 545898,
+        "inval_n_per_frame": 29.2,
+        "inval_max_px": 230400
+      },
+      "held": [
+        {
+          "phase": "outro",
+          "scene": "weather",
+          "held": 0,
+          "actors": 7
+        },
+        {
+          "phase": "intro",
+          "scene": "clock",
+          "held": 0,
+          "actors": 5
+        }
+      ]
+    },
+    {
+      "transition": "clock->dashboard",
+      "key": "boot",
+      "perf": {
+        "win_ms": 1818,
+        "period_ms": 66,
+        "frame_ms": 21.2,
+        "fps_win": 19.8,
+        "refr": 50,
+        "drawn": 36,
+        "flush": 161,
+        "overrun": 29,
+        "busy_pct": 42.1,
+        "refr_avg_us": 21247,
+        "refr_max_us": 47519,
+        "render_avg_us": 19508,
+        "render_max_us": 41682,
+        "wait_avg_us": 684,
+        "wait_max_us": 3565,
+        "inval_px_per_frame": 550439,
+        "inval_n_per_frame": 15.7,
+        "inval_max_px": 230400
+      },
+      "held": [
+        {
+          "phase": "outro",
+          "scene": "clock",
+          "held": 4,
+          "actors": 5
+        },
+        {
+          "phase": "intro",
+          "scene": "dashboard",
+          "held": 4,
+          "actors": 9
+        }
+      ]
+    }
+  ],
+  "ghost": {
+    "baked": 0,
+    "mismatched": 0,
+    "last": "-"
+  },
+  "rebooted": false,
+  "problems": []
+}

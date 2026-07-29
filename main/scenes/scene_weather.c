@@ -9,7 +9,10 @@
  * 插画语言：复古未来主义线稿 (retro-futurism line art) — vaporwave 条纹
  * 太阳、弧线云、斜线雨、折线闪电、十字小星，细线 2-3px，amber 日光 +
  * 米白云雨 + teal 雨水/地平线三色，落在纯黑 AMOLED 上。全部由
- * lv_line / lv_arc / border-ring 矢量对象构成，无位图。
+ * lv_line / lv_arc / border-ring 矢量对象构成。v7.1 起这些矢量默认常驻
+ * 离屏工作台，屏上挂的是静置期烤好的 ARGB8888 位图（wx_compose）——
+ * 转场帧里插画/小图标各只剩一次图像 blit，矢量重光栅化的账（对象数 ×
+ * 渲染分块）只在数据变更或呼吸步进时付。`?wxcomp 0` 可切回直渲 A/B。
  *
  * 占比切换（"天气放大、时钟缩小"）：整点/15/30/45 的刻钟时刻起 30 秒
  * (由主机同步时钟推导的声明式状态机: min%15==0 && sec<30)，时钟放大 —
@@ -41,11 +44,23 @@
 #include <time.h>
 
 #include "lvgl.h"
+#include "misc/cache/instance/lv_image_cache.h"   /* 不在 lvgl.h 伞里 */
+#include "esp_log.h"
+
+static const char *TAG = "scene_weather";
 
 /* 见 weather_tick 里的用法。默认开——它是设计的一部分，不是调试开关。 */
 static bool s_breath_on = true;
 void scene_weather_set_breath(bool on) { s_breath_on = on; }
 bool scene_weather_get_breath(void)    { return s_breath_on; }
+
+/* v7.1 预合成开关（`?wxcomp 0|1`）。ON = 图标矢量只活在离屏工作台，
+ * 屏上是烤好的位图；OFF = v7.0 的矢量直渲路径。console task 只翻
+ * flag，DOM 形态统一在 weather_tick（LVGL task）上应用；合成失败自动
+ * 翻回 OFF 并 WARN（静默降级的教训见 scene_trans.c ghost_begin）。 */
+static bool s_comp_on = true;
+void scene_weather_set_compose(bool on) { s_comp_on = on; }
+bool scene_weather_get_compose(void)    { return s_comp_on; }
 
 
 #define SCREEN_W     466
@@ -134,6 +149,23 @@ typedef struct {
     wx_icon_t  day_icons[WEATHER_DAYS];
     lv_obj_t  *day_name[WEATHER_DAYS];
     lv_obj_t  *day_temp[WEATHER_DAYS];
+
+    /* v7.1 预合成：矢量在离屏工作台 stage_icon 上现搭现烤（大插画常驻
+     * ——accent 呼吸要继续改它的子对象），产物挂到各 root 里的
+     * lv_image。缓冲常驻复用：lv_draw_buf_reshape 只改头不迁指针，
+     * 装不下才销毁重建。comp_applied = 屏上 DOM 的真实形态。 */
+    wx_icon_t      stage_icon;
+    lv_obj_t      *illus_img;
+    lv_obj_t      *day_img[WEATHER_DAYS];
+    lv_draw_buf_t *illus_buf;
+    lv_draw_buf_t *day_buf[WEATHER_DAYS];
+    bool           comp_applied;
+    /* 已合成内容的身份（天气码；-1 = 无）。on_show 的强制重画 + 数据
+     * 重推常常带来【码没变】的重渲染，此时跳过重建+合成——预合成形态
+     * 下每次合成是一次同步离屏渲染，6 张全烤 ≈ 30-50ms 的停顿，码没变
+     * 就纯属白付。标签（温度/星期）照常改写，那部分便宜。 */
+    int            big_code;
+    int            day_code[WEATHER_DAYS];
 
     /* 动画 accent（仅大插画）— tick 低频步进 opa，16 步/3s 周期。
      * 每条带相位偏移 + 波形模式：BREATH=三角波呼吸（射线旋转闪烁、
@@ -580,6 +612,58 @@ static bool local_now(const agent_state_t *s, uint32_t *out_tz_epoch)
     return true;
 }
 
+/* ════ 预合成 (v7.1) ════════════════════════════════════════════════
+ * 把离屏工作台上的矢量子树烤成一张 ARGB8888 位图（snapshot 与软渲染器
+ * 双白名单交集里唯一带 alpha 的格式——ARGB8565 只进了 snapshot 一侧，
+ * 渲染器画不了；台账见 scene_trans.c ghost_begin），挂到 dst_root 的
+ * lv_image 上。此后这个演员在转场里每帧只剩一次图像 blit。
+ *
+ * 位图 = 工作台 + 2*ext_draw（AA 线帽出血），摆在 (-ext,-ext) 与矢量
+ * 像素严格对位；ext 从缓冲尺寸反推（ghost 同款手法，不碰私有 API）。
+ * dst_root 需要 OVERFLOW_VISIBLE，否则默认裁剪吃掉出血圈。
+ *
+ * 失败返回 false，调用方降级回矢量直渲并 WARN——静默降级曾让精灵烘焙
+ * 空转一整个版本。快照是完整软渲染：只允许从 LVGL task 调（v6.5 按键
+ * 小栈爆栈的教训），当前两个调用方（render_weather / 呼吸步进）都在
+ * weather_tick 里。 */
+static bool wx_compose(weather_scene_t *st, lv_obj_t *dst_root,
+                       lv_obj_t **img, lv_draw_buf_t **buf)
+{
+    lv_obj_t *stage = st->stage_icon.root;
+
+    if (!*buf) *buf = lv_snapshot_create_draw_buf(stage, LV_COLOR_FORMAT_ARGB8888);
+    if (!*buf) return false;
+    lv_result_t res = lv_snapshot_take_to_draw_buf(stage,
+                                                   LV_COLOR_FORMAT_ARGB8888, *buf);
+    if (res != LV_RESULT_OK) {
+        /* 常驻缓冲装不下当前 (尺寸+ext)：重建一次自愈。旧缓冲销毁前先
+         * 摘掉 img 的 src，绝不让屏上留一个指向已释放内存的图像。 */
+        if (*img) lv_image_set_src(*img, NULL);
+        lv_image_cache_drop(*buf);
+        lv_draw_buf_destroy(*buf);
+        *buf = lv_snapshot_create_draw_buf(stage, LV_COLOR_FORMAT_ARGB8888);
+        if (*buf)
+            res = lv_snapshot_take_to_draw_buf(stage,
+                                               LV_COLOR_FORMAT_ARGB8888, *buf);
+        if (res != LV_RESULT_OK) return false;
+    }
+
+    if (!*img) {
+        *img = lv_image_create(dst_root);
+        if (!*img) return false;
+        lv_obj_remove_style_all(*img);
+        lv_obj_clear_flag(*img, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    }
+    /* 同一块缓冲原地重画：decoder 缓存里可能还躺着旧像素，先踢缓存再挂
+     * src（lv_qrcode 重画后的同款顺序）。set_src 自带新旧区域失效。 */
+    lv_image_cache_drop(*buf);
+    lv_image_set_src(*img, *buf);
+    int32_t ext_x = ((int32_t)(*buf)->header.w - lv_obj_get_width(stage)) / 2;
+    int32_t ext_y = ((int32_t)(*buf)->header.h - lv_obj_get_height(stage)) / 2;
+    lv_obj_set_pos(*img, -ext_x, -ext_y);
+    return true;
+}
+
 /* ════ 内容刷新 ═════════════════════════════════════════════════════ */
 
 static void render_weather(weather_scene_t *st, const weather_state_t *w)
@@ -598,8 +682,14 @@ static void render_weather(weather_scene_t *st, const weather_state_t *w)
     lv_obj_set_style_text_opa(st->cond_lbl, LV_OPA_COVER, 0);
     lv_obj_set_style_text_opa(st->loc_lbl, LV_OPA_COVER, 0);
 
-    wx_icon_build(st, &st->big_icon, w->cur_code, ILLUS_SZ, 255);
     st->breath_step = -1;
+    bool comp_ok = true;
+    /* 工作台被小图标借用过就置脏：大插画的矢量（含 accent 登记指向的
+     * 对象）都住在台上，被 clean 掉之后必须重建，否则呼吸步进写进已
+     * 释放的对象。 */
+    bool stage_dirty = false;
+    if (!st->comp_applied)
+        wx_icon_build(st, &st->big_icon, w->cur_code, ILLUS_SZ, 255);
 
     for (int i = 0; i < WEATHER_DAYS; ++i) {
         uint8_t dim = (i == 0) ? 140 : 255;      /* 昨天整列减淡 */
@@ -621,8 +711,40 @@ static void render_weather(weather_scene_t *st, const weather_state_t *w)
         lv_obj_set_style_text_opa(st->day_temp[i], lbl_opa, 0);
         wx_mark(st->day_temp[i], FADE_TEXT, lbl_opa);
 
-        wx_icon_build(NULL, &st->day_icons[i], w->days[i].code,
-                      STRIP_ICON_SZ, dim);
+        if (st->comp_applied) {
+            /* 码没变且位图还在：跳过（合成是同步离屏渲染，白付）。 */
+            if (st->day_img[i] && st->day_code[i] == w->days[i].code)
+                continue;
+            /* 小图标在工作台上现搭现烤（sc=NULL：不登记 accent）。 */
+            lv_obj_set_size(st->stage_icon.root, STRIP_ICON_SZ, STRIP_ICON_SZ);
+            wx_icon_build(NULL, &st->stage_icon, w->days[i].code,
+                          STRIP_ICON_SZ, dim);
+            stage_dirty = true;
+            bool ok = wx_compose(st, st->day_icons[i].root,
+                                 &st->day_img[i], &st->day_buf[i]);
+            st->day_code[i] = ok ? w->days[i].code : -1;
+            comp_ok = comp_ok && ok;
+        } else {
+            wx_icon_build(NULL, &st->day_icons[i], w->days[i].code,
+                          STRIP_ICON_SZ, dim);
+        }
+    }
+
+    /* 大插画最后搭：此后工作台一直由它占着，呼吸步进改完子对象 opa
+     * 直接重烤，不必重建矢量。码没变时整段跳过——stage 上的矢量与
+     * accent 登记原样保留，呼吸从当前相位继续，下一步进自然重烤。 */
+    if (st->comp_applied
+        && !(st->illus_img && st->big_code == w->cur_code && !stage_dirty)) {
+        lv_obj_set_size(st->stage_icon.root, ILLUS_SZ, ILLUS_SZ + 8);
+        wx_icon_build(st, &st->stage_icon, w->cur_code, ILLUS_SZ, 255);
+        bool ok = wx_compose(st, st->big_icon.root,
+                             &st->illus_img, &st->illus_buf);
+        st->big_code = ok ? w->cur_code : -1;
+        comp_ok = comp_ok && ok;
+    }
+    if (st->comp_applied && !comp_ok) {
+        ESP_LOGW(TAG, "compose failed (snapshot/alloc) — reverting to live vectors");
+        s_comp_on = false;       /* 下一 tick 的形态应用块整棵重建 */
     }
     st->wx_drawn = true;
 }
@@ -651,6 +773,26 @@ static void weather_tick(lv_timer_t *t)
     /* v6.6: 只剩一个"正在动"的窗口了——场景间转场。刻钟大钟形态连同它
      * 自己的变形窗口一起删除了。 */
     bool in_trans = scene_trans_busy();
+
+    /* v7.1 形态应用：?wxcomp 只翻 flag，DOM 统一在这里（LVGL task）换
+     * 形态——两种形态的产物全部清场、登记作废，有数据就整棵重建。转场
+     * 窗口外才动（图标重建销毁子对象，演员/动画表持着裸指针）。 */
+    if (!in_trans && st->comp_applied != s_comp_on) {
+        st->comp_applied = s_comp_on;
+        lv_obj_clean(st->big_icon.root);
+        st->illus_img = NULL;                  /* 随 clean 一起死了 */
+        st->big_icon.pt_used = 0;
+        for (int i = 0; i < WEATHER_DAYS; ++i) {
+            lv_obj_clean(st->day_icons[i].root);
+            st->day_img[i] = NULL;
+            st->day_icons[i].pt_used = 0;
+        }
+        st->accent_n = 0;
+        st->breath_step = -1;
+        st->big_code = -1;
+        for (int i = 0; i < WEATHER_DAYS; ++i) st->day_code[i] = -1;
+        st->wx_drawn = false;
+    }
 
     /* 天气内容刷新 — 转场窗口外才动 DOM（图标重建会销毁子对象）。 */
     if (!in_trans && wx.valid
@@ -703,7 +845,17 @@ static void weather_tick(lv_timer_t *t)
                 wx_set_opa_by_mark(st->accent[i].o, v);
             }
             lv_obj_enable_style_refresh(true);
-            if (st->big_icon.root) lv_obj_invalidate(st->big_icon.root);
+            if (st->comp_applied) {
+                /* 呼吸的新姿态烤进位图：一次离屏渲染 + 一块矩形失效。
+                 * 屏上始终只有一个图像对象，转场无需知道呼吸的存在。 */
+                if (!wx_compose(st, st->big_icon.root,
+                                &st->illus_img, &st->illus_buf)) {
+                    ESP_LOGW(TAG, "breath compose failed — reverting to live vectors");
+                    s_comp_on = false;
+                }
+            } else if (st->big_icon.root) {
+                lv_obj_invalidate(st->big_icon.root);
+            }
         }
     }
 }
@@ -839,9 +991,20 @@ static void weather_init(scene_t *s, lv_obj_t *parent)
     lv_obj_align(st->loc_lbl, LV_ALIGN_TOP_LEFT, PAGE_MARGIN, LOC_Y);
     wx_mark(st->loc_lbl, FADE_TEXT, 255);
 
-    /* 大插画容器 */
+    /* 大插画容器。合成位图比根大一圈 ext_draw（AA 出血），不能让默认
+     * 裁剪吃掉——矢量直渲形态下没有东西越界，此 flag 无副作用。 */
     st->big_icon.root = mk_box(st->wx_grp, ILLUS_SZ, ILLUS_SZ + 8);
     lv_obj_set_pos(st->big_icon.root, ILLUS_X, ILLUS_Y);
+    lv_obj_add_flag(st->big_icon.root, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+
+    /* v7.1 离屏工作台：图标矢量的常驻居所（预合成形态）。钉在父容器
+     * 裁剪区外，永不进入屏幕渲染遍历；snapshot 烤它不看屏幕位置。 */
+    st->stage_icon.root = mk_box(st->wx_grp, ILLUS_SZ, ILLUS_SZ + 8);
+    lv_obj_set_pos(st->stage_icon.root, -1000, 0);
+    st->comp_applied = s_comp_on;
+    /* 0 是合法天气码（晴），身份缓存必须显式 -1 起步。 */
+    st->big_code = -1;
+    for (int i = 0; i < WEATHER_DAYS; ++i) st->day_code[i] = -1;
 
     /* 右列：大温度 + 天气词 */
     st->temp_lbl = mk_label(st->wx_grp, ui_type_bold(UI_T_HERO), COL_TEXT, "");
@@ -875,6 +1038,7 @@ static void weather_init(scene_t *s, lv_obj_t *parent)
                                        STRIP_ICON_SZ);
         lv_obj_align(st->day_icons[i].root, LV_ALIGN_TOP_MID, STRIP_DX[i],
                      STRIP_ICON_Y - STRIP_NAME_Y);
+        lv_obj_add_flag(st->day_icons[i].root, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
 
         st->day_temp[i] = mk_label(st->strip_grp, ui_type(UI_T_LABEL),
                                    COL_TEXT, "");

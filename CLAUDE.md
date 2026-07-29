@@ -74,6 +74,24 @@ Run `esp-harness cycle` after code changes (build + flash + verify).
 - `tools/hook_dispatch.py` -- Claude Code hook forwarder
 
 ## Rendering performance (hard-won, do not regress)
+- (v7.1) Weather icon PRE-COMPOSITING, default on (`?wxcomp 0|1` A/B):
+  the big illustration (~35 vectors) and 5 strip icons live on an
+  off-screen stage (parked outside the parent clip); at rest they are
+  baked via lv_snapshot into ARGB8888 lv_images (wx_compose), so
+  transition frames blit 6 bitmaps instead of re-rasterising ~70
+  vectors. Paired A/B: weather-family render_avg −10~−14%
+  (c→w 39.2→33.9 ms), idle breath repaint 8.6→5.5 ms (−36%).
+  ARGB8888 is the ONLY alpha format in BOTH snapshot and sw-blend
+  whitelists on LVGL 9.4 (ARGB8565 is snapshot-only — surveyed, do
+  not retry). Content-identity cache (big_code/day_code) skips
+  recomposition when codes are unchanged — on_show force-redraws and
+  re-pushes would otherwise pay 6 synchronous off-screen renders
+  (~30-50 ms stall) for nothing; if the stage was borrowed by a day
+  icon rebuild the big icon MUST rebuild (accent registry points at
+  stage children — stale skip = use-after-free). Compose failure
+  reverts to live vectors loudly (WARN). Bench methodology additions
+  (glow settle 15 s, weather pre-warm after arm switch, arm-order
+  counterbalancing, row-1 flash pollution): docs/PERF_TRANSITIONS.md.
 - (v7.0) LVGL's anim timer runs at compile-time LV_DEF_REFR_PERIOD
   (33 ms) and does NOT follow the display refr timer — raising the
   refresh tier alone leaves motion sampled at 30 Hz with half the

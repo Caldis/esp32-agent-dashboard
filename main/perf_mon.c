@@ -205,6 +205,17 @@ static int cmd_wxbreath(const console_args_t *args)
 static const console_cmd_t s_cmd_wxbreath = { "?wxbreath", cmd_wxbreath,
     "toggle the weather illustration accent breath (A/B): ?wxbreath 0|1" };
 
+/* ?wxcomp [0|1] — 天气图标预合成 A/B 开关。见 scene_weather.c v7.1。 */
+static int cmd_wxcomp(const console_args_t *args)
+{
+    if (args->argc >= 2) scene_weather_set_compose(args->argv[1][0] != '0');
+    console_reply_ok("{\"compose\":%d}", scene_weather_get_compose() ? 1 : 0);
+    return 0;
+}
+
+static const console_cmd_t s_cmd_wxcomp = { "?wxcomp", cmd_wxcomp,
+    "toggle weather icon pre-compositing (A/B): ?wxcomp 0|1" };
+
 /* ?ghost — 转场替身的几何自检。bad>0 就意味着转场收尾会看到元素跳位。 */
 static int cmd_ghost(const console_args_t *args)
 {
@@ -245,5 +256,6 @@ void perf_mon_init(lv_display_t *disp)
     console_protocol_register(&s_cmd_bake);
     console_protocol_register(&s_cmd_refr);
     console_protocol_register(&s_cmd_wxbreath);
+    console_protocol_register(&s_cmd_wxcomp);
     console_protocol_register(&s_cmd_ghost);
 }

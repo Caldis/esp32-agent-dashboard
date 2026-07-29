@@ -36,6 +36,12 @@ int scene_saver_consume(void);
 void scene_weather_set_breath(bool on);
 bool scene_weather_get_breath(void);
 
+/* v7.1 图标预合成开关（默认开）：矢量常驻离屏工作台，屏上是静置期烤好
+ * 的 ARGB8888 位图，转场帧只剩图像 blit。`?wxcomp 0|1` A/B 用；合成
+ * 失败自动翻回矢量直渲（WARN）。 */
+void scene_weather_set_compose(bool on);
+bool scene_weather_get_compose(void);
+
 /* WMO 天气码 -> 中文短词。scene_clock 的常驻天气行要用同一份映射——
  * 两个界面显示同一个事实，就不该有两份翻译表。 */
 const char *scene_weather_word(int code);
