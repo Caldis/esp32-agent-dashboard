@@ -74,6 +74,27 @@ Run `esp-harness cycle` after code changes (build + flash + verify).
 - `tools/hook_dispatch.py` -- Claude Code hook forwarder
 
 ## Rendering performance (hard-won, do not regress)
+- (v7.3) Three reusable facts, found while building the dispersion glow:
+  · LVGL's rounded-corner AA coverage cache is keyed on RADIUS ALONE and
+    defaults to 4 entries (`lv_draw_sw_mask.c`). Keep animated geometry
+    OFF the radius — translation and box-size changes do not change the
+    key, so they stay cached; animating the radius itself recomputes
+    every corner mask every frame (glow: 37.7 → 31.6 ms just from making
+    the radius a per-ring constant). Raising the cache to 16 to "fix"
+    the same problem is a MEASURED DEAD END (no effect on transitions or
+    on the glow — ledger in sdkconfig.defaults). Stabilise the key, don't
+    enlarge the table.
+  · `lv_obj_clear_flag(LV_OBJ_FLAG_HIDDEN)` invalidates the WHOLE object.
+    For a full-screen overlay that is a full-screen repaint on every
+    show (measured `inval_max_px` 230400, render_max ≈48 ms). Keep such
+    overlays always-visible and converge them to opa 0 instead.
+  · The `lv_obj_enable_style_refresh(false)` batching trick works ONLY
+    for properties with no LAYOUT flag (opa is fine). Position/size are
+    skipped entirely — refresh_style returns early and the layout is
+    never marked dirty, so the geometry change silently does nothing.
+    Animated geometry on a screen-sized element therefore needs a custom
+    `LV_EVENT_DRAW_MAIN` painter (one object, N shapes, hand-invalidated
+    bands), which is what ui_glow.c became.
 - (v7.1/v7.2) Weather PRE-COMPOSITING, default on (`?wxcomp 0|1` A/B):
   vector content lives on off-screen stages (parked outside the parent
   clip) and is baked AT REST via lv_snapshot into lv_images

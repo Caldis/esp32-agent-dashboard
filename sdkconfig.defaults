@@ -96,6 +96,27 @@ CONFIG_ESP_TASK_WDT_PANIC=y
 # The bottleneck is pixel volume, not core count: transitions dirty
 # 300k-760k px/frame against a 217k-px screen.
 
+# ── 实测死胡同之四：加大圆角 mask 缓存 (v7.3) ───────────────────────
+# 试过并撤销：CONFIG_LV_DRAW_SW_CIRCLE_CACHE_SIZE 4 -> 16。
+#
+# 推理链看起来无懈可击：LVGL 的圆角抗锯齿覆盖图缓存【只按半径做键】、
+# 默认只有 4 项 (lv_draw_sw_mask.c: `_circle_cache[i].radius == radius`)；
+# 一次圆角描边要两个半径（外缘 + 内缘=外缘-线宽），4 项只够两圈同心描边；
+# 而 dashboard 的呼吸点每帧都在改半径 (7->14)，一个对象就能把缓存冲干净，
+# 逼得环/卡片/nav dots 的角每帧重算。条目还便宜（buf = radius*6+6 字节）。
+#
+# 实测：**两处都没有可测收益**。同内容背靠背 A/B——
+#   转场六行 render_avg：两臂互有胜负，全在噪声内（16 项并不更快）；
+#   色散辉光 ping：26.6/28.8 (16 项) vs 26.3/29.3/28.3 (4 项)，完全重叠。
+# 结论：这条路径不是瓶颈。真正让辉光从 37.7 降到 31.6 ms 的是【把半径
+# 变成每层的常量】（不再每帧换键），而不是把缓存开大——键稳定之后 4 项
+# 就够用。教训与本文件其它三条一致：**推理链再顺，也要量。**
+#
+# 附带的方法学提醒：那次"转场普遍快了 11-28%"的读数是【内容差异】，不是
+# 代码收益——两轮之间 dashboard 停在了不同姿态（金色带 chip vs teal 无
+# chip），簇高与演员 rest 位都不同。weather 的内容敏感性同样适用于
+# dashboard，跨轮比对前先确认设备停在同一状态。
+
 # == MEASURED NON-ISSUES (v6.4) -- do not reopen without new evidence ==
 # Two items sat on the tech-debt list on the theory that they cost RAM
 # or flash. Both were measured; neither does.

@@ -257,6 +257,7 @@ void app_main(void)
     harness_stat_bind_display(disp);
     perf_mon_init(disp);
     ui_calib_init();          /* ?vis — 可见区原点标定尺（register 阶段） */
+    ui_glow_register_cmds();  /* ?glow — 色散包络定格（同上，须在 listen 前） */
     console_protocol_init();
 
     bsp_display_lock(-1);
