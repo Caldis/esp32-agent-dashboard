@@ -194,7 +194,10 @@ def test_full_lifecycle_state_transitions():
         bridge.handle({**k, "agent": "claude-code", "session_id": A})
 
     h(type="session_start", source="startup")
-    assert state(A) == ("waiting", "continue"), state(A)          # appears, ball in user's court
+    # v7.3: merely OPENING a session is not "your turn". It used to be
+    # ("waiting","continue"), which made every cc window — and every
+    # background conversation — arrive on the device as a false alarm.
+    assert state(A) == ("idle", None), state(A)                   # listed, wants nothing
     h(type="user_prompt_submit", prompt="x")
     assert state(A) == ("running", None), state(A)                # thinking
     h(type="pre_tool_use", tool_name="Bash", tool_input={"command": "ls"})
@@ -213,6 +216,97 @@ def test_full_lifecycle_state_transitions():
     assert state(A) == ("waiting", "clarify"), state(A)
     h(type="session_end")
     assert state(A) is None, state(A)                             # gone → idle
+
+
+def _stack_state_fn(reg):
+    def state(sid):
+        for a in reg.snapshot_v1()["agents"]:
+            if a["session_id"] == sid:
+                return (a["status"], a.get("awaiting_kind"))
+        return None
+    return state
+
+
+def test_presence_demotes_other_stale_your_turn():
+    """v7.3: a human typing into ANY session proves they're at the keyboard —
+    other sessions' 'turn finished' notices are no longer news and must decay
+    to `done`. This is the fix for N background conversations all showing as
+    'your turn' on the device while cc itself lists them as completed."""
+    from claude_buddy_bridge import _build_stack
+    bridge, _p, _pub, reg, *_ = _build_stack(_dry_settings())
+    state = _stack_state_fn(reg)
+
+    for sid in ("bg1", "bg2"):
+        bridge.handle({"type": "stop", "agent": "claude-code", "session_id": sid,
+                       "last_assistant_text": "all done."})
+    assert state("bg1") == ("waiting", "continue"), state("bg1")
+    assert state("bg2") == ("waiting", "continue"), state("bg2")
+
+    # The user types into a third session.
+    bridge.handle({"type": "user_prompt_submit", "agent": "claude-code",
+                   "session_id": "fg", "prompt": "go"})
+    assert state("fg") == ("running", None), state("fg")
+    assert state("bg1") == ("done", None), state("bg1")
+    assert state("bg2") == ("done", None), state("bg2")
+
+
+def test_presence_leaves_real_questions_alone():
+    """Only WEAK awaiting ('continue') decays. A permission prompt or a
+    question is addressed to this human specifically — working elsewhere does
+    not answer it, so it must survive."""
+    from claude_buddy_bridge import _build_stack
+    bridge, _p, _pub, reg, *_ = _build_stack(_dry_settings())
+    state = _stack_state_fn(reg)
+
+    bridge.handle({"type": "stop", "agent": "claude-code", "session_id": "ask",
+                   "last_assistant_text": "pick one:\n1. a\n2. b\n3. c"})
+    assert state("ask") == ("waiting", "pick"), state("ask")
+    bridge.handle({"type": "user_prompt_submit", "agent": "claude-code",
+                   "session_id": "fg", "prompt": "go"})
+    assert state("ask") == ("waiting", "pick"), state("ask")   # untouched
+
+
+def test_weak_awaiting_decays_on_time():
+    """Unattended 'turn finished' stops claiming attention after the decay
+    window; strong awaiting never expires."""
+    from claude_buddy_bridge import _build_stack
+    bridge, _p, _pub, reg, *_ = _build_stack(_dry_settings())
+    state = _stack_state_fn(reg)
+
+    bridge.handle({"type": "stop", "agent": "claude-code", "session_id": "old",
+                   "last_assistant_text": "finished."})
+    bridge.handle({"type": "stop", "agent": "claude-code", "session_id": "q",
+                   "last_assistant_text": "which environment?"})
+    # Backdate both so the decay window has passed.
+    for s in reg._sessions.values():
+        s.awaiting_since_unix -= 10_000
+    reg.demote_weak_awaiting(older_than_s=120)
+    assert state("old") == ("done", None), state("old")
+    assert state("q") == ("waiting", "type"), state("q")
+
+
+def test_notification_is_strong_awaiting():
+    """v7.3: CC's Notification hook is the only event that says 'blocked on
+    you RIGHT NOW' straight from cc. It must produce strong awaiting that
+    presence does NOT clear."""
+    from claude_buddy_bridge import _build_stack
+    bridge, _p, _pub, reg, *_ = _build_stack(_dry_settings())
+    state = _stack_state_fn(reg)
+
+    bridge.handle({"type": "notification", "agent": "claude-code",
+                   "session_id": "n1",
+                   "message": "Claude needs your permission to use Bash"})
+    assert state("n1") == ("waiting", "approve"), state("n1")
+
+    bridge.handle({"type": "notification", "agent": "claude-code",
+                   "session_id": "n2",
+                   "message": "Claude is waiting for your input"})
+    assert state("n2") == ("waiting", "type"), state("n2")
+
+    bridge.handle({"type": "user_prompt_submit", "agent": "claude-code",
+                   "session_id": "fg", "prompt": "go"})
+    assert state("n1") == ("waiting", "approve"), state("n1")
+    assert state("n2") == ("waiting", "type"), state("n2")
 
 
 def test_push_sends_cjk_as_raw_utf8():
@@ -327,6 +421,10 @@ def main() -> int:
              test_observe_mode_does_not_gate_permissions,
              test_gate_mode_gates_permissions,
              test_full_lifecycle_state_transitions,
+             test_presence_demotes_other_stale_your_turn,
+             test_presence_leaves_real_questions_alone,
+             test_weak_awaiting_decays_on_time,
+             test_notification_is_strong_awaiting,
              test_sessionless_stop_creates_no_phantom,
              test_push_sends_cjk_as_raw_utf8]
     failures = 0

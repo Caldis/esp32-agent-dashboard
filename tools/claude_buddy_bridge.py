@@ -107,6 +107,16 @@ _rx_seq = 0
 # no PostToolUse yet) are exempt so a long build/test is never misread as idle.
 IDLE_TURN_S = float(os.environ.get("CLAUDE_BUDDY_IDLE_TURN_S", "60"))
 
+# v7.3: how long a WEAK awaiting ("continue" — the turn merely ended) keeps
+# claiming the user's attention before decaying to `done`. The panel's job is
+# to catch the moment a turn finishes; after a couple of minutes unattended it
+# is no longer news, and with background conversations a pile of such stale
+# "your turn" slots is what tipped the device into the fleet view showing
+# agents cc itself lists as "completed". Strong awaiting (a real question)
+# never decays — nobody but the user can answer it.
+WEAK_AWAITING_DECAY_S = float(
+    os.environ.get("CLAUDE_BUDDY_WEAK_AWAITING_DECAY_S", "120"))
+
 CONFIG_PATH = Path.home() / ".claude-buddy" / "config.toml"
 # Device console caps a line at 1023 bytes. The wire line is `dash snapshot "<json>"`
 # (~16 bytes of wrapper around the JSON), so keep the JSON itself under ~1000 to
@@ -358,7 +368,19 @@ def _pid_alive(pid: int):
 class AgentSession:
     kind: str                              # claude-code | codex | other
     session_id: str
-    status: str = "running"                # running | waiting | idle
+    # v7.3: four states, mirroring Claude Code's OWN fleet header
+    # ("N awaiting input · N working · N completed") instead of inferring
+    # everything from Stop:
+    #   running — working
+    #   waiting — genuinely blocked on the user RIGHT NOW (permission
+    #             prompt, a real question). CC calls this "awaiting input".
+    #   done    — turn finished, nothing pending. CC calls this
+    #             "completed". Visible in the fleet list, but it does NOT
+    #             demand attention and does NOT pull the display.
+    #   idle    — exists but has done nothing yet (fresh/resumed session).
+    # Before v7.3 everything except "running" was "waiting", so N background
+    # conversations = N agents all shouting "your turn" on the device.
+    status: str = "running"                # running | waiting | done | idle
     cwd: str = ""
     msg: str = ""
     # Pid of the CC host process (node/claude), attached by hook_dispatch on
@@ -394,6 +416,14 @@ class AgentSession:
     awaiting_kind: Optional[str] = None
     awaiting_context: list[str] = field(default_factory=list)  # 1-3 lines for AWAITING ctx
     awaiting_since_unix: int = 0
+    # v7.3: is this awaiting WEAK ("continue" — the turn merely ended) or
+    # STRONG (approve/pick/type/clarify — a real blocking question)?
+    # Weak awaiting still fires the one-shot pull-to-dashboard (that IS the
+    # panel's core job), but it DECAYS: presence (any session submitting a
+    # prompt) or `weak_awaiting_decay_s` demotes it to `done`. Strong
+    # awaiting persists until the agent itself moves on — nobody else can
+    # answer a permission prompt for you.
+    awaiting_weak: bool = False
     last_assistant_text: str = ""          # buffered for the classifier on Stop
     # v2.4.0: dash-state contract. When the agent appends a <dash-state>
     # block at the end of its message, hook_dispatch extracts it and the
@@ -516,7 +546,8 @@ class SessionRegistry:
                       kind: str | None = None,
                       context: list[str] | None = None,
                       summary: str | None = None,
-                      options: list[str] | None = None) -> None:
+                      options: list[str] | None = None,
+                      weak: bool = False) -> None:
         """Enter AWAITING for the device's takeover scene.
 
         ``agent_kind`` is the AGENT (claude-code / codex / other);
@@ -534,6 +565,7 @@ class SessionRegistry:
             sess.awaiting_kind = kind
             sess.awaiting_context = list(context or [])
             sess.awaiting_since_unix = int(time.time())
+            sess.awaiting_weak = bool(weak)
             sess.status = "waiting"
             sess.last_active_unix = int(time.time())
             # v2.4.0: dash-state summary + options. Empty values clear
@@ -554,6 +586,41 @@ class SessionRegistry:
             sess.awaiting_since_unix = 0
             sess.awaiting_summary = ""
             sess.awaiting_options = []
+            sess.awaiting_weak = False
+
+    def demote_weak_awaiting(self, *, except_key: str | None = None,
+                             older_than_s: float | None = None) -> int:
+        """把【弱】awaiting（continue：只是回合结束）降级为 `done`。
+
+        两个触发口，对应两种"这条提示已经没有意义了"的证据：
+
+        · 在场感知（except_key）——任一会话提交了新 prompt，就证明人正坐在
+          键盘前。他既然在用 cc，就已经知道别的会话结束了轮次；设备再举着
+          "该你了" 只是噪音。提交者自身除外（它刚被 user_prompt_submit 置成
+          running）。
+        · 时间衰减（older_than_s）——没人理，说明它不是当下要办的事。
+
+        强 awaiting（approve/pick/type/clarify）不动：那是真的问题在等一个
+        只有本人能给的答案，没人能替它作废。
+        """
+        now = time.time()
+        n = 0
+        with self._lock:
+            for k, s in self._sessions.items():
+                if k == except_key or not s.awaiting_kind or not s.awaiting_weak:
+                    continue
+                if (older_than_s is not None
+                        and (now - s.awaiting_since_unix) <= older_than_s):
+                    continue
+                s.awaiting_kind = None
+                s.awaiting_context = []
+                s.awaiting_since_unix = 0
+                s.awaiting_summary = ""
+                s.awaiting_options = []
+                s.awaiting_weak = False
+                s.status = "done"
+                n += 1
+        return n
 
     def set_last_assistant_text(self, agent_kind: str, session_id: str, text: str) -> None:
         with self._lock:
@@ -638,6 +705,7 @@ class SessionRegistry:
                     sess.awaiting_kind = "continue"
                     sess.awaiting_context = ["(idle — interrupted or stalled)"]
                     sess.awaiting_since_unix = now
+                    sess.awaiting_weak = True   # 推断出来的，不是真问题
                     flipped += 1
         return flipped
 
@@ -1420,6 +1488,8 @@ class SnapshotPublisher(threading.Thread):
         self.registry.sweep_idle_turns(IDLE_TURN_S)
         self.registry.sweep_dead()
         self.registry.sweep_stale()
+        # v7.3: 无人理会的"回合结束"过期成 done。强 awaiting 不受影响。
+        self.registry.demote_weak_awaiting(older_than_s=WEAK_AWAITING_DECAY_S)
         snap = self.registry.snapshot_v1()
         snap_json = json.dumps(snap, sort_keys=True)
         changed = snap_json != self._last_snap_json
@@ -1738,6 +1808,10 @@ def normalize_event(raw: dict) -> dict:
             out["summary"] = "> " + (raw.get("prompt", "") or "")[:60]
         elif out["type"] == "stop":
             out["summary"] = "(stop)"
+        elif out["type"] == "notification":
+            # CC's Notification payload carries the user-facing text in
+            # `message`; keep it verbatim — it IS the reason we're blocked.
+            out["summary"] = (raw.get("message", "") or "")[:120]
         elif out["type"] == "assistant_event":
             out["summary"] = (raw.get("text", "") or "")[:60]
     return out
@@ -1838,13 +1912,17 @@ class Bridge:
 
     def _dispatch(self, evt: dict, t: str, agent: str, sid: str) -> dict:
         if t == "session_start":
-            # Session appeared → show it on the device immediately (idle, ball
-            # in the user's court until the first prompt) instead of waiting for
-            # the first tool call.
-            self.registry.upsert(agent, sid, status="waiting",
+            # Session appeared → list it, but do NOT claim it wants anything.
+            #
+            # v7.3: this used to set status="waiting" + awaiting("continue",
+            # "session started"), i.e. every cc window that merely OPENED
+            # became an agent shouting "your turn" on the device — and with
+            # background conversations that multiplied: N sessions = N false
+            # alarms, which also tipped slot_count past the fleet-view
+            # threshold. A session that has been asked nothing is not
+            # awaiting anybody.
+            self.registry.upsert(agent, sid, status="idle",
                                  cwd=evt["cwd"] or None)
-            self.registry.set_awaiting(agent, sid, kind="continue",
-                                       context=["session started"])
             self.publisher.bump()
             return {"continue": True}
 
@@ -1865,6 +1943,13 @@ class Bridge:
                                  msg=evt["summary"])
             self.registry.clear_awaiting(agent, sid)
             self.registry.set_tool_in_flight(agent, sid, False)
+            # v7.3 在场感知：这个人正在键盘前。别的会话"回合结束了"这件事
+            # 他已经知道了（他就在 cc 里），设备不该继续替它们喊。
+            demoted = self.registry.demote_weak_awaiting(
+                except_key=f"{agent}:{sid}")
+            if demoted:
+                print(f"[bridge] presence: {demoted} stale 'your turn' -> done",
+                      file=sys.stderr)
             self.pusher.cancel_pending_replies()
             self.publisher.bump()
             return {"continue": True}
@@ -1942,6 +2027,27 @@ class Bridge:
             # flashed Read/Edit noise the fleet activity line already shows.)
             return {"continue": True}
 
+        if t == "notification":
+            # v7.3: CC's Notification hook — the ONLY event that means
+            # "Claude is blocked on you RIGHT NOW" straight from cc rather
+            # than inferred from a finished turn. Two flavours in practice:
+            # a permission request ("Claude needs your permission to use
+            # <tool>") and the idle nudge ("Claude is waiting for your
+            # input"). Both are STRONG awaiting — this is exactly what cc's
+            # own fleet header counts as "awaiting input".
+            text = (evt.get("summary") or evt.get("msg") or "")[:200]
+            low = text.lower()
+            if "permission" in low or "approve" in low:
+                kind, ctx = "approve", [text[:48]] if text else ["需要授权"]
+            else:
+                kind, ctx = "type", [text[:48]] if text else ["等待你的输入"]
+            self.registry.upsert(agent, sid, status="waiting",
+                                 cwd=evt["cwd"] or None)
+            self.registry.set_awaiting(agent, sid, kind=kind, context=ctx,
+                                       weak=False)
+            self.publisher.bump()
+            return {"continue": True}
+
         if t == "stop":
             # v2.3.0: Stop = "ball in user's court". Status moves to
             # `waiting` (not `idle`), and the classifier picks the
@@ -1975,12 +2081,19 @@ class Bridge:
                 kind = "pick"
             # tokens for this turn come from the transcript usage (hook_dispatch
             # fills evt["tokens"] on Stop) → accumulates into tokens_today.
+            # v7.3 强弱之分。"continue" 只是【回合结束】——cc 自己把这种
+            # 会话叫 completed，不叫 awaiting input。它照常触发一次性
+            # 拉取（那是面板的本职），但会被在场感知或时间衰减降级成
+            # done；approve/pick/type/clarify 是真问题，只有本人能答，
+            # 一直挂着。
+            weak = (kind == "continue")
             self.registry.upsert(agent, sid, status="waiting", tokens=evt["tokens"])
             self.registry.set_tool_in_flight(agent, sid, False)
             self.registry.set_awaiting(
                 agent, sid,
                 kind=kind, context=ctx,
                 summary=summary, options=options,
+                weak=weak,
             )
             self.publisher.bump()
             return {"continue": True}

@@ -216,6 +216,19 @@ static int cmd_wxcomp(const console_args_t *args)
 static const console_cmd_t s_cmd_wxcomp = { "?wxcomp", cmd_wxcomp,
     "toggle weather icon pre-compositing (A/B): ?wxcomp 0|1" };
 
+/* ?dashprobe [mask] — ambient 簇成本分解。见 scene_dashboard.c。 */
+static int cmd_dashprobe(const console_args_t *args)
+{
+    if (args->argc >= 2)
+        scene_dashboard_set_probe((uint32_t)strtoul(args->argv[1], NULL, 0));
+    console_reply_ok("{\"probe\":%" PRIu32 "}", scene_dashboard_get_probe());
+    return 0;
+}
+
+static const console_cmd_t s_cmd_dashprobe = { "?dashprobe", cmd_dashprobe,
+    "ambient cluster cost probe: ?dashprobe <mask> "
+    "(1=ring 2=dot 4=word 8=chip 16=freeze-breath)" };
+
 /* ?ghost — 转场替身的几何自检。bad>0 就意味着转场收尾会看到元素跳位。 */
 static int cmd_ghost(const console_args_t *args)
 {
@@ -257,5 +270,6 @@ void perf_mon_init(lv_display_t *disp)
     console_protocol_register(&s_cmd_refr);
     console_protocol_register(&s_cmd_wxbreath);
     console_protocol_register(&s_cmd_wxcomp);
+    console_protocol_register(&s_cmd_dashprobe);
     console_protocol_register(&s_cmd_ghost);
 }

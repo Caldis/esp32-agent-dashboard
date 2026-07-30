@@ -286,6 +286,67 @@ static void dash_pulse_breath(void *obj, int32_t v)
     lv_obj_set_size((lv_obj_t *)obj, v, v);
 }
 
+/* 呼吸：14↔28 px、2 s、无限往复。抽成函数是因为探针要能停/起它
+ * （lv_anim_delete 停掉之后只能重建）。 */
+static void pulse_breath_start(dash_t *d)
+{
+    lv_anim_t pa;
+    lv_anim_init(&pa);
+    lv_anim_set_var(&pa, d->pulse_dot);
+    lv_anim_set_values(&pa, 14, 28);
+    lv_anim_set_time(&pa, 2000);
+    lv_anim_set_playback_time(&pa, 2000);
+    lv_anim_set_repeat_count(&pa, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_path_cb(&pa, apple_ease_out);
+    lv_anim_set_exec_cb(&pa, dash_pulse_breath);
+    lv_anim_start(&pa);
+}
+
+/* ── ?dashprobe：ambient 簇的成本分解探针 ─────────────────────────
+ * 纯测量仪器，不是特性开关：逐位摘掉簇里的一个元素，用 trans_bench 的
+ * render_avg 差值给它标价，据此决定优化打哪儿。
+ *
+ * 关键设计：0x2（藏点）与 0x10（冻结呼吸）要分开——藏点同时去掉了
+ * "画"和"每帧改半径"，冻结只去掉后者。若两者差值接近，成本就在
+ * 半径churn（LVGL 的圆形 mask 缓存只有 4 项，呼吸点每帧换一个半径，
+ * 有理由怀疑它把环的 mask 也一起挤出去了）；若藏点远大于冻结，
+ * 成本就在画本身。一次刷机答完两个问题。 */
+static uint32_t s_probe = 0;
+void scene_dashboard_set_probe(uint32_t mask) { s_probe = mask; }
+uint32_t scene_dashboard_get_probe(void)      { return s_probe; }
+
+#define PROBE_NO_RING   0x1u
+#define PROBE_NO_DOT    0x2u
+#define PROBE_NO_WORD   0x4u
+#define PROBE_NO_CHIP   0x8u
+#define PROBE_NO_BREATH 0x10u
+
+static void probe_show(lv_obj_t *o, bool show)
+{
+    if (show) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN);
+    else      lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+}
+
+/* console task 只翻 flag；DOM 在 tick（LVGL task）上应用。 */
+static void probe_apply(dash_t *d)
+{
+    static uint32_t applied = 0;
+    if (applied == s_probe) return;
+    uint32_t was = applied;
+    applied = s_probe;
+
+    probe_show(d->pulse_ring, !(s_probe & PROBE_NO_RING));
+    probe_show(d->pulse_dot,  !(s_probe & PROBE_NO_DOT));
+    probe_show(d->ambient_lbl, !(s_probe & PROBE_NO_WORD));
+    /* chip 的显隐由 render_single 按状态管；探针只做单向压制。 */
+    if (s_probe & PROBE_NO_CHIP) lv_obj_add_flag(d->ambient_chip, LV_OBJ_FLAG_HIDDEN);
+
+    if ((s_probe ^ was) & PROBE_NO_BREATH) {
+        if (s_probe & PROBE_NO_BREATH) lv_anim_delete(d->pulse_dot, dash_pulse_breath);
+        else                           pulse_breath_start(d);
+    }
+}
+
 /* The single-agent pose (v6.0). Word + colour + chip all derive from
  * the slot: gold = your move (rotating greeting for CONTINUE, fixed
  * instructional word for approve/pick/type/clarify) + project chip;
@@ -373,10 +434,19 @@ static void render_single(dash_t *d, const agent_state_t *st,
 
 static void render_ambient(dash_t *d, const agent_state_t *st)
 {
-    /* Find the (single) live slot for word + chip detail. */
+    /* Pick the slot the pose should speak for, by NEED — not by slot
+     * order. v7.3: with background conversations the slot list is mostly
+     * finished turns, and taking the first in_use slot made the panel
+     * announce "空闲" while another agent was still thinking. Awaiting
+     * outranks running outranks anything else. */
     const agent_slot_t *one = NULL;
+    int best = -1;
     for (int i = 0; i < AGENT_SLOT_MAX; ++i) {
-        if (st->slots[i].in_use) { one = &st->slots[i]; break; }
+        const agent_slot_t *s = &st->slots[i];
+        if (!s->in_use) continue;
+        int rank = (s->awaiting_kind != AWAITING_NONE) ? 2
+                 : (s->status == AGENT_STATUS_RUNNING) ? 1 : 0;
+        if (rank > best) { best = rank; one = s; }
     }
     render_single(d, st, one);
 }
@@ -449,7 +519,12 @@ static void render_fleet(dash_t *d, const agent_state_t *st)
                     || (s->status == AGENT_STATUS_WAITING);
         bool urgent  = (s->awaiting_kind == AWAITING_APPROVE)
                     || (s->awaiting_kind == AWAITING_CLARIFY);
-        uint32_t accent = waiting ? (urgent ? COL_GOLD_HI : COL_GOLD) : COL_TEAL;
+        /* v7.3: teal means THINKING. A finished (done) or untouched (idle)
+         * agent gets the muted ink instead — the row stays informative
+         * without claiming the agent is busy or wants you. */
+        uint32_t accent = waiting ? (urgent ? COL_GOLD_HI : COL_GOLD)
+                        : (s->status == AGENT_STATUS_RUNNING) ? COL_TEAL
+                        : COL_MUTE;
 
         lv_obj_clear_flag(r->card, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_style_bg_color(r->card,
@@ -506,6 +581,8 @@ static void tick(lv_timer_t *t)
     dash_t *d = (dash_t *)lv_timer_get_user_data(t);
     if (!d) return;
 
+    probe_apply(d);
+
     agent_state_lock();
     agent_state_t *st = agent_state_get();
     status_bar_update(&d->sb, st);
@@ -515,10 +592,16 @@ static void tick(lv_timer_t *t)
         focus = &st->slots[st->focused_slot];
     }
     /* Key3 focus pins the single-agent pose to one slot of a 2+ fleet;
-     * the word/chip derive from the pinned slot, not aggregate totals. */
-    if (st->slot_count >= 2 && focus) render_single(d, st, focus);
-    else if (st->slot_count >= 2)     render_fleet(d, st);
-    else                              render_ambient(d, st);
+     * the word/chip derive from the pinned slot, not aggregate totals.
+     * v7.3: the split is decided by how many agents actually WANT
+     * something (agent_state_active_count), not by how many sessions
+     * exist. Background conversations that finished their turn are
+     * `done` — listed, but they no longer drag the display into the
+     * multi-row "everyone needs you" view. */
+    int active = agent_state_active_count();
+    if (active >= 2 && focus) render_single(d, st, focus);
+    else if (active >= 2)     render_fleet(d, st);
+    else                      render_ambient(d, st);
     agent_state_unlock();
 }
 
@@ -603,16 +686,7 @@ static void init(scene_t *s, lv_obj_t *parent)
 
     /* Same breath as the awaiting glyph: 14↔28 px, 2 s, infinite. A
      * small solid dot — cheap per-frame redraw, no big-label overlap. */
-    lv_anim_t pa;
-    lv_anim_init(&pa);
-    lv_anim_set_var(&pa, d->pulse_dot);
-    lv_anim_set_values(&pa, 14, 28);
-    lv_anim_set_time(&pa, 2000);
-    lv_anim_set_playback_time(&pa, 2000);
-    lv_anim_set_repeat_count(&pa, LV_ANIM_REPEAT_INFINITE);
-    lv_anim_set_path_cb(&pa, apple_ease_out);
-    lv_anim_set_exec_cb(&pa, dash_pulse_breath);
-    lv_anim_start(&pa);
+    pulse_breath_start(d);
 
     /* Status word — the scene's primary fact after the pet: TITLE tier
      * (52 px ≈ 22' of visual angle at 0.6 m). */

@@ -25,6 +25,7 @@ idf_component_register(
         "ui_type.c"
         "status_bar.c"
         "perf_mon.c"
+        "ui_calib.c"
     EMBED_FILES
         # Subset SimHei (GB2312 + ASCII, ~2MB) rendered on-device via lv_tiny_ttf.
         # Gitignored (derived from a system font); regenerate fonts/zh.ttf then

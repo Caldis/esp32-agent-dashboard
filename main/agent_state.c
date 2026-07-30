@@ -301,3 +301,15 @@ int agent_state_other_awaiting_count(const agent_slot_t *anchor)
     }
     return n;
 }
+
+int agent_state_active_count(void)
+{
+    int n = 0;
+    for (int i = 0; i < AGENT_SLOT_MAX; ++i) {
+        const agent_slot_t *s = &s_state.slots[i];
+        if (!s->in_use) continue;
+        if (s->status == AGENT_STATUS_RUNNING || s->awaiting_kind != AWAITING_NONE)
+            n++;
+    }
+    return n;
+}

@@ -42,6 +42,12 @@ bool scene_weather_get_breath(void);
 void scene_weather_set_compose(bool on);
 bool scene_weather_get_compose(void);
 
+/* v7.3 ambient 簇成本分解探针（`?dashprobe <mask>`，默认 0）。纯测量
+ * 仪器：逐位摘元素，用 trans_bench 的 render_avg 差值给它标价。
+ * 位：1=环 2=呼吸点 4=状态词 8=项目 chip 16=冻结呼吸（保留点但不动）。 */
+void scene_dashboard_set_probe(uint32_t mask);
+uint32_t scene_dashboard_get_probe(void);
+
 /* WMO 天气码 -> 中文短词。scene_clock 的常驻天气行要用同一份映射——
  * 两个界面显示同一个事实，就不该有两份翻译表。 */
 const char *scene_weather_word(int code);

@@ -39,6 +39,7 @@
 #include "scene_trans.h"
 #include "perf_mon.h"
 #include "ui_glow.h"
+#include "ui_calib.h"
 #include "nav_dots.h"
 #include "ui_motion.h"
 #include "agent_state.h"
@@ -255,6 +256,7 @@ void app_main(void)
      * counting itself, i.e. a hard-coded 30). */
     harness_stat_bind_display(disp);
     perf_mon_init(disp);
+    ui_calib_init();          /* ?vis — 可见区原点标定尺（register 阶段） */
     console_protocol_init();
 
     bsp_display_lock(-1);

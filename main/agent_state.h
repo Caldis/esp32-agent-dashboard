@@ -78,10 +78,17 @@ typedef struct {
     uint32_t monotonic_ms;           /* when this entry was added */
 } agent_entry_t;
 
+/* v7.3: mirrors Claude Code's own fleet header
+ * ("N awaiting input · N working · N completed") — before this the bridge
+ * collapsed "finished" and "blocked on you" into WAITING, so every
+ * background conversation shouted "your turn". DONE is listable but never
+ * demands attention: it does not pull the display and does not count
+ * toward the fleet-view switch. */
 typedef enum {
-    AGENT_STATUS_IDLE = 0,
-    AGENT_STATUS_RUNNING,
-    AGENT_STATUS_WAITING,
+    AGENT_STATUS_IDLE = 0,       /* exists, has done nothing yet */
+    AGENT_STATUS_RUNNING,        /* working */
+    AGENT_STATUS_WAITING,        /* blocked on the user right now */
+    AGENT_STATUS_DONE,           /* turn finished, nothing pending */
 } agent_status_t;
 
 /* Per-agent slot. Identity is (kind, session_id); the snapshot handler
@@ -281,6 +288,14 @@ agent_slot_t *agent_state_most_recent_awaiting(void);
 /* v2.3.0: count slots currently in AWAITING_* (excluding the most
  * recent one). Used by the takeover footer's "+N more waiting". */
 int agent_state_other_awaiting_count(const agent_slot_t *anchor);
+
+/* v7.3: how many slots actually want something — running, or awaiting the
+ * user. DONE/IDLE slots are listed but don't count. This, not slot_count,
+ * decides whether the dashboard splits into fleet rows: with background
+ * conversations the slot list fills up with finished turns, and counting
+ * those tipped the display into a multi-row "everyone needs you" view for
+ * agents Claude Code itself lists as "completed". Lock held. */
+int agent_state_active_count(void);
 
 /* v2.3.0: parse a kind string from the wire snapshot (`"approve"`,
  * `"pick"`, etc.) into the enum. Returns AWAITING_NONE on unknown. */

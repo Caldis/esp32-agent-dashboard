@@ -28,6 +28,7 @@ static agent_status_t parse_status(const char *s)
     if (!s) return AGENT_STATUS_IDLE;
     if (strcmp(s, "running") == 0) return AGENT_STATUS_RUNNING;
     if (strcmp(s, "waiting") == 0) return AGENT_STATUS_WAITING;
+    if (strcmp(s, "done") == 0)    return AGENT_STATUS_DONE;
     return AGENT_STATUS_IDLE;
 }
 
