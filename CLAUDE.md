@@ -13,8 +13,11 @@ Run `esp-harness cycle` after code changes (build + flash + verify).
 - New module: `esp-harness add <module>`
 
 ## Verification
-- `esp-harness screenshot --size 466` -- full-panel capture (safe since
-  v6.4; do NOT settle for 320, it hides glyph/alignment bugs)
+- `esp-harness screenshot --size 480` -- full-panel capture, 1:1 since
+  v7.3 (the panel IS 480x480 — see "Panel geometry" below; `--size 466`
+  silently downscales the framebuffer and is what the repo used to
+  believe was "full panel"). Safe since v6.4; do NOT settle for 320, it
+  hides glyph/alignment bugs.
 - `esp-harness verify` -- screenshot + REAL golden diff (v6.4). Creates
   `.harness/golden/<scene>.png` on first run, then fails with exit 50
   and writes a *-diff.png when mean abs channel diff exceeds
@@ -67,11 +70,43 @@ Run `esp-harness cycle` after code changes (build + flash + verify).
 - `main/ui_type.h` -- THE type scale. All text takes fonts from its five
   tiers (CAPTION 20 / LABEL 26 / BODY 36 / TITLE 52 / HERO 88) via
   ui_type()/ui_type_bold(); raw ui_font(px)/cjk_font(px) are internal to
-  ui_type.c. Sized for 0.6-1 m viewing distance on the 2.16" 466x466
-  (305 ppi) panel -- do NOT introduce ad-hoc pixel sizes or anything
+  ui_type.c. Sized for 0.6-1 m viewing distance on the 2.16" 480x480
+  panel -- do NOT introduce ad-hoc pixel sizes or anything
   below CAPTION.
 - `tools/claude_buddy_bridge.py` -- host bridge daemon
 - `tools/hook_dispatch.py` -- Claude Code hook forwarder
+
+## Panel geometry (v7.3 — MEASURED, replaces a long-standing myth)
+The visible area is the WHOLE LVGL space: **480x480, origin (0,0), corner
+radius 76**. Edge-hugging elements use `UI_LV_W` directly — no origin
+compensation, no safety inset.
+
+ui_screen.h used to assert "LVGL is 480 wide, the panel lights only 466 of
+it, origin `a` unknown (bracketed to [1,6])". Every part of that was
+wrong; 466 is a spec number nobody had ever checked against LVGL
+coordinates (BSP_LCD_H_RES has said 480 all along). It cost two visible
+defects: edge elements anchored to a 466 box sat 3 px in on the left/top
+but 17 px in on the right/bottom (the "gap on the right and bottom"), and
+corner arcs drawn at radius 60 fell inside the bezel's much rounder 76.
+
+Measured with `?vis` (ui_calib.c), which is kept for the next panel batch:
+  ?vis 1/2/4/5  edge rulers — bars at 0/3/7/12 px inward on ALL four
+                edges were ALL visible, including row/column 0 and 479.
+  ?vis 3        corner arcs, one candidate radius per corner. A candidate
+                SMALLER than the true radius falls in the region the bezel
+                cuts away → invisible; larger → visible with a gap. So the
+                smallest complete arc is the answer. Four halvings:
+                (60,78] → (72,76] → 76.
+Screenshots cannot answer any of this: `?dump` renders the whole 480x480
+framebuffer SCALED to the requested size, not a visible-area crop (proven:
+LVGL column 465 lands at column 451 of a 466-wide capture = 465*466/480).
+Only a human looking at the panel can read these rulers.
+
+Still on 466 and knowingly deferred: layout constants (`SCREEN_W 466` in
+the scenes, nav_dots' 25/50/75% positions). They centre content on 233
+instead of 240, i.e. the whole UI sits ~7 px left of true centre. Fixing
+that needs a visual re-tune because hand-placed absolute coordinates
+(illustration x=36, strip DX, …) are interlocked with the centred ones.
 
 ## Rendering performance (hard-won, do not regress)
 - (v7.3) Three reusable facts, found while building the dispersion glow:
