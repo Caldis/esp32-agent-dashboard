@@ -49,9 +49,13 @@
 #include <string.h>
 #include <math.h>
 
+#include "ui_screen.h"
 #include "lvgl.h"
 
-#define SCREEN_W    466
+/* 屏宽 = 坐标空间。v7.4 之前这里硬写 466，而 466 从来不是面板宽度
+ * （见 CLAUDE.md 的 Panel geometry）——凡是靠它【算】出来的居中都会
+ * 左偏 7px。用 LV_ALIGN_*_MID 对齐的元素不受影响，那是相对父容器的。 */
+#define SCREEN_W     UI_LV_W
 #define CLOCK_PX    135   /* was 150; pulled to ~90% on user feedback */
 #define COL_TEXT    0xF3EEE2
 #define COL_DIM     0x8A807A

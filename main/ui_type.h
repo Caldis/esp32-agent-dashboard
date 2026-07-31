@@ -57,9 +57,14 @@ int ui_type_line(ui_tier_t t);
 #define UI_GAP_MD   14   /* clusters inside one group */
 #define UI_GAP_LG   24   /* groups / breathing room */
 
-/* Content column: 466-px panel minus a 28-px margin each side. Labels
- * that wrap or truncate size themselves to this. */
-#define UI_CONTENT_W   410
+/* Content column: panel width minus a 28-px margin each side. Labels
+ * that wrap or truncate size themselves to this.
+ * v7.4: 410 was 466-2*28, and 466 was never the panel width (see
+ * "Panel geometry" in CLAUDE.md — it is 480). The stale value made
+ * every centred-by-computation element sit ~7 px left: a 410 column
+ * placed at (466-410)/2=28 leaves 28 px on the left but 42 on the
+ * right of a 480-wide screen. */
+#define UI_CONTENT_W   424
 #define UI_MARGIN       28
 
 /* ── vertical layout model (v4.6): the safe band ────────────────────

@@ -44,6 +44,7 @@
 #include <string.h>
 #include <time.h>
 
+#include "ui_screen.h"
 #include "lvgl.h"
 #include "misc/cache/instance/lv_image_cache.h"   /* 不在 lvgl.h 伞里 */
 #include "esp_log.h"
@@ -64,7 +65,10 @@ void scene_weather_set_compose(bool on) { s_comp_on = on; }
 bool scene_weather_get_compose(void)    { return s_comp_on; }
 
 
-#define SCREEN_W     466
+/* 屏宽 = 坐标空间。v7.4 之前这里硬写 466，而 466 从来不是面板宽度
+ * （见 CLAUDE.md 的 Panel geometry）——凡是靠它【算】出来的居中都会
+ * 左偏 7px。用 LV_ALIGN_*_MID 对齐的元素不受影响，那是相对父容器的。 */
+#define SCREEN_W     UI_LV_W
 
 /* ── palette (repo family colours) ─────────────────────────────────── */
 #define COL_TEXT     0xF3EEE2   /* 米白 — 云 / 雪 / 文字 */
@@ -93,7 +97,7 @@ bool scene_weather_get_compose(void)    { return s_comp_on; }
 #define STRIP_TEMP_Y 392
 static const int STRIP_DX[WEATHER_DAYS] = { -164, -82, 0, 82, 164 };
 /* 条带容器：从 name 行顶到屏底，三行 y 全部转成组内相对量。 */
-#define STRIP_GRP_H  (466 - STRIP_NAME_Y)
+#define STRIP_GRP_H  (UI_LV_W - STRIP_NAME_Y)
 /* 装饰星容器：刚好包住三颗星的包围盒（含 arm 与线宽余量）。 */
 #define STAR_GRP_X   190
 #define STAR_GRP_Y    76
@@ -1041,7 +1045,7 @@ static void weather_init(scene_t *s, lv_obj_t *parent)
     wx_anim_time_morph(st->sb.time_lbl, 0);   /* → 26px rest 姿态 */
 
     /* ── 天气主区（整组做 y/opa 过渡） ── */
-    st->wx_grp = mk_box(parent, SCREEN_W, 466);
+    st->wx_grp = mk_box(parent, SCREEN_W, UI_LV_W);
     lv_obj_set_pos(st->wx_grp, 0, 0);
 
     /* 左上角地点 — 加粗与右上时间对称（Rounded Black 数字视觉很重，

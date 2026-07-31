@@ -102,11 +102,19 @@ framebuffer SCALED to the requested size, not a visible-area crop (proven:
 LVGL column 465 lands at column 451 of a 466-wide capture = 465*466/480).
 Only a human looking at the panel can read these rulers.
 
-Still on 466 and knowingly deferred: layout constants (`SCREEN_W 466` in
-the scenes, nav_dots' 25/50/75% positions). They centre content on 233
-instead of 240, i.e. the whole UI sits ~7 px left of true centre. Fixing
-that needs a visual re-tune because hand-placed absolute coordinates
-(illustration x=36, strip DX, …) are interlocked with the centred ones.
+Layout followed in v7.4. `SCREEN_W` in every scene and `UI_CONTENT_W`
+(410 = 466-2*28) were derived from the same myth, so anything centred by
+COMPUTATION sat ~7 px left. Note what was NOT affected: `LV_ALIGN_*_MID`
+/`CENTER` elements centre on the parent, so the top clock, the ambient
+cluster, nav_dots' middle dot and the status bar were always correct —
+only containers placed with `set_pos(0,0)` at width 466 (weather's
+wx_grp/strip_grp) and widths computed from it (`ROW_X`, `UI_CONTENT_W`)
+were wrong. Measured on 1:1 480 captures, weather 5-day strip ink centre
+233.0 → 240.0 (true 239.5); fleet card margins 28/42 → 28/28.
+Vertical is a separate open question: content is top-anchored, so the
+extra 14 px all lands at the bottom (footer caption ink ends 18 px above
+the edge where the design intended 4). Re-tuning that is a design call,
+not a correctness fix.
 
 ## Rendering performance (hard-won, do not regress)
 - (v7.3) Three reusable facts, found while building the dispersion glow:
