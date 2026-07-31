@@ -45,6 +45,7 @@
 #include <time.h>
 
 #include "ui_screen.h"
+#include "ui_deco.h"
 #include "lvgl.h"
 #include "misc/cache/instance/lv_image_cache.h"   /* 不在 lvgl.h 伞里 */
 #include "esp_log.h"
@@ -203,6 +204,8 @@ typedef struct {
 
     /* 缓存与各自 compose 缓冲 1:1 同宽 — snprintf("%s") 在 -Werror
      * format-truncation 下必须能证明放得下。 */
+    /* v7.6: 机能装饰层（自绘，参与转场演出）。 */
+    ui_deco_t     *deco;
 } weather_scene_t;
 
 /* ════ 小工具 ═══════════════════════════════════════════════════════ */
@@ -825,6 +828,12 @@ static void weather_tick(lv_timer_t *t)
     st->motion_ok = !s->motion_reduced;
     agent_state_unlock();
 
+    /* 装饰层底部 GAUGE 的槽 0 = 一天走到哪个时段（4 小时/格）。这一页
+     * 讲的就是"天"，所以它的真值是时段而不是分钟。hhmm 恒为 "HH:MM"
+     * 或 "--:--"（未同步时全暗）。 */
+    ui_deco_set_slot(st->deco, 0, hhmm[0] == '-' ? -1
+        : ((hhmm[0] - '0') * 10 + (hhmm[1] - '0')) * UI_DECO_WX_SEG_N / 24);
+
     uint32_t now = lv_tick_get();
     /* v6.6: 只剩一个"正在动"的窗口了——场景间转场。刻钟大钟形态连同它
      * 自己的变形窗口一起删除了。 */
@@ -1015,11 +1024,26 @@ enum {
 };
 static trans_actor_t s_wx_actors[WXA_N];
 
+/* 装饰层进转场演出（v7.6 钩子）。 */
+static void wx_deco_intro(scene_t *s, uint32_t ms)
+{
+    weather_scene_t *st = (weather_scene_t *)s->user_data;
+    if (st) ui_deco_intro(st->deco, ms);
+}
+
+static void wx_deco_outro(scene_t *s, uint32_t ms)
+{
+    weather_scene_t *st = (weather_scene_t *)s->user_data;
+    if (st) ui_deco_outro(st->deco, ms);
+}
+
 static trans_profile_t s_wx_profile = {
     .actors               = s_wx_actors,
     .actor_n              = WXA_N,
     .clock_to_consensus   = wx_trans_to_consensus,
     .clock_from_consensus = wx_trans_from_consensus,
+    .on_intro             = wx_deco_intro,
+    .on_outro             = wx_deco_outro,
 };
 
 static void weather_init(scene_t *s, lv_obj_t *parent)
@@ -1027,6 +1051,11 @@ static void weather_init(scene_t *s, lv_obj_t *parent)
     weather_scene_t *st = lv_malloc_zeroed(sizeof(*st));
     s->user_data = st;
     st->breath_step = -1;
+
+    /* v7.6 机能装饰层。三张谱里最克制的一张：这一页内容密度最高（插画 /
+     * HERO 温度 / 装饰星 / 五日条带），顶部与中部都没有余地，所以只留
+     * 边缘骨架——四角 + 左右短轴 + 底部基线。 */
+    st->deco = ui_deco_attach(parent, ui_deco_spec_weather());
 
     status_bar_create(parent, &st->sb);
     /* 环境挂钟定位：footer 的 agent 计数是监控域 chrome，此场景砍掉
@@ -1169,6 +1198,8 @@ static void weather_on_show(scene_t *s)
     (void)synced; (void)tz_epoch;
     st->wx_drawn = false;         /* 强制重画（数据可能在离场期间更新过） */
 
+    ui_deco_live(st->deco, true);
+
     if (st->timer) {
         lv_timer_resume(st->timer);
         weather_tick(st->timer);
@@ -1180,6 +1211,9 @@ static void weather_on_hide(scene_t *s)
     weather_scene_t *st = (weather_scene_t *)s->user_data;
     if (!st) return;
     lv_obj_set_style_text_opa(st->sb.time_lbl, LV_OPA_COVER, 0);
+    /* 不可见的场景不该烧 tick，也必须在这里把高刷档还回去（hold/release
+     * 必须成对——outro 可能还没播完就被黑幕瞬切叫停）。 */
+    ui_deco_live(st->deco, false);
     if (st->timer) lv_timer_pause(st->timer);
 }
 

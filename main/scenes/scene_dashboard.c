@@ -34,6 +34,7 @@
 #include <string.h>
 
 #include "ui_screen.h"
+#include "ui_deco.h"
 #include "lvgl.h"
 
 /* 屏宽 = 坐标空间。v7.4 之前这里硬写 466，而 466 从来不是面板宽度
@@ -132,6 +133,9 @@ typedef struct {
     int       last_layout_n;     /* row count last laid out; -1 forces layout */
     bool      rows_twoline;      /* current layout mode (set by layout_rows) */
     lv_timer_t *timer;
+    /* v7.6: 机能装饰层（自绘，参与转场演出）。 */
+    ui_deco_t *deco;
+    int       deco_active;       /* 上一拍的活跃数（变化 = 真事件 = pulse） */
 } dash_t;
 
 /* ── helpers ─────────────────────────────────────────────────────── */
@@ -606,7 +610,18 @@ static void tick(lv_timer_t *t)
     if (active >= 2 && focus) render_single(d, st, focus);
     else if (active >= 2)     render_fleet(d, st);
     else                      render_ambient(d, st);
+    int n_slots = st->slot_count;
     agent_state_unlock();
+
+    /* 装饰层的两个读数（LVGL 写入放在锁外）：上带左端的【块数】= 在册
+     * 会话数，右端的【液面】= 活跃数。两者一起把"这台机器现在扛着多少
+     * 活"画成了仪表，而不用再加一行字。 */
+    ui_deco_set_slot(d->deco, 0, n_slots);
+    ui_deco_set_slot(d->deco, 1, active);
+    if (active != d->deco_active) {
+        d->deco_active = active;
+        ui_deco_pulse(d->deco);
+    }
 }
 
 /* ── 转场 profile (v6.2) ─────────────────────────────────────────── */
@@ -616,12 +631,28 @@ static void tick(lv_timer_t *t)
  * 弹回 bind 那一刻的旧位置。 */
 static void dash_sync_rest(scene_t *s);
 
+/* 装饰层进转场演出（v7.6 的 on_intro/on_outro 钩子；自绘图层没有可动的
+ * 对象能当演员，框架只给时机，怎么演由 ui_deco 决定）。 */
+static void dash_deco_intro(scene_t *s, uint32_t ms)
+{
+    dash_t *d = (dash_t *)s->user_data;
+    if (d) ui_deco_intro(d->deco, ms);
+}
+
+static void dash_deco_outro(scene_t *s, uint32_t ms)
+{
+    dash_t *d = (dash_t *)s->user_data;
+    if (d) ui_deco_outro(d->deco, ms);
+}
+
 static trans_actor_t s_dash_actors[DASH_ACTOR_N];
 static trans_profile_t s_dash_profile = {
     .actors    = s_dash_actors,
     .actor_n   = DASH_ACTOR_N,
     /* 时间已在共识姿态（顶部中央 48px 小钟）→ 无需变形回调。 */
     .sync_rest = dash_sync_rest,
+    .on_intro  = dash_deco_intro,
+    .on_outro  = dash_deco_outro,
 };
 
 static void dash_sync_rest(scene_t *s)
@@ -643,6 +674,11 @@ static void init(scene_t *s, lv_obj_t *parent)
     memset(d, 0, sizeof(dash_t));
     d->last_layout_n = -1;
     s->user_data = d;
+
+    /* v7.6 机能装饰层。纯加法：置底、不吃触摸、不进演员表。这一页的谱
+     * 是【上下两条仪表带】——中部 fleet 卡片区占满 y134..360、x28..452，
+     * 两侧只剩 28 px，装饰硬挤进去只会和卡片边缘打架。 */
+    d->deco = ui_deco_attach(parent, ui_deco_spec_dashboard());
 
     const theme_palette_t *pal = theme_current();
     lv_obj_set_style_bg_color(parent, lv_color_hex(pal ? pal->bg : COL_BG), 0);
@@ -778,6 +814,7 @@ static void on_show(scene_t *s)
 {
     dash_t *d = (dash_t *)s->user_data;
     if (!d) return;
+    ui_deco_live(d->deco, true);
     if (d->timer) {
         lv_timer_resume(d->timer);
         tick(d->timer);
@@ -787,7 +824,11 @@ static void on_show(scene_t *s)
 static void on_hide(scene_t *s)
 {
     dash_t *d = (dash_t *)s->user_data;
-    if (d && d->timer) lv_timer_pause(d->timer);
+    if (!d) return;
+    /* 不可见的场景不该烧 tick，也必须在这里把高刷档还回去（outro 可能
+     * 还没播完就被黑幕瞬切叫停，hold/release 必须成对）。 */
+    ui_deco_live(d->deco, false);
+    if (d->timer) lv_timer_pause(d->timer);
 }
 
 scene_t scene_dashboard = {

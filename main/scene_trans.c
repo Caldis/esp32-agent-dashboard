@@ -480,6 +480,9 @@ static uint32_t play_outro(scene_t *sc, bool animate, trans_profile_t *other)
             /* 时间锚点也是"会动的东西"：全员 held 时它得独自撑住时长。 */
             if (animate && total < OUT_MS) total = OUT_MS;
         }
+        /* 自绘图层出场（v7.6）。与演员同起跑，但不进 total —— 装饰退场
+         * 比内容快是刻意的（机械层断电干脆），让它拖长黑幕毫无意义。 */
+        if (p->on_outro) p->on_outro(sc, animate ? OUT_MS : 0);
     }
     return total;
 }
@@ -528,6 +531,9 @@ static uint32_t play_intro(scene_t *sc, bool animate, trans_profile_t *other)
         if (p->clock_from_consensus)
             p->clock_from_consensus(sc, animate ? IN_MS : 0);
         if (p->clock_from_consensus && animate && IN_MS > total) total = IN_MS;
+        /* 自绘图层入场（v7.6）。它自己持有高刷档并在结束时归还，所以
+         * 不并入 total —— 转场状态机没必要为装饰多等一拍。 */
+        if (p->on_intro) p->on_intro(sc, animate ? IN_MS : 0);
     }
     return total;
 }

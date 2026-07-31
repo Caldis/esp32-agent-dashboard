@@ -50,6 +50,7 @@
 #include <math.h>
 
 #include "ui_screen.h"
+#include "ui_deco.h"
 #include "lvgl.h"
 
 /* 屏宽 = 坐标空间。v7.4 之前这里硬写 466，而 466 从来不是面板宽度
@@ -146,6 +147,8 @@ typedef struct {
     int         colon_on;     /* last applied colon state; -1 forces apply */
     lv_obj_t   *wx_lbl;       /* v6.5: 常驻天气行（大钟下方） */
     char        cached_wx[96];
+    ui_deco_t  *deco;         /* v7.6: 机能装饰层（自绘，参与转场演出） */
+    int         deco_active;  /* 上一拍的活跃 agent 数（变化 = 真事件） */
 
     /* ── push subsystem ── */
     lv_obj_t   *push_grp;     /* centre card container (fade/slide as one) */
@@ -536,6 +539,8 @@ static void clock_tick(lv_timer_t *t)
     agent_state_t *s = agent_state_get();
     status_bar_update(&st->sb, s);
     status_bar_format_time(buf, sizeof(buf), s);
+    /* 锁内读（agent_state_active_count 自己不加锁，假定调用者持有）。 */
+    int n_active = agent_state_active_count();
 
     /* Running-set edge detection (data-driven; only ever runs while the
      * clock is the visible scene, so a push means the event happened
@@ -587,6 +592,21 @@ static void clock_tick(lv_timer_t *t)
 
     /* LVGL mutations happen OUTSIDE the agent_state lock. */
     if (event) clock_push_trigger(st, event - 1, ev_kind, ev_label);
+
+    /* 装饰层的分段条 = 真实的分钟进度（12 格 x 5 分钟）。这是本层唯一
+     * 接状态的元素——参照系里那些编号只能是假的（游戏里没有那份数据），
+     * 这块屏上可以是真的，而"真"恰恰是这套美学声称却兑现不了的东西。
+     * buf 恒为 5 字符（"HH:MM" / "--:--"），未同步时全暗。 */
+    ui_deco_set_slot(st->deco, 0, buf[0] == '-' ? -1
+        : ((buf[3] - '0') * 10 + (buf[4] - '0')) * UI_DECO_CLOCK_SEG_N / 60);
+    /* 槽 1 = 活跃 agent 数（底部右端亮几块就是几个）。数量【变化】是真
+     * 事件，让四角"重锁定"闪一下——装饰因此不只是按表演出，而是对世界
+     * 有反应。 */
+    ui_deco_set_slot(st->deco, 1, n_active);
+    if (n_active != st->deco_active) {
+        st->deco_active = n_active;
+        ui_deco_pulse(st->deco);
+    }
 
     /* Rewrite hours/minutes only on minute change — every set_text
      * re-rasterises the big tiny_ttf glyphs. buf is always 5 chars
@@ -744,6 +764,21 @@ static void clock_trans_from_consensus(scene_t *s, uint32_t ms)
     face_start_morph(st, 1000, ms, spring_disp);
 }
 
+/* 装饰层进转场演出。它是自绘图层，没有可动的对象可以当演员（一个对象
+ * 里装着几十个形状，位移它等于位移全屏），所以走 v7.6 的 on_intro /
+ * on_outro 钩子：框架只告诉它"该演了"，怎么演由 ui_deco 自己决定。 */
+static void clock_deco_intro(scene_t *s, uint32_t ms)
+{
+    clock_state_t *st = (clock_state_t *)s->user_data;
+    if (st) ui_deco_intro(st->deco, ms);
+}
+
+static void clock_deco_outro(scene_t *s, uint32_t ms)
+{
+    clock_state_t *st = (clock_state_t *)s->user_data;
+    if (st) ui_deco_outro(st->deco, ms);
+}
+
 #define CLOCK_A_WX  STATUS_BAR_TRANS_ACTORS
 #define CLOCK_ACTOR_N (STATUS_BAR_TRANS_ACTORS + 1)
 static trans_actor_t s_clock_actors[CLOCK_ACTOR_N];
@@ -752,6 +787,8 @@ static trans_profile_t s_clock_profile = {
     .actor_n              = CLOCK_ACTOR_N,
     .clock_to_consensus   = clock_trans_to_consensus,
     .clock_from_consensus = clock_trans_from_consensus,
+    .on_intro             = clock_deco_intro,
+    .on_outro             = clock_deco_outro,
 };
 
 static void clock_init(scene_t *s, lv_obj_t *parent)
@@ -759,6 +796,11 @@ static void clock_init(scene_t *s, lv_obj_t *parent)
     clock_state_t *st = lv_malloc_zeroed(sizeof(*st));
     s->user_data = st;
     st->colon_on = -1;
+
+    /* v7.5 机能装饰层。纯加法：置底、不吃触摸、不进演员表，删掉它本场景
+     * 的每个功能都原封不动（见 ui_deco.c 的文件头）。第一个建，于是天然
+     * 是最底的子对象（ui_deco_attach 内部还会再 move_background 一次）。 */
+    st->deco = ui_deco_attach(parent, ui_deco_spec_clock());
 
     status_bar_create(parent, &st->sb);
     /* The big face replaces the 48pt top clock. status_bar_update keeps
@@ -923,6 +965,11 @@ static void clock_on_show(scene_t *s)
     anim_face_morph(st->face_grp, 1000);
     set_group_text_opa(st->face_grp, LV_OPA_COVER);
 
+    /* 装饰层开始"活着"。转场路径下 play_intro 紧接着会调 on_intro 把它
+     * 重置成入场态——同一个调用栈内，中间不会有帧渲染出去；非转场路径
+     * （开机首次 show）就靠这里直接落到完整画面。 */
+    ui_deco_live(st->deco, true);
+
     if (st->timer) {
         lv_timer_resume(st->timer);
         clock_tick(st->timer);
@@ -955,6 +1002,9 @@ static void clock_on_hide(scene_t *s)
     anim_face_morph(st->face_grp, 1000);
     set_group_text_opa(st->face_grp, LV_OPA_COVER);
     st->colon_on = -1;
+    /* 不可见的场景不该烧 tick，也必须在这里把高刷档还回去（outro 可能
+     * 还没播完就被黑幕瞬切叫停，hold/release 必须成对）。 */
+    ui_deco_live(st->deco, false);
     if (st->timer) lv_timer_pause(st->timer);
 }
 

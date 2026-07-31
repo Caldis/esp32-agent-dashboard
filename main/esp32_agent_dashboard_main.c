@@ -39,6 +39,7 @@
 #include "scene_trans.h"
 #include "perf_mon.h"
 #include "ui_glow.h"
+#include "ui_deco.h"
 #include "ui_calib.h"
 #include "nav_dots.h"
 #include "ui_motion.h"
@@ -258,6 +259,7 @@ void app_main(void)
     perf_mon_init(disp);
     ui_calib_init();          /* ?vis — 可见区原点标定尺（register 阶段） */
     ui_glow_register_cmds();  /* ?glow — 色散包络定格（同上，须在 listen 前） */
+    ui_deco_register_cmds();  /* ?deco — 机能装饰层开关/增益（同上） */
     console_protocol_init();
 
     bsp_display_lock(-1);
