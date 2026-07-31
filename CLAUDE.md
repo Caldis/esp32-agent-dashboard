@@ -111,10 +111,13 @@ only containers placed with `set_pos(0,0)` at width 466 (weather's
 wx_grp/strip_grp) and widths computed from it (`ROW_X`, `UI_CONTENT_W`)
 were wrong. Measured on 1:1 480 captures, weather 5-day strip ink centre
 233.0 → 240.0 (true 239.5); fleet card margins 28/42 → 28/28.
-Vertical is a separate open question: content is top-anchored, so the
-extra 14 px all lands at the bottom (footer caption ink ends 18 px above
-the edge where the design intended 4). Re-tuning that is a design call,
-not a correctness fix.
+Vertical is DELIBERATELY left as is — a decision, not an oversight.
+Content is top-anchored, so the extra 14 px all lands at the bottom
+(footer caption ink ends 18 px above the edge where the 466-era design
+intended 4). Reviewed on the device and it reads fine; the extra bottom
+breathing room is arguably better than the original 4 px squeeze. Do not
+"fix" it unasked: it is not a correctness defect, and changing it drags
+the whole tuned vertical rhythm with it.
 
 ## Rendering performance (hard-won, do not regress)
 - (v7.3) Three reusable facts, found while building the dispersion glow:
