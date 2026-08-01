@@ -196,6 +196,14 @@ static const deco_shape_t CLOCK_SHAPES[] = {
     { 69 + 90, 346, 12, 0, 0, DECO_FWD, DSHAPE_TRI, 6, 8 },
     { 69 +120, 346, 12, 0, 0, DECO_FWD, DSHAPE_TRI, 6, 8 },
     { 69 +150, 346, 12, 0, 0, DECO_FWD, DSHAPE_TRI, 6, 8 },
+
+    /* 46/47 两条侧轴末端的【收束人字】——轴不再突然断掉，而是收在一个
+     * 尖上。两臂关于竖直轴镜像，所以是 ∨ 形。 */
+    { 25,  254, 7, -7, OPA_TICK, DECO_FWD, DSHAPE_CHEV, 3, 0 },
+    { 454, 254, 7, -7, OPA_TICK, DECO_FWD, DSHAPE_CHEV, 3, 0 },
+    /* 48 底部基线中段的【对位斜叉】。那 130 px 空白留白是对的，但完全
+     * 空着又少一个锚点；一个 × 既是校准标记又不增加密度。 */
+    { 300, 358, 6, 3, OPA_TICK, DECO_FWD, DSHAPE_CROSS, 0, 0 },
 };
 
 /* 入场编排。四角先依次锁定 -> 基准线擦出 -> 数据逐格填入，总 ~690 ms，
@@ -224,6 +232,9 @@ static const deco_elem_t CLOCK_ELEMS[] = {
      * 点亮，与左边的 GAUGE 反向，同一条基线上两个方向。 */
     { DECO_BLOCKS, 37,  3, 540,  50, 1, UI_DECO_SLOT(1), 0 },
     { DECO_GAUGE,  40,  6, 510,  35, 0, UI_DECO_SLOT(0), 0 },
+    { DECO_BRACKET, 46, 1, 450, 160, 0, 0, DECO_DEFER },
+    { DECO_BRACKET, 47, 1, 470, 160, 0, 0, DECO_DEFER },
+    { DECO_BRACKET, 48, 1, 560, 200, 0, 0, DECO_DEFER },
 };
 
 static const ui_deco_spec_t CLOCK_SPEC = {
@@ -322,6 +333,13 @@ static const deco_shape_t DASH_SHAPES[] = {
      * 接点引出。r=5 恒定，圆角 mask 的键因此稳定。 */
     { 66, 113, 5, 2, OPA_BLOCK, DECO_FWD, DSHAPE_DOT, 0, 0 },
     { 66, 375, 5, 2, OPA_BLOCK, DECO_FWD, DSHAPE_DOT, 0, 0 },
+
+    /* 50/51 斜线束两端的【对位斜叉】：给那段剖面标出起止，和 crop mark
+     * 是同一族语汇。52 下带块组末尾的【节点菱形】——菱形读作枢纽，与
+     * 圆环（端子）分工不同。 */
+    { 192, 113, 5, 3, OPA_TICK,  DECO_FWD, DSHAPE_CROSS, 0, 0 },
+    { 302, 113, 5, 3, OPA_TICK,  DECO_FWD, DSHAPE_CROSS, 0, 0 },
+    { 160, 375, 5, 5, OPA_BLOCK, DECO_FWD, DSHAPE_DIAMOND, 0, 0 },
 };
 
 static const deco_elem_t DASH_ELEMS[] = {
@@ -346,8 +364,10 @@ static const deco_elem_t DASH_ELEMS[] = {
     /* 斜线束当 TICKS 演：逐条瞬亮 + 停留期一道扫描掠过，正是剖面线该有
      * 的读法（一条条画上去，不是整块淡入）。 */
     { DECO_TICKS,   42, 6, 350,  40, 0, 0, 0 },
-    { DECO_BLOCKS,  48, 1, 150, 120, 0, 0, 0 },
-    { DECO_BLOCKS,  49, 1, 360, 120, 0, 0, 0 },
+    { DECO_BLOCKS,  48, 1, 150, 120, 0, 0, DECO_DEFER },
+    { DECO_BLOCKS,  49, 1, 360, 120, 0, 0, DECO_DEFER },
+    { DECO_BRACKET, 50, 2, 390, 160, 0, 0, DECO_DEFER },
+    { DECO_BLOCKS,  52, 1, 520, 120, 0, 0, DECO_DEFER },
 };
 
 static const ui_deco_spec_t DASH_SPEC = {
@@ -395,7 +415,7 @@ static const deco_shape_t WX_SHAPES[] = {
      * 完全盖住。这块屏的【外圈 46 px 属于状态辉光】，装饰不能进。
      * 改放插画底（278）与五日条带顶（306）之间那条 28 px 的缝：既避开
      * 辉光，又顺手成了"当下"与"预报"两区的分隔线，有结构意义。 */
-    { 100, 293, 280, DECO_HAIR, OPA_HAIR, DECO_FWD, 0, 0, 0 },
+    { 100, 293, 140, DECO_HAIR, OPA_HAIR, DECO_FWD, 0, 0, 0 },
     /* 11-16 中缝 GAUGE —— 槽 0 = 一天的时段（4 小时/格） */
     { 100, 289, 20, 4, 0, DECO_FWD, 0, 0, 0 },
     { 126, 289, 20, 4, 0, DECO_FWD, 0, 0, 0 },
@@ -409,6 +429,13 @@ static const deco_shape_t WX_SHAPES[] = {
     { 356, 289,  8, 4, OPA_TICK, DECO_FWD, 0, 0, 0 },
     /* 20 中缝线右端外的【观测圆环】——把这条分隔线收在一个点上。 */
     { 400, 292, 6, 2, OPA_TICK, DECO_FWD, DSHAPE_DOT, 0, 0 },
+
+    /* 21 中缝的右半段改【虚线】。这一页左边是当下（实测），右边是五日
+     * 预报（推断）——虚线在制图里正是"推断/参考"的意思，语义与版面刚好
+     * 对上，是这一层少见的形状与内容同构的地方。
+     * 22 实线转虚线的交界点放一个【菱形】：那个点就是"现在"。 */
+    { 240, 294, 140, 0, OPA_HAIR, DECO_FWD, DSHAPE_LINE, 2, 6 },
+    { 240, 293, 5, 5, OPA_BLOCK, DECO_FWD, DSHAPE_DIAMOND, 0, 0 },
 };
 
 static const deco_elem_t WX_ELEMS[] = {
@@ -423,7 +450,9 @@ static const deco_elem_t WX_ELEMS[] = {
     { DECO_LINE,   10,  1, 380, 220, 0, 0, 0 },
     { DECO_GAUGE,  11,  6, 470,  35, 0, UI_DECO_SLOT(0), 0 },
     { DECO_BLOCKS, 17,  3, 530,  50, 1, 0, 0 },
-    { DECO_BLOCKS, 20,  1, 560, 120, 0, 0, 0 },
+    { DECO_BLOCKS, 20,  1, 560, 120, 0, 0, DECO_DEFER },
+    { DECO_LINE,   21,  1, 420, 240, 0, 0, DECO_DEFER },
+    { DECO_BLOCKS, 22,  1, 500, 120, 0, 0, DECO_DEFER },
 };
 
 static const ui_deco_spec_t WX_SPEC = {
@@ -564,6 +593,26 @@ static void shape_bbox(const deco_shape_t *sh, lv_area_t *o)
         o->x1 = sh->x - sh->w; o->y1 = sh->y - sh->w;
         o->x2 = sh->x + sh->w; o->y2 = sh->y + sh->w;
         break;
+    case DSHAPE_CHEV: {
+        int32_t pad = (sh->a ? sh->a : 2) + 1;
+        o->x1 = sh->x - LV_ABS(sh->w) - pad;
+        o->y1 = LV_MIN(sh->y, sh->y + sh->h) - pad;
+        o->x2 = sh->x + LV_ABS(sh->w) + pad;
+        o->y2 = LV_MAX(sh->y, sh->y + sh->h) + pad;
+        break;
+    }
+    case DSHAPE_CROSS: {
+        int32_t pad = (sh->h ? sh->h : 2) + 1;
+        o->x1 = sh->x - sh->w - pad; o->y1 = sh->y - sh->w - pad;
+        o->x2 = sh->x + sh->w + pad; o->y2 = sh->y + sh->w + pad;
+        break;
+    }
+    case DSHAPE_DIAMOND: {
+        int32_t hh = sh->h ? sh->h : sh->w;
+        o->x1 = sh->x - sh->w; o->y1 = sh->y - hh;
+        o->x2 = sh->x + sh->w; o->y2 = sh->y + hh;
+        break;
+    }
     default:
         o->x1 = sh->x; o->y1 = sh->y;
         o->x2 = sh->x + sh->w - 1; o->y2 = sh->y + sh->h - 1;
@@ -574,6 +623,22 @@ static void shape_bbox(const deco_shape_t *sh, lv_area_t *o)
  *   RECT 沿长轴裁剪 / LINE 终点插值 / ARC 扫角 / TRI、DOT 到点即现。
  * rdsc 由调用方初始化一次复用（lv_draw_rect_dsc_t 很大，逐个 memset
  * 是白花钱）；line/arc/tri 的 dsc 在分支内声明，栈峰值只有一个。 */
+/* 画一条线段。LINE / CHEV / CROSS 共用；dash>0 走 LVGL 原生虚线。 */
+static void draw_seg(lv_layer_t *layer, lv_color_t col, lv_opa_t opa,
+                     int32_t width, int32_t dash,
+                     int32_t x1, int32_t y1, int32_t x2, int32_t y2)
+{
+    lv_draw_line_dsc_t ld;
+    lv_draw_line_dsc_init(&ld);
+    ld.color = col;
+    ld.opa   = opa;
+    ld.width = width ? width : 2;
+    if (dash > 0) { ld.dash_width = dash; ld.dash_gap = dash; }
+    ld.p1.x = x1; ld.p1.y = y1;
+    ld.p2.x = x2; ld.p2.y = y2;
+    lv_draw_line(layer, &ld);
+}
+
 static void draw_shape(lv_layer_t *layer, const lv_area_t *clip,
                        lv_draw_rect_dsc_t *rdsc, lv_color_t col,
                        const deco_shape_t *sh, bool grow, int32_t p,
@@ -588,13 +653,7 @@ static void draw_shape(lv_layer_t *layer, const lv_area_t *clip,
         lv_area_t bb = { LV_MIN(sh->x, ex) - pad, LV_MIN(sh->y, ey) - pad,
                          LV_MAX(sh->x, ex) + pad, LV_MAX(sh->y, ey) + pad };
         if (!on_clip(&bb, clip)) return;
-        lv_draw_line_dsc_t ld;
-        lv_draw_line_dsc_init(&ld);
-        ld.color = col;  ld.opa = opa;
-        ld.width = sh->a ? sh->a : 2;
-        ld.p1.x = sh->x; ld.p1.y = sh->y;
-        ld.p2.x = ex;    ld.p2.y = ey;
-        lv_draw_line(layer, &ld);
+        draw_seg(layer, col, opa, sh->a, sh->b, sh->x, sh->y, ex, ey);
         return;
     }
     case DSHAPE_ARC: {
@@ -640,6 +699,62 @@ static void draw_shape(lv_layer_t *layer, const lv_area_t *clip,
         lv_draw_rect(layer, rdsc, &bb);
         rdsc->radius     = 0;          /* 还原共享的 dsc */
         rdsc->border_opa = LV_OPA_TRANSP;
+        return;
+    }
+    case DSHAPE_CHEV: {
+        /* 两臂自尖端生长——与 BRACKET 同一个手势，只是带角度。 */
+        int32_t ax = grow ? sh->w * p / 1000 : sh->w;
+        int32_t ay = grow ? sh->h * p / 1000 : sh->h;
+        if (ax == 0 && ay == 0) return;
+        int32_t pad = (sh->a ? sh->a : 2) + 1;
+        lv_area_t bb = { sh->x - LV_ABS(sh->w) - pad,
+                         LV_MIN(sh->y, sh->y + sh->h) - pad,
+                         sh->x + LV_ABS(sh->w) + pad,
+                         LV_MAX(sh->y, sh->y + sh->h) + pad };
+        if (!on_clip(&bb, clip)) return;
+        draw_seg(layer, col, opa, sh->a, 0, sh->x, sh->y, sh->x + ax, sh->y + ay);
+        draw_seg(layer, col, opa, sh->a, 0, sh->x, sh->y, sh->x - ax, sh->y + ay);
+        return;
+    }
+    case DSHAPE_CROSS: {
+        int32_t r = grow ? sh->w * p / 1000 : sh->w;   /* 四臂自中心张开 */
+        if (r <= 0) return;
+        lv_area_t bb; shape_bbox(sh, &bb);
+        if (!on_clip(&bb, clip)) return;
+        if (sh->a) {                                    /* 斜叉：真画线 */
+            draw_seg(layer, col, opa, sh->h, 0, sh->x - r, sh->y - r,
+                     sh->x + r, sh->y + r);
+            draw_seg(layer, col, opa, sh->h, 0, sh->x - r, sh->y + r,
+                     sh->x + r, sh->y - r);
+        } else {
+            /* 正十字【不需要抗锯齿线】——它就是两个轴对齐矩形，走最便宜
+             * 的 fill 路径。这块板上 AA 线是最贵的绘制之一（weather 那
+             * 30 条线的教训），能用 rect 表达的形状就不要交给 draw_line。
+             * 作为对位标记 + 与 × 语义等价，所以谱里默认用正十字。 */
+            int32_t hw = (sh->h ? sh->h : 2) / 2;
+            if (hw < 1) hw = 1;
+            lv_area_t ah = { sh->x - r, sh->y - hw, sh->x + r, sh->y + hw };
+            lv_area_t av = { sh->x - hw, sh->y - r, sh->x + hw, sh->y + r };
+            rdsc->bg_opa = opa;
+            lv_draw_rect(layer, rdsc, &ah);
+            lv_draw_rect(layer, rdsc, &av);
+        }
+        return;
+    }
+    case DSHAPE_DIAMOND: {
+        if (p <= 0) return;                    /* 实心块不生长，到点即现 */
+        lv_area_t bb; shape_bbox(sh, &bb);
+        if (!on_clip(&bb, clip)) return;
+        int32_t hh = sh->h ? sh->h : sh->w;
+        lv_draw_triangle_dsc_t td;
+        lv_draw_triangle_dsc_init(&td);
+        td.color = col;  td.opa = opa;
+        td.p[0].x = sh->x;         td.p[0].y = sh->y - hh;
+        td.p[1].x = sh->x - sh->w; td.p[1].y = sh->y;
+        td.p[2].x = sh->x + sh->w; td.p[2].y = sh->y;
+        lv_draw_triangle(layer, &td);
+        td.p[0].y = sh->y + hh;
+        lv_draw_triangle(layer, &td);
         return;
     }
     default: break;
