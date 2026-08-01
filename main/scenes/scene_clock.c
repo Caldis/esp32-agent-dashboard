@@ -545,6 +545,7 @@ static void clock_tick(lv_timer_t *t)
     status_bar_format_time(buf, sizeof(buf), s);
     /* 锁内读（agent_state_active_count 自己不加锁，假定调用者持有）。 */
     int n_active = agent_state_active_count();
+    int attn     = agent_state_attention();
 
     /* Running-set edge detection (data-driven; only ever runs while the
      * clock is the visible scene, so a push means the event happened
@@ -607,6 +608,9 @@ static void clock_tick(lv_timer_t *t)
      * 事件，让四角"重锁定"闪一下——装饰因此不只是按表演出，而是对世界
      * 有反应。 */
     ui_deco_set_slot(st->deco, 1, n_active);
+    /* 装饰层用【节奏】表达设备状态（颜色是内容层的事）：空闲近乎静默、
+     * 该你了时整层提亮加快。 */
+    ui_deco_set_pace(st->deco, (uint8_t)attn);
     if (n_active != st->deco_active) {
         st->deco_active = n_active;
         ui_deco_pulse(st->deco);

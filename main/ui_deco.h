@@ -132,6 +132,13 @@ void ui_deco_set_slot(ui_deco_t *d, int slot, int v);
  * 从"按表演出"变成"对世界有反应"。 */
 void ui_deco_pulse(ui_deco_t *d);
 
+/* 设备"注意力等级"（agent_state.h 的 AGENT_ATTN_*）。装饰层【不碰颜色】
+ * ——颜色跟随 STATE 是设备级契约——所以它用【时间维度】表达同一个状态：
+ * 空闲时压暗放慢到近乎静默，思考时正常呼吸，该你了时提亮加快。颜色归
+ * 内容层，节奏归装饰层，两层各说各的。
+ * 零新增形状、零新增 draw call，只改 opa 乘数和几个周期常数。 */
+void ui_deco_set_pace(ui_deco_t *d, uint8_t attn);
+
 /* 切换姿态位（见 deco_elem_t.mask）。不在新姿态里的元素就地退场、新进
  * 场的就地生长，走的是与转场同一套动效。内部去重。 */
 void ui_deco_set_state(ui_deco_t *d, uint8_t state);

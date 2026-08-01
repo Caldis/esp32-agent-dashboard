@@ -297,6 +297,14 @@ int agent_state_other_awaiting_count(const agent_slot_t *anchor);
  * agents Claude Code itself lists as "completed". Lock held. */
 int agent_state_active_count(void);
 
+/* 设备级"注意力等级"：2 = 有 agent 在等你、1 = 有 agent 在跑、0 = 空闲。
+ * 与状态色是同一件事的两种读法（gold / teal / dim），供不该碰颜色的图层
+ * （ui_deco）用【节奏和亮度】表达同一个状态。调用方需持锁。 */
+#define AGENT_ATTN_IDLE   0
+#define AGENT_ATTN_BUSY   1
+#define AGENT_ATTN_ALERT  2
+int agent_state_attention(void);
+
 /* v2.3.0: parse a kind string from the wire snapshot (`"approve"`,
  * `"pick"`, etc.) into the enum. Returns AWAITING_NONE on unknown. */
 awaiting_kind_t agent_state_parse_awaiting_kind(const char *s);

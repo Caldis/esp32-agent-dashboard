@@ -826,7 +826,10 @@ static void weather_tick(lv_timer_t *t)
     wx = s->weather;                       /* 结构体拷贝，锁外使用 */
     (void)local_now(s, &tz_epoch);
     st->motion_ok = !s->motion_reduced;
+    int attn = agent_state_attention();
     agent_state_unlock();
+
+    ui_deco_set_pace(st->deco, (uint8_t)attn);
 
     /* 装饰层底部 GAUGE 的槽 0 = 一天走到哪个时段（4 小时/格）。这一页
      * 讲的就是"天"，所以它的真值是时段而不是分钟。hhmm 恒为 "HH:MM"

@@ -612,12 +612,14 @@ static void tick(lv_timer_t *t)
     else if (fleet)           render_fleet(d, st);
     else                      render_ambient(d, st);
     int n_slots = st->slot_count;
+    int attn    = agent_state_attention();
     agent_state_unlock();
 
     /* 装饰跟着姿态走：fleet 时卡片把 y134..360 全占满，中央夹持括号和
      * 两条侧轴就地退场，只留四角 + 上下带。这不是省性能，是【负空间】
      * ——四行卡片已经填满画面，再贴装饰就没有喘息了。 */
     ui_deco_set_state(d->deco, fleet ? DASH_ST_FLEET : DASH_ST_AMBIENT);
+    ui_deco_set_pace(d->deco, (uint8_t)attn);
 
     /* 装饰层的两个读数（LVGL 写入放在锁外）：上带左端的【块数】= 在册
      * 会话数，右端的【液面】= 活跃数。两者一起把"这台机器现在扛着多少

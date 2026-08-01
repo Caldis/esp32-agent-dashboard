@@ -73,6 +73,7 @@
 #include "ui_screen.h"
 #include "ui_motion.h"
 #include "theme.h"
+#include "agent_state.h"
 
 #include "harness/console_protocol.h"
 #include "bsp/esp-bsp.h"
@@ -505,6 +506,7 @@ struct ui_deco {
     int                   slot[UI_DECO_SLOT_N];   /* 场景写入的真值 */
     uint8_t               pulse_left;             /* 事件脉冲剩余拍数 */
     uint8_t               state;                  /* 当前姿态位 */
+    uint8_t               pace;                   /* AGENT_ATTN_*：节奏档 */
     bool                  morphing;               /* 有元素正在进/退场 */
     deco_rt_t             e[DECO_ELEM_MAX];
 };
@@ -537,9 +539,19 @@ static bool     s_on    = true;
 static uint8_t  s_gain  = 255;
 static int32_t  s_freeze = -1;      /* >=0: 入场包络定格在这一毫秒 */
 
-static inline lv_opa_t gained(int32_t base)
+/* ── 节奏档（idle / busy / alert）────────────────────────────────────
+ * 同一个设备状态，内容层用颜色说（金/teal/暗），装饰层用【时间】说。
+ * 空闲时压到七成亮度、重锁定 9 s 一次，几乎不出声；该你了时提到 1.25 倍
+ * 并把周期压到 2.4 s，整层明显"急"起来——不用借一丝颜色。 */
+static const uint8_t  PACE_BRK[3]   = { 45, 30, 12 };  /* 重锁定周期（拍） */
+static const uint8_t  PACE_PAUSE[3] = { 20, 12,  4 };  /* 扫描/掠过的静默 */
+/* 亮度乘数（/255）。alert 档要【提亮】所以超过 255，用 uint16 避免截断。 */
+static const uint16_t PACE_MUL[3]   = { 180, 255, 320 };
+
+static lv_opa_t gained(const struct ui_deco *d, int32_t base)
 {
     if (base < 0) base = 0;
+    base = base * PACE_MUL[d->pace < 3 ? d->pace : 1] / 255;
     if (base > 255) base = 255;
     return (lv_opa_t)(base * s_gain / 255);
 }
@@ -809,14 +821,15 @@ static int16_t live_phase(const struct ui_deco *d, const deco_elem_t *el,
          * 四个角标是四个元素，靠同一个 tick 天然同步。
          * pulse_left 让【真事件】也能触发同一下闪——定时闪是底噪，事件
          * 闪才让这层从"按表演出"变成"对世界有反应"。 */
-        return (int16_t)((tick % 30 < 2) || d->pulse_left > 0);
+        return (int16_t)((tick % PACE_BRK[d->pace < 3 ? d->pace : 1] < 2)
+                         || d->pulse_left > 0);
     case DECO_LINE: {
         /* 一道亮段沿线掠过，走完停一段再来。步长以【拍】计，所以它是
          * 跳着走的——机械语法要的就是阶跃，读作数据包在传输。
          * 暂停期把相位【钳住】而不是继续递增：ph 不变 = 签名不变 =
          * flush_dirty 不失效。否则这条线会在什么都没变的 14 拍里每拍
          * 失效一次 656 px。 */
-        int32_t ph = (int32_t)(tick % 30);
+        int32_t ph = (int32_t)(tick % (uint32_t)(16 + PACE_PAUSE[d->pace < 3 ? d->pace : 1]));
         return (int16_t)(ph < 16 ? ph : 16);
     }
     case DECO_BLOCKS: {
@@ -828,7 +841,7 @@ static int16_t live_phase(const struct ui_deco *d, const deco_elem_t *el,
     }
     case DECO_TICKS: {
         /* 一道扫描沿刻度组推进，走完停 12 拍（暂停期同样钳住相位）。 */
-        int32_t ph = (int32_t)(tick % (uint32_t)(el->rn + 12));
+        int32_t ph = (int32_t)(tick % (uint32_t)(el->rn + PACE_PAUSE[d->pace < 3 ? d->pace : 1]));
         return (int16_t)(ph < el->rn ? ph : el->rn);
     }
     case DECO_GAUGE:
@@ -913,7 +926,7 @@ static void draw_cb(lv_event_t *e)
                 }
             }
 
-            lv_opa_t o = gained(opa);
+            lv_opa_t o = gained(d, opa);
             if (o == 0) continue;
             draw_shape(layer, clip, &dsc, col, r,
                        arch_is_grow(el->arch), rt->p, o);
@@ -936,7 +949,7 @@ static void draw_cb(lv_event_t *e)
                     : (lv_area_t){ r->x, r->y + at, r->x + r->w - 1, r->y + at + seg - 1 };
                 if (!(a.x1 > clip->x2 || a.x2 < clip->x1 ||
                       a.y1 > clip->y2 || a.y2 < clip->y1)) {
-                    dsc.bg_opa = gained((int32_t)r->opa * 5 / 2);
+                    dsc.bg_opa = gained(d, (int32_t)r->opa * 5 / 2);
                     if (dsc.bg_opa) lv_draw_rect(layer, &dsc, &a);
                 }
             }
@@ -1128,6 +1141,7 @@ ui_deco_t *ui_deco_attach(lv_obj_t *parent, const ui_deco_spec_t *spec)
     memset(d, 0, sizeof(*d));
     d->spec  = spec;
     d->phase = PH_HIDDEN;
+    d->pace  = AGENT_ATTN_BUSY;          /* 场景 tick 第一拍就会校正 */
     for (int i = 0; i < UI_DECO_SLOT_N; ++i) d->slot[i] = -1;
 
     /* 置底。注意不能挂 lv_layer_bottom()：scene_framework 给每个场景根画
@@ -1261,6 +1275,15 @@ void ui_deco_set_state(ui_deco_t *d, uint8_t state)
         lv_timer_set_period(s_timer, TICK_ANIM_MS);
         lv_timer_resume(s_timer);
     }
+}
+
+void ui_deco_set_pace(ui_deco_t *d, uint8_t attn)
+{
+    if (!d || attn > 2 || d->pace == attn) return;
+    d->pace = attn;
+    /* 亮度乘数变了 = 整层视觉都变了，只能整块失效一次。节奏切换很稀疏
+     * （空闲↔思考↔该你了），不在热路径上。 */
+    if (d->phase != PH_HIDDEN) lv_obj_invalidate(d->obj);
 }
 
 void ui_deco_pulse(ui_deco_t *d)
