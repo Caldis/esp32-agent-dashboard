@@ -56,3 +56,10 @@ fonts/MPLUSRounded1c-Black.ttf
 .harness/
 .artifacts/
 /*.png
+
+# Perf bench runs — trans_bench.py / deco_audit.py write one JSON per run and
+# they pile up fast (one A/B pair per iteration). Only the BASELINES are
+# source: `--compare baseline` resolves against a committed *baseline*.json,
+# so those stay tracked and every other run is throwaway.
+tools/perf/results/*.json
+!tools/perf/results/*baseline*.json
