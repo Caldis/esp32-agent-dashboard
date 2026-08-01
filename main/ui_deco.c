@@ -116,7 +116,7 @@
 /* ── clock 谱 ────────────────────────────────────────────────────────
  * 矩形表【按元素分组】排列，元素表用切片引用它。分布是刻意做成高方差
  * 的：顶部左密右疏，底部左动右静、中间隔 130 px 空白。 */
-static const deco_rect_t CLOCK_RECTS[] = {
+static const deco_shape_t CLOCK_SHAPES[] = {
     /* 0-11 角标：**L 臂 + 一段分离的延伸刻度**（每角 3 条）。
      * 三张谱的角标形态【刻意各不相同】——它们原本是同一份 8 矩形拷贝，
      * 三个页面因此长得像同一张模板。这一版按各页语义分化：
@@ -124,68 +124,78 @@ static const deco_rect_t CLOCK_RECTS[] = {
      *   dashboard 方括号 [ ]     —— 数据框、通道
      *   weather   单臂交替       —— 最轻、不对称、自然
      * 分度延伸与 L 臂之间留 8 px 缝，读作"角标之后还有一段尺"。 */
-    { BRK_INSET, BRK_INSET, BRK_ARM, DECO_STROKE, OPA_BRK, DECO_FWD },
-    { BRK_INSET, BRK_INSET, DECO_STROKE, BRK_ARM, OPA_BRK, DECO_FWD },
-    { 70, 32, 12, DECO_STROKE, OPA_BRK, DECO_FWD },
-    { 418, 32, BRK_ARM, DECO_STROKE, OPA_BRK, DECO_REV },
-    { 444, 32, DECO_STROKE, BRK_ARM, OPA_BRK, DECO_FWD },
-    { 398, 32, 12, DECO_STROKE, OPA_BRK, DECO_REV },
-    { 32, 444, BRK_ARM, DECO_STROKE, OPA_BRK, DECO_FWD },
-    { 32, 418, DECO_STROKE, BRK_ARM, OPA_BRK, DECO_REV },
-    { 70, 444, 12, DECO_STROKE, OPA_BRK, DECO_FWD },
-    { 418, 444, BRK_ARM, DECO_STROKE, OPA_BRK, DECO_REV },
-    { 444, 418, DECO_STROKE, BRK_ARM, OPA_BRK, DECO_REV },
-    { 398, 444, 12, DECO_STROKE, OPA_BRK, DECO_REV },
+    { BRK_INSET, BRK_INSET, BRK_ARM, DECO_STROKE, OPA_BRK, DECO_FWD, 0, 0, 0 },
+    { BRK_INSET, BRK_INSET, DECO_STROKE, BRK_ARM, OPA_BRK, DECO_FWD, 0, 0, 0 },
+    { 76, 76, 62, 3, OPA_BRK, DECO_FWD, DSHAPE_ARC, 200, 250 },
+    { 418, 32, BRK_ARM, DECO_STROKE, OPA_BRK, DECO_REV, 0, 0, 0 },
+    { 444, 32, DECO_STROKE, BRK_ARM, OPA_BRK, DECO_FWD, 0, 0, 0 },
+    { 404, 76, 62, 3, OPA_BRK, DECO_FWD, DSHAPE_ARC, 290, 340 },
+    { 32, 444, BRK_ARM, DECO_STROKE, OPA_BRK, DECO_FWD, 0, 0, 0 },
+    { 32, 418, DECO_STROKE, BRK_ARM, OPA_BRK, DECO_REV, 0, 0, 0 },
+    { 76, 404, 62, 3, OPA_BRK, DECO_FWD, DSHAPE_ARC, 110, 160 },
+    { 418, 444, BRK_ARM, DECO_STROKE, OPA_BRK, DECO_REV, 0, 0, 0 },
+    { 444, 418, DECO_STROKE, BRK_ARM, OPA_BRK, DECO_REV, 0, 0, 0 },
+    { 404, 404, 62, 3, OPA_BRK, DECO_FWD, DSHAPE_ARC, 20, 70 },
 
     /* 12   LINE 顶部基准线，横贯 76..404（与面板圆角的直边段同起止）。
      * v7.5 放在 y=96：上方 92 px 全空，实机上读作【悬在半空的一横】。
      * 上移到 64 之后贴住顶缘，与大钟、底部基线形成三层，也不再和 push
      * 卡退到顶槽位的小钟（墨迹中心 ~85）打架。 */
-    { 76, 65, 328, DECO_HAIR, OPA_HAIR, DECO_FWD },
+    { 76, 65, 328, DECO_HAIR, OPA_HAIR, DECO_FWD, 0, 0, 0 },
 
     /* 13-18 BLOCKS 顶部分段块：宽度不等才读作编号，左密右疏给出方向性 */
-    { 76,  61, 28, 10, OPA_BLOCK, DECO_FWD },
-    { 111, 61, 10, 10, OPA_BLOCK, DECO_FWD },
-    { 128, 61, 18, 10, OPA_BLOCK, DECO_FWD },
-    { 153, 61, 36, 10, OPA_BLOCK, DECO_FWD },
-    { 196, 61, 14, 10, OPA_BLOCK, DECO_FWD },
-    { 217, 61, 24, 10, OPA_BLOCK, DECO_FWD },
+    { 76,  61, 28, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
+    { 111, 61, 10, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
+    { 128, 61, 18, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
+    { 153, 61, 36, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
+    { 196, 61, 14, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
+    { 217, 61, 24, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
 
     /* 19-23 TICKS 顶部右端刻度：5 根，表里从右往左排，点亮也从右往左 */
-    { 401, 60, 3, 12, OPA_TICK, DECO_FWD },
-    { 389, 60, 3, 12, OPA_TICK, DECO_FWD },
-    { 377, 60, 3, 12, OPA_TICK, DECO_FWD },
-    { 365, 60, 3, 12, OPA_TICK, DECO_FWD },
-    { 353, 60, 3, 12, OPA_TICK, DECO_FWD },
+    { 401, 60, 3, 12, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 389, 60, 3, 12, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 377, 60, 3, 12, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 365, 60, 3, 12, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 353, 60, 3, 12, OPA_TICK, DECO_FWD, 0, 0, 0 },
 
     /* 24    LINE 左侧轴（自上而下生长）
      * 25-27 TICKS 左侧齿：3 根，长度不等
      * 两侧【刻意不对称】（左 3 齿右 2 齿、长度不同）——镜像对称读成装饰
      * 花边，错位才读成机能。实机上它俩合起来像一对方括号夹住大钟。 */
-    { 24, 176, 3, 66, OPA_TICK, DECO_FWD },
-    { 24, 176, 13, 3, OPA_TICK, DECO_FWD },
-    { 24, 205,  9, 3, OPA_TICK, DECO_FWD },
-    { 24, 239, 13, 3, OPA_TICK, DECO_FWD },
+    { 24, 176, 3, 66, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 24, 176, 13, 3, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 24, 205,  9, 3, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 24, 239, 13, 3, OPA_TICK, DECO_FWD, 0, 0, 0 },
 
     /* 28    LINE 右侧轴（自下而上生长 —— 与左侧反向，又一处不对称）
      * 29-30 TICKS 右侧齿：2 根 */
-    { 453, 192, 3, 54, OPA_TICK, DECO_REV },
-    { 444, 192, 12, 3, OPA_TICK, DECO_FWD },
-    { 444, 243, 12, 3, OPA_TICK, DECO_FWD },
+    { 453, 192, 3, 54, OPA_TICK, DECO_REV, 0, 0, 0 },
+    { 444, 192, 12, 3, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 444, 243, 12, 3, OPA_TICK, DECO_FWD, 0, 0, 0 },
 
     /* 31-36 GAUGE 分钟条（opa 由真值现算，表里的值不用） */
-    { SEG_X0 + 0 * SEG_PITCH, SEG_Y, SEG_W, SEG_H, 0, DECO_FWD },
-    { SEG_X0 + 1 * SEG_PITCH, SEG_Y, SEG_W, SEG_H, 0, DECO_FWD },
-    { SEG_X0 + 2 * SEG_PITCH, SEG_Y, SEG_W, SEG_H, 0, DECO_FWD },
-    { SEG_X0 + 3 * SEG_PITCH, SEG_Y, SEG_W, SEG_H, 0, DECO_FWD },
-    { SEG_X0 + 4 * SEG_PITCH, SEG_Y, SEG_W, SEG_H, 0, DECO_FWD },
-    { SEG_X0 + 5 * SEG_PITCH, SEG_Y, SEG_W, SEG_H, 0, DECO_FWD },
+    { SEG_X0 + 0 * SEG_PITCH, SEG_Y, SEG_W, SEG_H, 0, DECO_FWD, 0, 0, 0 },
+    { SEG_X0 + 1 * SEG_PITCH, SEG_Y, SEG_W, SEG_H, 0, DECO_FWD, 0, 0, 0 },
+    { SEG_X0 + 2 * SEG_PITCH, SEG_Y, SEG_W, SEG_H, 0, DECO_FWD, 0, 0, 0 },
+    { SEG_X0 + 3 * SEG_PITCH, SEG_Y, SEG_W, SEG_H, 0, DECO_FWD, 0, 0, 0 },
+    { SEG_X0 + 4 * SEG_PITCH, SEG_Y, SEG_W, SEG_H, 0, DECO_FWD, 0, 0, 0 },
+    { SEG_X0 + 5 * SEG_PITCH, SEG_Y, SEG_W, SEG_H, 0, DECO_FWD, 0, 0, 0 },
 
     /* 37-39 BLOCKS 底部右端：与 GAUGE 同一条基线，但靠右、恒定、暗。
      * 同一条线上左动右静、左亮右暗、左匀右不匀——这才是要的高方差。 */
-    { 369, SEG_Y,  8, SEG_H, OPA_TICK, DECO_FWD },
-    { 383, SEG_Y, 20, SEG_H, OPA_TICK, DECO_FWD },
-    { 409, SEG_Y,  8, SEG_H, OPA_TICK, DECO_FWD },
+    { 369, SEG_Y,  8, SEG_H, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 383, SEG_Y, 20, SEG_H, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 409, SEG_Y,  8, SEG_H, OPA_TICK, DECO_FWD, 0, 0, 0 },
+
+    /* 40-45 分钟条的【游标三角】：每格一个，接同一个槽，靠 GAUGE 原型
+     * 的三档 opa 只让当前格那个亮起来——于是"指针"这件事不需要任何动态
+     * 坐标，静态表 + 真值就够了。指向下，压在格子上方 8 px。 */
+    { 69 +  0, 346, 12, 0, 0, DECO_FWD, DSHAPE_TRI, 6, 8 },
+    { 69 + 30, 346, 12, 0, 0, DECO_FWD, DSHAPE_TRI, 6, 8 },
+    { 69 + 60, 346, 12, 0, 0, DECO_FWD, DSHAPE_TRI, 6, 8 },
+    { 69 + 90, 346, 12, 0, 0, DECO_FWD, DSHAPE_TRI, 6, 8 },
+    { 69 +120, 346, 12, 0, 0, DECO_FWD, DSHAPE_TRI, 6, 8 },
+    { 69 +150, 346, 12, 0, 0, DECO_FWD, DSHAPE_TRI, 6, 8 },
 };
 
 /* 入场编排。四角先依次锁定 -> 基准线擦出 -> 数据逐格填入，总 ~690 ms，
@@ -213,10 +223,11 @@ static const deco_elem_t CLOCK_ELEMS[] = {
     /* 槽 1 = 活跃 agent 数：亮着的【块数】就是读数。rev 让它从右往左
      * 点亮，与左边的 GAUGE 反向，同一条基线上两个方向。 */
     { DECO_BLOCKS, 37,  3, 540,  50, 1, UI_DECO_SLOT(1), 0 },
+    { DECO_GAUGE,  40,  6, 510,  35, 0, UI_DECO_SLOT(0), 0 },
 };
 
 static const ui_deco_spec_t CLOCK_SPEC = {
-    CLOCK_RECTS, (uint8_t)(sizeof(CLOCK_RECTS) / sizeof(CLOCK_RECTS[0])),
+    CLOCK_SHAPES, (uint8_t)(sizeof(CLOCK_SHAPES) / sizeof(CLOCK_SHAPES[0])),
     CLOCK_ELEMS, (uint8_t)(sizeof(CLOCK_ELEMS) / sizeof(CLOCK_ELEMS[0])),
 };
 
@@ -230,70 +241,87 @@ const ui_deco_spec_t *ui_deco_spec_clock(void) { return &CLOCK_SPEC; }
  *                      横带整条是空的；
  *   下带 y 368..384 —— 安全带下沿 360，footer 数字从 392 起。
  * 两条带都接真状态，这一页因此是三张谱里"仪表感"最强的。 */
-static const deco_rect_t DASH_RECTS[] = {
+static const deco_shape_t DASH_SHAPES[] = {
     /* 0-11 角标：**方括号 [ ]**（竖轴 + 上下两个短横），不是 clock 那种
      * crop mark。这一页的语义是"框住数据通道"，方括号正是那个语汇；
      * 而且它把重复率最高的那份 8 矩形拷贝彻底换掉了。
      * nav_dots 在 y=20 的 x 110/240/370，与之不重叠。 */
-    { 32,  32,  4, 34, OPA_BRK, DECO_FWD },
-    { 32,  32, 16,  4, OPA_BRK, DECO_FWD },
-    { 32,  62, 16,  4, OPA_BRK, DECO_FWD },
-    { 444, 32,  4, 34, OPA_BRK, DECO_FWD },
-    { 432, 32, 16,  4, OPA_BRK, DECO_REV },
-    { 432, 62, 16,  4, OPA_BRK, DECO_REV },
-    { 32,  414, 4, 34, OPA_BRK, DECO_REV },
-    { 32,  414, 16, 4, OPA_BRK, DECO_FWD },
-    { 32,  444, 16, 4, OPA_BRK, DECO_FWD },
-    { 444, 414, 4, 34, OPA_BRK, DECO_REV },
-    { 432, 414, 16, 4, OPA_BRK, DECO_REV },
-    { 432, 444, 16, 4, OPA_BRK, DECO_REV },
+    { 32,  32,  4, 34, OPA_BRK, DECO_FWD, 0, 0, 0 },
+    { 32,  32, 16,  4, OPA_BRK, DECO_FWD, 0, 0, 0 },
+    { 32,  62, 16,  4, OPA_BRK, DECO_FWD, 0, 0, 0 },
+    { 444, 32,  4, 34, OPA_BRK, DECO_FWD, 0, 0, 0 },
+    { 432, 32, 16,  4, OPA_BRK, DECO_REV, 0, 0, 0 },
+    { 432, 62, 16,  4, OPA_BRK, DECO_REV, 0, 0, 0 },
+    { 32,  414, 4, 34, OPA_BRK, DECO_REV, 0, 0, 0 },
+    { 32,  414, 16, 4, OPA_BRK, DECO_FWD, 0, 0, 0 },
+    { 32,  444, 16, 4, OPA_BRK, DECO_FWD, 0, 0, 0 },
+    { 444, 414, 4, 34, OPA_BRK, DECO_REV, 0, 0, 0 },
+    { 432, 414, 16, 4, OPA_BRK, DECO_REV, 0, 0, 0 },
+    { 432, 444, 16, 4, OPA_BRK, DECO_REV, 0, 0, 0 },
 
     /* 12 上带基准线 */
-    { 76, 112, 328, DECO_HAIR, OPA_HAIR, DECO_FWD },
+    { 76, 112, 328, DECO_HAIR, OPA_HAIR, DECO_FWD, 0, 0, 0 },
     /* 13-16 上带左端 BLOCKS —— 槽 0 = 在册会话数，亮着的块数即读数 */
-    { 76,  108, 24, 10, OPA_BLOCK, DECO_FWD },
-    { 106, 108, 12, 10, OPA_BLOCK, DECO_FWD },
-    { 124, 108, 20, 10, OPA_BLOCK, DECO_FWD },
-    { 150, 108, 30, 10, OPA_BLOCK, DECO_FWD },
+    { 76,  108, 24, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
+    { 106, 108, 12, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
+    { 124, 108, 20, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
+    { 150, 108, 30, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
     /* 17-21 上带右端 METER —— 槽 1 = 活跃 agent 数。表里 x 递增，液面
      * 因此从左往右升（与下带刻度的从右往左形成反向） */
-    { 353, 106, 3, 14, OPA_TICK, DECO_FWD },
-    { 365, 106, 3, 14, OPA_TICK, DECO_FWD },
-    { 377, 106, 3, 14, OPA_TICK, DECO_FWD },
-    { 389, 106, 3, 14, OPA_TICK, DECO_FWD },
-    { 401, 106, 3, 14, OPA_TICK, DECO_FWD },
+    { 353, 106, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 365, 106, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 377, 106, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 389, 106, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 401, 106, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
 
     /* 22 下带基准线 */
-    { 76, 374, 328, DECO_HAIR, OPA_HAIR, DECO_FWD },
+    { 76, 374, 328, DECO_HAIR, OPA_HAIR, DECO_FWD, 0, 0, 0 },
     /* 23-25 下带左端 BLOCKS（静态，节奏与上带不同） */
-    { 76,  370, 20, 10, OPA_BLOCK, DECO_FWD },
-    { 102, 370, 10, 10, OPA_BLOCK, DECO_FWD },
-    { 118, 370, 28, 10, OPA_BLOCK, DECO_FWD },
+    { 76,  370, 20, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
+    { 102, 370, 10, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
+    { 118, 370, 28, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
     /* 26-29 下带右端 TICKS（扫描） */
-    { 401, 368, 3, 14, OPA_TICK, DECO_FWD },
-    { 389, 368, 3, 14, OPA_TICK, DECO_FWD },
-    { 377, 368, 3, 14, OPA_TICK, DECO_FWD },
-    { 365, 368, 3, 14, OPA_TICK, DECO_FWD },
+    { 401, 368, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 389, 368, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 377, 368, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 365, 368, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
 
     /* ── 以下只在 AMBIENT 姿态在场 ──────────────────────────────────
      * 30-35 中央夹持括号：呼吸环墨迹约 x204..276、y172..244，括号摆在
      * 它左右各 31 px 处——刚好一个 UI_GAP_LG 量级的负空间，不贴脸也不
      * 失去关联。fleet 姿态下这里是卡片，括号必须让位。 */
-    { 162, 188,  3, 42, OPA_TICK, DECO_FWD },
-    { 162, 188, 11,  3, OPA_TICK, DECO_FWD },
-    { 162, 227, 11,  3, OPA_TICK, DECO_FWD },
-    { 315, 188,  3, 42, OPA_TICK, DECO_REV },
-    { 307, 188, 11,  3, OPA_TICK, DECO_REV },
-    { 307, 227, 11,  3, OPA_TICK, DECO_REV },
+    { 162, 188,  3, 42, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 162, 188, 11,  3, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 162, 227, 11,  3, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 315, 188,  3, 42, OPA_TICK, DECO_REV, 0, 0, 0 },
+    { 307, 188, 11,  3, OPA_TICK, DECO_REV, 0, 0, 0 },
+    { 307, 227, 11,  3, OPA_TICK, DECO_REV, 0, 0, 0 },
     /* 36-41 侧边两轴。fleet 卡片占 x28..452，两侧只剩 28 px：几何上放得
      * 下，视觉上放不下——四行卡片已经把画面填满，再贴两条轴就没有喘息
      * 了。所以它们只属于 ambient。 */
-    { 14,  214,  3, 52, OPA_TICK, DECO_FWD },
-    { 14,  214,  9,  3, OPA_TICK, DECO_FWD },
-    { 14,  263,  9,  3, OPA_TICK, DECO_FWD },
-    { 463, 224,  3, 44, OPA_TICK, DECO_REV },
-    { 455, 224,  9,  3, OPA_TICK, DECO_REV },
-    { 455, 265,  9,  3, OPA_TICK, DECO_REV },
+    { 14,  214,  3, 52, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 14,  214,  9,  3, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 14,  263,  9,  3, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 463, 224,  3, 44, OPA_TICK, DECO_REV, 0, 0, 0 },
+    { 455, 224,  9,  3, OPA_TICK, DECO_REV, 0, 0, 0 },
+    { 455, 265,  9,  3, OPA_TICK, DECO_REV, 0, 0, 0 },
+
+    /* 42-47 上带中段的【45° 斜线束】。这是工程制图的剖面线语汇（参照
+     * 图里那个斜纹按钮就是它），也是本层第一处【带角度】的图形——在此
+     * 之前整层只有横竖两个方向。顺带填掉上带中间那段 90 px 空白，而且
+     * 因为斜纹是"这一段被划掉/保留"的意思，密度感来得比再加几个方块
+     * 更便宜。 */
+    { 200, 120, 14, -14, OPA_TICK, DECO_FWD, DSHAPE_LINE, 2, 0 },
+    { 216, 120, 14, -14, OPA_TICK, DECO_FWD, DSHAPE_LINE, 2, 0 },
+    { 232, 120, 14, -14, OPA_TICK, DECO_FWD, DSHAPE_LINE, 2, 0 },
+    { 248, 120, 14, -14, OPA_TICK, DECO_FWD, DSHAPE_LINE, 2, 0 },
+    { 264, 120, 14, -14, OPA_TICK, DECO_FWD, DSHAPE_LINE, 2, 0 },
+    { 280, 120, 14, -14, OPA_TICK, DECO_FWD, DSHAPE_LINE, 2, 0 },
+
+    /* 48/49 两条基准线左端的【端子圆环】——线不再凭空开始，而是从一个
+     * 接点引出。r=5 恒定，圆角 mask 的键因此稳定。 */
+    { 66, 113, 5, 2, OPA_BLOCK, DECO_FWD, DSHAPE_DOT, 0, 0 },
+    { 66, 375, 5, 2, OPA_BLOCK, DECO_FWD, DSHAPE_DOT, 0, 0 },
 };
 
 static const deco_elem_t DASH_ELEMS[] = {
@@ -315,10 +343,15 @@ static const deco_elem_t DASH_ELEMS[] = {
     { DECO_TICKS,   37, 2, 470,  50, 0, 0, DASH_ST_AMBIENT | DECO_DEFER },
     { DECO_LINE,    39, 1, 420, 180, 0, 0, DASH_ST_AMBIENT | DECO_DEFER },
     { DECO_TICKS,   40, 2, 490,  50, 0, 0, DASH_ST_AMBIENT | DECO_DEFER },
+    /* 斜线束当 TICKS 演：逐条瞬亮 + 停留期一道扫描掠过，正是剖面线该有
+     * 的读法（一条条画上去，不是整块淡入）。 */
+    { DECO_TICKS,   42, 6, 350,  40, 0, 0, 0 },
+    { DECO_BLOCKS,  48, 1, 150, 120, 0, 0, 0 },
+    { DECO_BLOCKS,  49, 1, 360, 120, 0, 0, 0 },
 };
 
 static const ui_deco_spec_t DASH_SPEC = {
-    DASH_RECTS, (uint8_t)(sizeof(DASH_RECTS) / sizeof(DASH_RECTS[0])),
+    DASH_SHAPES, (uint8_t)(sizeof(DASH_SHAPES) / sizeof(DASH_SHAPES[0])),
     DASH_ELEMS, (uint8_t)(sizeof(DASH_ELEMS) / sizeof(DASH_ELEMS[0])),
 };
 
@@ -331,24 +364,30 @@ const ui_deco_spec_t *ui_deco_spec_dashboard(void) { return &DASH_SPEC; }
  * 两道短轴 + 底部一条基线。
  * 这是"装饰密度与内容密度反向"的直接应用：内容满的页面，装饰退到只剩
  * 结构；否则两层一起挤，谁都读不出来。 */
-static const deco_rect_t WX_RECTS[] = {
+static const deco_shape_t WX_SHAPES[] = {
     /* 0-3 角标：**每角只有一条臂，方向交替**（左上横 / 右上竖 / 左下竖 /
      * 右下横）。既不是 clock 的 L+分度，也不是 dashboard 的方括号——这
      * 一页内容最满，角标必须最轻；交替方向让四角不闭合成"框"，读起来
      * 是自然的、非仪器的，正合气象页的语气。四个矩形，clock 用了十二个。 */
-    { 32,  32, 34,  4, OPA_BRK, DECO_FWD },
-    { 444, 32,  4, 34, OPA_BRK, DECO_FWD },
-    { 32, 414,  4, 34, OPA_BRK, DECO_REV },
-    { 414, 444, 34, 4, OPA_BRK, DECO_REV },
+    { 32,  32, 34,  4, OPA_BRK, DECO_FWD, 0, 0, 0 },
+    { 444, 32,  4, 34, OPA_BRK, DECO_FWD, 0, 0, 0 },
+    { 32, 414,  4, 34, OPA_BRK, DECO_REV, 0, 0, 0 },
+    { 414, 444, 34, 4, OPA_BRK, DECO_REV, 0, 0, 0 },
 
-    /* 4-6 左轴 + 2 齿（x 12..24：插画左缘是 36，留得下） */
-    { 12, 150, 3, 90, OPA_TICK, DECO_FWD },
-    { 12, 150, 10, 3, OPA_TICK, DECO_FWD },
-    { 12, 237, 10, 3, OPA_TICK, DECO_FWD },
-    /* 7-9 右轴 + 2 齿（自下而上生长，与左轴反向） */
-    { 465, 160, 3, 90, OPA_TICK, DECO_REV },
-    { 455, 160, 12, 3, OPA_TICK, DECO_FWD },
-    { 455, 247, 12, 3, OPA_TICK, DECO_FWD },
+    /* 4-6 左侧【观测弧】+ 2 齿。圆心推到屏外 (-40,240)、半径 70、跨 80°，
+     * 于是一段凸向画面的弧占住 x13..30。
+     * 第一版是"与屏幕同心"的 r=228 弧——概念上很顺，实机上【就是一条
+     * 直线】：矢高只有 r(1-cos10°)=3.5 px，付了弧的绘制成本（走圆角
+     * mask，比 rect fill 贵得多）却没换到任何曲率。要读作弧，矢高/弧长
+     * 得有量级（这条是 20%），而屏幕边缘没有那么多空间摆大跨度——所以
+     * 把圆心推到屏外、用小半径大角度。 */
+    { -40, 240, 70, 3, OPA_TICK, DECO_FWD, DSHAPE_ARC, 320, 400 },
+    { 14, 193, 10, 3, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 14, 285, 10, 3, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    /* 7-9 右侧观测弧 + 2 齿（自下而上扫，与左弧反向） */
+    { 520, 240, 70, 3, OPA_TICK, DECO_REV, DSHAPE_ARC, 140, 220 },
+    { 456, 193, 10, 3, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 456, 285, 10, 3, OPA_TICK, DECO_FWD, 0, 0, 0 },
 
     /* 10 中缝基准线。**不要放到底部**：第一版摆在 y=447，实机上整条
      * 消失——ui_glow 的边缘环组占着最外圈约 46 px（5 层 x step8+width7，
@@ -356,18 +395,20 @@ static const deco_rect_t WX_RECTS[] = {
      * 完全盖住。这块屏的【外圈 46 px 属于状态辉光】，装饰不能进。
      * 改放插画底（278）与五日条带顶（306）之间那条 28 px 的缝：既避开
      * 辉光，又顺手成了"当下"与"预报"两区的分隔线，有结构意义。 */
-    { 100, 293, 280, DECO_HAIR, OPA_HAIR, DECO_FWD },
+    { 100, 293, 280, DECO_HAIR, OPA_HAIR, DECO_FWD, 0, 0, 0 },
     /* 11-16 中缝 GAUGE —— 槽 0 = 一天的时段（4 小时/格） */
-    { 100, 289, 20, 4, 0, DECO_FWD },
-    { 126, 289, 20, 4, 0, DECO_FWD },
-    { 152, 289, 20, 4, 0, DECO_FWD },
-    { 178, 289, 20, 4, 0, DECO_FWD },
-    { 204, 289, 20, 4, 0, DECO_FWD },
-    { 230, 289, 20, 4, 0, DECO_FWD },
+    { 100, 289, 20, 4, 0, DECO_FWD, 0, 0, 0 },
+    { 126, 289, 20, 4, 0, DECO_FWD, 0, 0, 0 },
+    { 152, 289, 20, 4, 0, DECO_FWD, 0, 0, 0 },
+    { 178, 289, 20, 4, 0, DECO_FWD, 0, 0, 0 },
+    { 204, 289, 20, 4, 0, DECO_FWD, 0, 0, 0 },
+    { 230, 289, 20, 4, 0, DECO_FWD, 0, 0, 0 },
     /* 17-19 中缝右端静态块 */
-    { 320, 289,  8, 4, OPA_TICK, DECO_FWD },
-    { 332, 289, 18, 4, OPA_TICK, DECO_FWD },
-    { 356, 289,  8, 4, OPA_TICK, DECO_FWD },
+    { 320, 289,  8, 4, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 332, 289, 18, 4, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 356, 289,  8, 4, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    /* 20 中缝线右端外的【观测圆环】——把这条分隔线收在一个点上。 */
+    { 400, 292, 6, 2, OPA_TICK, DECO_FWD, DSHAPE_DOT, 0, 0 },
 };
 
 static const deco_elem_t WX_ELEMS[] = {
@@ -382,10 +423,11 @@ static const deco_elem_t WX_ELEMS[] = {
     { DECO_LINE,   10,  1, 380, 220, 0, 0, 0 },
     { DECO_GAUGE,  11,  6, 470,  35, 0, UI_DECO_SLOT(0), 0 },
     { DECO_BLOCKS, 17,  3, 530,  50, 1, 0, 0 },
+    { DECO_BLOCKS, 20,  1, 560, 120, 0, 0, 0 },
 };
 
 static const ui_deco_spec_t WX_SPEC = {
-    WX_RECTS, (uint8_t)(sizeof(WX_RECTS) / sizeof(WX_RECTS[0])),
+    WX_SHAPES, (uint8_t)(sizeof(WX_SHAPES) / sizeof(WX_SHAPES[0])),
     WX_ELEMS, (uint8_t)(sizeof(WX_ELEMS) / sizeof(WX_ELEMS[0])),
 };
 
@@ -489,21 +531,134 @@ static bool arch_is_grow(uint8_t a)
 }
 
 /* ── 几何：把一个矩形按 p 解算成"当前该画多大" ───────────────────── */
-static bool solve_rect(const deco_rect_t *r, uint8_t arch, int32_t p,
-                       lv_area_t *out)
+static bool on_clip(const lv_area_t *a, const lv_area_t *c)
 {
-    int32_t x = r->x, y = r->y, w = r->w, h = r->h;
-    if (arch_is_grow(arch)) {
-        bool horiz = (w >= h);
-        int32_t len   = horiz ? w : h;
-        int32_t grown = len * p / 1000;
-        if (grown <= 0) return false;
-        if (horiz) { if (r->anchor == DECO_REV) x += len - grown; w = grown; }
-        else       { if (r->anchor == DECO_REV) y += len - grown; h = grown; }
+    return !(a->x1 > c->x2 || a->x2 < c->x1 || a->y1 > c->y2 || a->y2 < c->y1);
+}
+
+/* 形状的【满尺寸】包围盒——失效用（生长途中只会更小）。
+ * 弧【必须】走 lv_draw_arc_get_area：按整圆估会得到 2r 见方的盒子，
+ * weather 那条 r=228 的同心弧一失效就是大半个屏。 */
+static void shape_bbox(const deco_shape_t *sh, lv_area_t *o)
+{
+    switch (sh->kind) {
+    case DSHAPE_LINE: {
+        int32_t x2 = sh->x + sh->w, y2 = sh->y + sh->h;
+        int32_t pad = (sh->a ? sh->a : 2) + 1;
+        o->x1 = LV_MIN(sh->x, x2) - pad; o->y1 = LV_MIN(sh->y, y2) - pad;
+        o->x2 = LV_MAX(sh->x, x2) + pad; o->y2 = LV_MAX(sh->y, y2) + pad;
+        break;
     }
-    out->x1 = x; out->y1 = y;
-    out->x2 = x + w - 1; out->y2 = y + h - 1;
-    return true;
+    case DSHAPE_ARC:
+        lv_draw_arc_get_area(sh->x, sh->y, (uint16_t)sh->w,
+                             sh->a, sh->b, sh->h, false, o);
+        break;
+    case DSHAPE_TRI: {
+        int32_t x2 = sh->x + sh->w, y2 = sh->y + sh->h;
+        int32_t x3 = sh->x + sh->a, y3 = sh->y + sh->b;
+        o->x1 = LV_MIN(sh->x, LV_MIN(x2, x3)); o->y1 = LV_MIN(sh->y, LV_MIN(y2, y3));
+        o->x2 = LV_MAX(sh->x, LV_MAX(x2, x3)); o->y2 = LV_MAX(sh->y, LV_MAX(y2, y3));
+        break;
+    }
+    case DSHAPE_DOT:
+        o->x1 = sh->x - sh->w; o->y1 = sh->y - sh->w;
+        o->x2 = sh->x + sh->w; o->y2 = sh->y + sh->w;
+        break;
+    default:
+        o->x1 = sh->x; o->y1 = sh->y;
+        o->x2 = sh->x + sh->w - 1; o->y2 = sh->y + sh->h - 1;
+    }
+}
+
+/* 画一个形状。p 是所属元素的完成度；生长类按 kind 各自解释：
+ *   RECT 沿长轴裁剪 / LINE 终点插值 / ARC 扫角 / TRI、DOT 到点即现。
+ * rdsc 由调用方初始化一次复用（lv_draw_rect_dsc_t 很大，逐个 memset
+ * 是白花钱）；line/arc/tri 的 dsc 在分支内声明，栈峰值只有一个。 */
+static void draw_shape(lv_layer_t *layer, const lv_area_t *clip,
+                       lv_draw_rect_dsc_t *rdsc, lv_color_t col,
+                       const deco_shape_t *sh, bool grow, int32_t p,
+                       lv_opa_t opa)
+{
+    switch (sh->kind) {
+    case DSHAPE_LINE: {
+        int32_t ex = sh->x + (grow ? sh->w * p / 1000 : sh->w);
+        int32_t ey = sh->y + (grow ? sh->h * p / 1000 : sh->h);
+        if (ex == sh->x && ey == sh->y) return;
+        int32_t pad = (sh->a ? sh->a : 2) + 1;
+        lv_area_t bb = { LV_MIN(sh->x, ex) - pad, LV_MIN(sh->y, ey) - pad,
+                         LV_MAX(sh->x, ex) + pad, LV_MAX(sh->y, ey) + pad };
+        if (!on_clip(&bb, clip)) return;
+        lv_draw_line_dsc_t ld;
+        lv_draw_line_dsc_init(&ld);
+        ld.color = col;  ld.opa = opa;
+        ld.width = sh->a ? sh->a : 2;
+        ld.p1.x = sh->x; ld.p1.y = sh->y;
+        ld.p2.x = ex;    ld.p2.y = ey;
+        lv_draw_line(layer, &ld);
+        return;
+    }
+    case DSHAPE_ARC: {
+        int32_t a1 = grow ? (sh->a + (sh->b - sh->a) * p / 1000) : sh->b;
+        if (a1 == sh->a) return;
+        lv_area_t bb;
+        lv_draw_arc_get_area(sh->x, sh->y, (uint16_t)sh->w, sh->a, a1,
+                             sh->h, false, &bb);
+        if (!on_clip(&bb, clip)) return;
+        lv_draw_arc_dsc_t ad;
+        lv_draw_arc_dsc_init(&ad);
+        ad.color = col;  ad.opa = opa;
+        ad.width = sh->h;
+        /* 半径【恒定】：生长扫的是角度。半径是圆角 mask 缓存的键。 */
+        ad.radius = (uint16_t)sh->w;
+        ad.center.x = sh->x; ad.center.y = sh->y;
+        ad.start_angle = sh->a; ad.end_angle = a1;
+        lv_draw_arc(layer, &ad);
+        return;
+    }
+    case DSHAPE_TRI: {
+        if (p <= 0) return;                    /* 多边形不生长，到点即现 */
+        lv_area_t bb; shape_bbox(sh, &bb);
+        if (!on_clip(&bb, clip)) return;
+        lv_draw_triangle_dsc_t td;
+        lv_draw_triangle_dsc_init(&td);
+        td.color = col;  td.opa = opa;
+        td.p[0].x = sh->x;          td.p[0].y = sh->y;
+        td.p[1].x = sh->x + sh->w;  td.p[1].y = sh->y + sh->h;
+        td.p[2].x = sh->x + sh->a;  td.p[2].y = sh->y + sh->b;
+        lv_draw_triangle(layer, &td);
+        return;
+    }
+    case DSHAPE_DOT: {
+        if (p <= 0) return;
+        lv_area_t bb; shape_bbox(sh, &bb);
+        if (!on_clip(&bb, clip)) return;
+        rdsc->radius       = LV_RADIUS_CIRCLE;
+        rdsc->bg_opa       = sh->h ? LV_OPA_TRANSP : opa;
+        rdsc->border_opa   = sh->h ? opa : LV_OPA_TRANSP;
+        rdsc->border_width = sh->h;
+        rdsc->border_color = col;
+        lv_draw_rect(layer, rdsc, &bb);
+        rdsc->radius     = 0;          /* 还原共享的 dsc */
+        rdsc->border_opa = LV_OPA_TRANSP;
+        return;
+    }
+    default: break;
+    }
+
+    /* RECT */
+    int32_t x = sh->x, y = sh->y, w = sh->w, h = sh->h;
+    if (grow) {
+        bool horiz = (w >= h);
+        int32_t len = horiz ? w : h;
+        int32_t g   = len * p / 1000;
+        if (g <= 0) return;
+        if (horiz) { if (sh->anchor == DECO_REV) x += len - g; w = g; }
+        else       { if (sh->anchor == DECO_REV) y += len - g; h = g; }
+    }
+    lv_area_t a = { x, y, x + w - 1, y + h - 1 };
+    if (!on_clip(&a, clip)) return;
+    rdsc->bg_opa = opa;
+    lv_draw_rect(layer, rdsc, &a);
 }
 
 /* GAUGE 第 k 格的基准 opa。三档静态——"当前格最亮"本身就够读作运转中，
@@ -587,8 +742,9 @@ static void draw_cb(lv_event_t *e)
     const theme_palette_t *pal = theme_current();
 
     lv_draw_rect_dsc_t dsc;
+    lv_color_t col = lv_color_hex(pal ? pal->text : 0xF3EEE2);
     lv_draw_rect_dsc_init(&dsc);
-    dsc.bg_color   = lv_color_hex(pal ? pal->text : 0xF3EEE2);
+    dsc.bg_color   = col;
     dsc.border_opa = LV_OPA_TRANSP;
     dsc.radius     = 0;
 
@@ -599,7 +755,7 @@ static void draw_cb(lv_event_t *e)
         if (rt->p <= 0) continue;
 
         for (int k = 0; k < el->rn; ++k) {
-            const deco_rect_t *r = &sp->rects[el->ri + k];
+            const deco_shape_t *r = &sp->shapes[el->ri + k];
             int32_t opa = r->opa;
 
             if (!arch_is_grow(el->arch)) {
@@ -615,9 +771,6 @@ static void draw_cb(lv_event_t *e)
                 else if (el->arch == DECO_METER) opa = meter_opa(k, sv);
                 else if (el->slot && sv >= 0 && k >= sv) continue;
             }
-
-            lv_area_t a;
-            if (!solve_rect(r, el->arch, rt->p, &a)) continue;
 
             /* 停留期效果只在完全就位后生效——入场途中再叠一层闪变，读
              * 起来就是两套动画在打架。 */
@@ -645,17 +798,17 @@ static void draw_cb(lv_event_t *e)
                 }
             }
 
-            if (a.x1 > clip->x2 || a.x2 < clip->x1 ||
-                a.y1 > clip->y2 || a.y2 < clip->y1) continue;
-            dsc.bg_opa = gained(opa);
-            if (dsc.bg_opa == 0) continue;
-            lv_draw_rect(layer, &dsc, &a);
+            lv_opa_t o = gained(opa);
+            if (o == 0) continue;
+            draw_shape(layer, clip, &dsc, col, r,
+                       arch_is_grow(el->arch), rt->p, o);
         }
 
         /* LINE 的掠过亮段：在基准线上【叠画】一小段，alpha 累积即变亮。
          * 单独处理是因为它不是表里的矩形——它是同一个矩形的一个子区间。 */
-        if (el->arch == DECO_LINE && d->phase == PH_LIVE && rt->ph < 16) {
-            const deco_rect_t *r = &sp->rects[el->ri];
+        if (el->arch == DECO_LINE && d->phase == PH_LIVE && rt->ph < 16 &&
+            sp->shapes[el->ri].kind == DSHAPE_RECT) {
+            const deco_shape_t *r = &sp->shapes[el->ri];
             bool horiz = (r->w >= r->h);
             int32_t len = horiz ? r->w : r->h;
             int32_t seg = len / 8;
@@ -825,11 +978,12 @@ static void build_rt(struct ui_deco *d)
         /* bbox = 本元素所有矩形的并集（用【满尺寸】算，生长途中只会更小）。 */
         lv_area_t b = { INT16_MAX, INT16_MAX, INT16_MIN, INT16_MIN };
         for (int k = 0; k < el->rn; ++k) {
-            const deco_rect_t *r = &sp->rects[el->ri + k];
-            if (r->x < b.x1) b.x1 = r->x;
-            if (r->y < b.y1) b.y1 = r->y;
-            if (r->x + r->w - 1 > b.x2) b.x2 = r->x + r->w - 1;
-            if (r->y + r->h - 1 > b.y2) b.y2 = r->y + r->h - 1;
+            lv_area_t sb;
+            shape_bbox(&sp->shapes[el->ri + k], &sb);
+            if (sb.x1 < b.x1) b.x1 = sb.x1;
+            if (sb.y1 < b.y1) b.y1 = sb.y1;
+            if (sb.x2 > b.x2) b.x2 = sb.x2;
+            if (sb.y2 > b.y2) b.y2 = sb.y2;
         }
         rt->bbox = b;
     }

@@ -193,6 +193,24 @@ the whole tuned vertical rhythm with it.
   破门），叙事上也含糊。落定后屏幕静止，它们的失效区只剩自己那一小块，
   AABB 预判重新生效 → **-6%~+12%，六行全进门**。
 
+### 形状系统 (v7.7)
+v7.7 之前整层只有轴对齐矩形，画面里因此只有横竖两个方向。现在
+`deco_shape_t.kind` 支持 RECT / LINE（任意角度）/ ARC / TRI / DOT，参数
+复用同一组字段（见 ui_deco.h 的对照表）。各谱的新形状都要有语义理由：
+clock 是四角【与面板圆角同心】的弧 + 分钟条的游标三角；dashboard 是上带
+的 45° 剖面斜线束 + 基准线左端的端子圆环；weather 是左右【观测弧】+ 中缝
+右端的观测圆环。实测成本 +3%~+9%，六行进门。
+- **弧的生长扫【角度】不扫半径**。半径是 LVGL 圆角 mask 缓存的键（同
+  ui_glow 那条），半径每帧变就是每帧重算 mask。扫角既是视觉需要（像
+  雷达）也是性能需要，两者刚好同向。
+- 弧的失效盒【必须】走 `lv_draw_arc_get_area()`。按整圆估会得到 2r 见方
+  的盒子——一条 r=228 的弧一失效就是大半个屏。
+- **大半径 + 小跨度的弧＝视觉上的直线**。r=228 跨 20° 的矢高只有
+  `r(1-cosθ/2)=3.5 px`，0.8 m 处完全不可辨，等于付了弧的绘制成本却没换
+  到曲率。要读作弧，矢高/弧长得有量级（clock 那条 r=62 跨 50° 是 11%，
+  weather 改成圆心推到屏外的 r=70 跨 80° 是 20%）。屏幕边缘摆不下大跨度
+  的弧，就把圆心推到屏外、用小半径大角度让它凸进画面。
+
 ## Rendering performance (hard-won, do not regress)
 - (v7.3) Three reusable facts, found while building the dispersion glow:
   · LVGL's rounded-corner AA coverage cache is keyed on RADIUS ALONE and

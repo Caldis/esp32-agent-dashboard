@@ -47,11 +47,36 @@ typedef enum {
 #define DECO_FWD   0
 #define DECO_REV   1
 
+/* ── 形状 ────────────────────────────────────────────────────────────
+ * v7.7 之前整层只有轴对齐矩形，于是画面里只有横线、竖线和方块——没有
+ * 角度，也没有曲线。这几种补上斜边、弧和多边形。
+ *
+ * 参数按 kind 复用同一组字段（省 flash，也省得为每种形状开一张表）：
+ *   RECT  (x,y,w,h) = 方框；anchor 决定沿长轴从哪端生长
+ *   LINE  (x,y) = 起点，(w,h) = 终点【相对位移】（可负），a = 线宽
+ *   ARC   (x,y) = 圆心，w = 半径，h = 线宽，a/b = 起止角
+ *         （度，0° 在 3 点钟方向，顺时针）
+ *   TRI   (x,y) = 顶点1，(w,h) = 顶点2 相对，(a,b) = 顶点3 相对；实心
+ *   DOT   (x,y) = 圆心，w = 半径，h = 线宽（0 = 实心圆）
+ *
+ * **弧的生长扫的是角度，不是半径**——这既是视觉需要（像雷达扫出来），
+ * 也是性能需要：LVGL 的圆角覆盖图缓存只按半径做键（见 ui_glow.c 与
+ * sdkconfig.defaults 的台账），半径每帧变就是每帧重算 mask。 */
+typedef enum {
+    DSHAPE_RECT = 0,
+    DSHAPE_LINE,
+    DSHAPE_ARC,
+    DSHAPE_TRI,
+    DSHAPE_DOT,
+} deco_kind_t;
+
 typedef struct {
     int16_t x, y, w, h;
-    uint8_t opa;        /* 基准 opa（GAUGE 忽略此值，按真值现算） */
+    uint8_t opa;        /* 基准 opa（GAUGE/METER 忽略此值，按真值现算） */
     uint8_t anchor;     /* DECO_FWD / DECO_REV */
-} deco_rect_t;
+    uint8_t kind;       /* deco_kind_t；0 = RECT，所以旧条目不必改 */
+    int16_t a, b;       /* kind 专属参数，见上表 */
+} deco_shape_t;
 
 typedef struct {
     uint8_t  arch;      /* deco_arch_t */
@@ -70,10 +95,10 @@ typedef struct {
 } deco_elem_t;
 
 typedef struct {
-    const deco_rect_t *rects;
-    uint8_t            rect_n;
-    const deco_elem_t *elems;
-    uint8_t            elem_n;
+    const deco_shape_t *shapes;
+    uint8_t             shape_n;
+    const deco_elem_t  *elems;
+    uint8_t             elem_n;
 } ui_deco_spec_t;
 
 typedef struct ui_deco ui_deco_t;
