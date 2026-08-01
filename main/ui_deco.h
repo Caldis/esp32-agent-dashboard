@@ -60,6 +60,13 @@ typedef struct {
     uint16_t dur;       /* 生长时长 ms（生长类）/ 每格步进 ms（点亮类） */
     uint8_t  rev;       /* 1 = 点亮顺序反向（从切片末端往前） */
     uint8_t  slot;      /* 0 = 静态；否则 UI_DECO_SLOT(i) 读第 i 个状态槽 */
+    /* 姿态掩码：本元素只在 (mask & 当前姿态) 非零时在场；0 = 常驻。
+     * 场景的不同姿态（dashboard 的 ambient/fleet、clock 的大钟/推送卡）
+     * 布局差别很大，装饰必须跟着让位——内容密的姿态就该少装饰，那是
+     * 负空间的问题，不是省性能的问题。
+     * 进出场【复用同一套语法】：目标 p 在 1000/0 之间切换，生长类自末端
+     * 收回、点亮类自最后一格熄灭，与转场进出场同一条代码路径。 */
+    uint8_t  mask;
 } deco_elem_t;
 
 typedef struct {
@@ -91,6 +98,27 @@ void ui_deco_set_slot(ui_deco_t *d, int slot, int v);
  * 定时闪作为底噪，这个是给【真事件】用的——状态变化时闪一下，装饰就
  * 从"按表演出"变成"对世界有反应"。 */
 void ui_deco_pulse(ui_deco_t *d);
+
+/* 切换姿态位（见 deco_elem_t.mask）。不在新姿态里的元素就地退场、新进
+ * 场的就地生长，走的是与转场同一套动效。内部去重。 */
+void ui_deco_set_state(ui_deco_t *d, uint8_t state);
+
+/* 各场景的姿态位。装饰按【内容密度】反向配置：内容铺满的姿态只留骨架。 */
+#define DECO_ST_A        0x01
+#define DECO_ST_B        0x02
+/* mask 的高位开关：本元素【不参与转场入场】，等画面落定后再补上。
+ * 转场演的是这一页的【通用骨架】；姿态专属的补充元素跟着一起涌入，既
+ * 把最贵的那个窗口又加重一层，叙事上也含糊。落定后屏幕静止，它们的
+ * 失效区只剩自己那一小块，AABB 预判重新生效，成本回到静置量级。 */
+#define DECO_DEFER       0x80
+#define DECO_ST_MASK     0x7F
+/* dashboard：单 agent 的 ambient 簇（中部大片留白） / 2-4 行 fleet 卡片
+ * （y134..360 x28..452 全占满，两侧只剩 28 px）。 */
+#define DASH_ST_AMBIENT  DECO_ST_A
+#define DASH_ST_FLEET    DECO_ST_B
+/* clock：大钟居中 / 推送卡弹出（大钟退到顶部槽位，墨迹 61..109）。 */
+#define CLK_ST_FACE      DECO_ST_A
+#define CLK_ST_PUSH      DECO_ST_B
 
 /* 每场景一张谱。加一个场景 = 加一张谱，不动引擎。
  * 三张谱的密度【与内容密度反向】：clock 最空所以装饰最多，dashboard 中

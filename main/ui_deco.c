@@ -117,26 +117,33 @@
  * 矩形表【按元素分组】排列，元素表用切片引用它。分布是刻意做成高方差
  * 的：顶部左密右疏，底部左动右静、中间隔 130 px 空白。 */
 static const deco_rect_t CLOCK_RECTS[] = {
-    /* 0-1  BRACKET 左上，拐点 (32,32) */
+    /* 0-11 角标：**L 臂 + 一段分离的延伸刻度**（每角 3 条）。
+     * 三张谱的角标形态【刻意各不相同】——它们原本是同一份 8 矩形拷贝，
+     * 三个页面因此长得像同一张模板。这一版按各页语义分化：
+     *   clock     L + 分度延伸  —— 精密刻度、读数
+     *   dashboard 方括号 [ ]     —— 数据框、通道
+     *   weather   单臂交替       —— 最轻、不对称、自然
+     * 分度延伸与 L 臂之间留 8 px 缝，读作"角标之后还有一段尺"。 */
     { BRK_INSET, BRK_INSET, BRK_ARM, DECO_STROKE, OPA_BRK, DECO_FWD },
     { BRK_INSET, BRK_INSET, DECO_STROKE, BRK_ARM, OPA_BRK, DECO_FWD },
-    /* 2-3  BRACKET 右上，拐点 (448,32) —— 水平臂自右端向左生长 */
+    { 70, 32, 12, DECO_STROKE, OPA_BRK, DECO_FWD },
     { 418, 32, BRK_ARM, DECO_STROKE, OPA_BRK, DECO_REV },
     { 444, 32, DECO_STROKE, BRK_ARM, OPA_BRK, DECO_FWD },
-    /* 4-5  BRACKET 左下，拐点 (32,448) */
+    { 398, 32, 12, DECO_STROKE, OPA_BRK, DECO_REV },
     { 32, 444, BRK_ARM, DECO_STROKE, OPA_BRK, DECO_FWD },
     { 32, 418, DECO_STROKE, BRK_ARM, OPA_BRK, DECO_REV },
-    /* 6-7  BRACKET 右下，拐点 (448,448) */
+    { 70, 444, 12, DECO_STROKE, OPA_BRK, DECO_FWD },
     { 418, 444, BRK_ARM, DECO_STROKE, OPA_BRK, DECO_REV },
     { 444, 418, DECO_STROKE, BRK_ARM, OPA_BRK, DECO_REV },
+    { 398, 444, 12, DECO_STROKE, OPA_BRK, DECO_REV },
 
-    /* 8    LINE 顶部基准线，横贯 76..404（与面板圆角的直边段同起止）。
+    /* 12   LINE 顶部基准线，横贯 76..404（与面板圆角的直边段同起止）。
      * v7.5 放在 y=96：上方 92 px 全空，实机上读作【悬在半空的一横】。
      * 上移到 64 之后贴住顶缘，与大钟、底部基线形成三层，也不再和 push
      * 卡退到顶槽位的小钟（墨迹中心 ~85）打架。 */
     { 76, 65, 328, DECO_HAIR, OPA_HAIR, DECO_FWD },
 
-    /* 9-14  BLOCKS 顶部分段块：宽度不等才读作编号，左密右疏给出方向性 */
+    /* 13-18 BLOCKS 顶部分段块：宽度不等才读作编号，左密右疏给出方向性 */
     { 76,  61, 28, 10, OPA_BLOCK, DECO_FWD },
     { 111, 61, 10, 10, OPA_BLOCK, DECO_FWD },
     { 128, 61, 18, 10, OPA_BLOCK, DECO_FWD },
@@ -144,15 +151,15 @@ static const deco_rect_t CLOCK_RECTS[] = {
     { 196, 61, 14, 10, OPA_BLOCK, DECO_FWD },
     { 217, 61, 24, 10, OPA_BLOCK, DECO_FWD },
 
-    /* 15-19 TICKS 顶部右端刻度：5 根，表里从右往左排，点亮也从右往左 */
+    /* 19-23 TICKS 顶部右端刻度：5 根，表里从右往左排，点亮也从右往左 */
     { 401, 60, 3, 12, OPA_TICK, DECO_FWD },
     { 389, 60, 3, 12, OPA_TICK, DECO_FWD },
     { 377, 60, 3, 12, OPA_TICK, DECO_FWD },
     { 365, 60, 3, 12, OPA_TICK, DECO_FWD },
     { 353, 60, 3, 12, OPA_TICK, DECO_FWD },
 
-    /* 20    LINE 左侧轴（自上而下生长）
-     * 21-23 TICKS 左侧齿：3 根，长度不等
+    /* 24    LINE 左侧轴（自上而下生长）
+     * 25-27 TICKS 左侧齿：3 根，长度不等
      * 两侧【刻意不对称】（左 3 齿右 2 齿、长度不同）——镜像对称读成装饰
      * 花边，错位才读成机能。实机上它俩合起来像一对方括号夹住大钟。 */
     { 24, 176, 3, 66, OPA_TICK, DECO_FWD },
@@ -160,13 +167,13 @@ static const deco_rect_t CLOCK_RECTS[] = {
     { 24, 205,  9, 3, OPA_TICK, DECO_FWD },
     { 24, 239, 13, 3, OPA_TICK, DECO_FWD },
 
-    /* 24    LINE 右侧轴（自下而上生长 —— 与左侧反向，又一处不对称）
-     * 25-26 TICKS 右侧齿：2 根 */
+    /* 28    LINE 右侧轴（自下而上生长 —— 与左侧反向，又一处不对称）
+     * 29-30 TICKS 右侧齿：2 根 */
     { 453, 192, 3, 54, OPA_TICK, DECO_REV },
     { 444, 192, 12, 3, OPA_TICK, DECO_FWD },
     { 444, 243, 12, 3, OPA_TICK, DECO_FWD },
 
-    /* 27-32 GAUGE 分钟条（opa 由真值现算，表里的值不用） */
+    /* 31-36 GAUGE 分钟条（opa 由真值现算，表里的值不用） */
     { SEG_X0 + 0 * SEG_PITCH, SEG_Y, SEG_W, SEG_H, 0, DECO_FWD },
     { SEG_X0 + 1 * SEG_PITCH, SEG_Y, SEG_W, SEG_H, 0, DECO_FWD },
     { SEG_X0 + 2 * SEG_PITCH, SEG_Y, SEG_W, SEG_H, 0, DECO_FWD },
@@ -174,7 +181,7 @@ static const deco_rect_t CLOCK_RECTS[] = {
     { SEG_X0 + 4 * SEG_PITCH, SEG_Y, SEG_W, SEG_H, 0, DECO_FWD },
     { SEG_X0 + 5 * SEG_PITCH, SEG_Y, SEG_W, SEG_H, 0, DECO_FWD },
 
-    /* 33-35 BLOCKS 底部右端：与 GAUGE 同一条基线，但靠右、恒定、暗。
+    /* 37-39 BLOCKS 底部右端：与 GAUGE 同一条基线，但靠右、恒定、暗。
      * 同一条线上左动右静、左亮右暗、左匀右不匀——这才是要的高方差。 */
     { 369, SEG_Y,  8, SEG_H, OPA_TICK, DECO_FWD },
     { 383, SEG_Y, 20, SEG_H, OPA_TICK, DECO_FWD },
@@ -184,22 +191,28 @@ static const deco_rect_t CLOCK_RECTS[] = {
 /* 入场编排。四角先依次锁定 -> 基准线擦出 -> 数据逐格填入，总 ~690 ms，
  * 与转场的 IN_MS(520) 同量级：机械层先就位并"等着"内容用弹簧落座。 */
 static const deco_elem_t CLOCK_ELEMS[] = {
-    { DECO_BRACKET, 0,  2,   0, 180, 0, 0 },
-    { DECO_BRACKET, 2,  2,  40, 180, 0, 0 },
-    { DECO_BRACKET, 4,  2,  80, 180, 0, 0 },
-    { DECO_BRACKET, 6,  2, 120, 180, 0, 0 },
-    { DECO_LINE,    8,  1, 170, 240, 0, 0 },
-    { DECO_BLOCKS,  9,  6, 290,  45, 0, 0 },
-    { DECO_TICKS,  15,  5, 320,  40, 0, 0 },
-    { DECO_LINE,   20,  1, 370, 160, 0, 0 },
-    { DECO_TICKS,  21,  3, 420,  45, 0, 0 },
-    { DECO_LINE,   24,  1, 390, 160, 0, 0 },
-    { DECO_TICKS,  25,  2, 440,  45, 0, 0 },
+    { DECO_BRACKET, 0,  3,   0, 180, 0, 0, 0 },
+    { DECO_BRACKET, 3,  3,  40, 180, 0, 0, 0 },
+    { DECO_BRACKET, 6,  3,  80, 180, 0, 0, 0 },
+    { DECO_BRACKET, 9,  3, 120, 180, 0, 0, 0 },
+    /* 顶部三件【只在大钟姿态在场】。推送卡弹出时大钟退到顶部槽位，48px
+     * 的小钟墨迹落在 61..109——与这条 60..71 的带子完全重叠。第一版没做
+     * 姿态区分，实机截图里"00:29"正压在分段块和刻度中间，当时误读成了
+     * 巧合的好看，其实是碰撞。让位才是对的。 */
+    { DECO_LINE,   12,  1, 170, 240, 0, 0, CLK_ST_FACE },
+    { DECO_BLOCKS, 13,  6, 290,  45, 0, 0, CLK_ST_FACE },
+    { DECO_TICKS,  19,  5, 320,  40, 0, 0, CLK_ST_FACE },
+    /* 侧边两轴常驻：推送卡的内容居中（92px 字形区 + 标题 + chip），
+     * x=24 / x=453 两条窄轴离它很远，两个姿态都放得下。 */
+    { DECO_LINE,   24,  1, 370, 160, 0, 0, 0 },
+    { DECO_TICKS,  25,  3, 420,  45, 0, 0, 0 },
+    { DECO_LINE,   28,  1, 390, 160, 0, 0, 0 },
+    { DECO_TICKS,  29,  2, 440,  45, 0, 0, 0 },
     /* 槽 0 = 分钟（10 分钟/格）。 */
-    { DECO_GAUGE,  27,  6, 480,  35, 0, UI_DECO_SLOT(0) },
+    { DECO_GAUGE,  31,  6, 480,  35, 0, UI_DECO_SLOT(0), 0 },
     /* 槽 1 = 活跃 agent 数：亮着的【块数】就是读数。rev 让它从右往左
      * 点亮，与左边的 GAUGE 反向，同一条基线上两个方向。 */
-    { DECO_BLOCKS, 33,  3, 540,  50, 1, UI_DECO_SLOT(1) },
+    { DECO_BLOCKS, 37,  3, 540,  50, 1, UI_DECO_SLOT(1), 0 },
 };
 
 static const ui_deco_spec_t CLOCK_SPEC = {
@@ -218,56 +231,90 @@ const ui_deco_spec_t *ui_deco_spec_clock(void) { return &CLOCK_SPEC; }
  *   下带 y 368..384 —— 安全带下沿 360，footer 数字从 392 起。
  * 两条带都接真状态，这一页因此是三张谱里"仪表感"最强的。 */
 static const deco_rect_t DASH_RECTS[] = {
-    /* 0-7 四角取景框（与 clock 同几何——它是设备级的取景框，不该随页
-     * 面变。nav_dots 在 y=20 的 x 110/240/370，不与之重叠） */
-    { BRK_INSET, BRK_INSET, BRK_ARM, DECO_STROKE, OPA_BRK, DECO_FWD },
-    { BRK_INSET, BRK_INSET, DECO_STROKE, BRK_ARM, OPA_BRK, DECO_FWD },
-    { 418, 32, BRK_ARM, DECO_STROKE, OPA_BRK, DECO_REV },
-    { 444, 32, DECO_STROKE, BRK_ARM, OPA_BRK, DECO_FWD },
-    { 32, 444, BRK_ARM, DECO_STROKE, OPA_BRK, DECO_FWD },
-    { 32, 418, DECO_STROKE, BRK_ARM, OPA_BRK, DECO_REV },
-    { 418, 444, BRK_ARM, DECO_STROKE, OPA_BRK, DECO_REV },
-    { 444, 418, DECO_STROKE, BRK_ARM, OPA_BRK, DECO_REV },
+    /* 0-11 角标：**方括号 [ ]**（竖轴 + 上下两个短横），不是 clock 那种
+     * crop mark。这一页的语义是"框住数据通道"，方括号正是那个语汇；
+     * 而且它把重复率最高的那份 8 矩形拷贝彻底换掉了。
+     * nav_dots 在 y=20 的 x 110/240/370，与之不重叠。 */
+    { 32,  32,  4, 34, OPA_BRK, DECO_FWD },
+    { 32,  32, 16,  4, OPA_BRK, DECO_FWD },
+    { 32,  62, 16,  4, OPA_BRK, DECO_FWD },
+    { 444, 32,  4, 34, OPA_BRK, DECO_FWD },
+    { 432, 32, 16,  4, OPA_BRK, DECO_REV },
+    { 432, 62, 16,  4, OPA_BRK, DECO_REV },
+    { 32,  414, 4, 34, OPA_BRK, DECO_REV },
+    { 32,  414, 16, 4, OPA_BRK, DECO_FWD },
+    { 32,  444, 16, 4, OPA_BRK, DECO_FWD },
+    { 444, 414, 4, 34, OPA_BRK, DECO_REV },
+    { 432, 414, 16, 4, OPA_BRK, DECO_REV },
+    { 432, 444, 16, 4, OPA_BRK, DECO_REV },
 
-    /* 8 上带基准线 */
+    /* 12 上带基准线 */
     { 76, 112, 328, DECO_HAIR, OPA_HAIR, DECO_FWD },
-    /* 9-12 上带左端 BLOCKS —— 槽 0 = fleet 行数，亮着的块数即读数 */
+    /* 13-16 上带左端 BLOCKS —— 槽 0 = 在册会话数，亮着的块数即读数 */
     { 76,  108, 24, 10, OPA_BLOCK, DECO_FWD },
     { 106, 108, 12, 10, OPA_BLOCK, DECO_FWD },
     { 124, 108, 20, 10, OPA_BLOCK, DECO_FWD },
     { 150, 108, 30, 10, OPA_BLOCK, DECO_FWD },
-    /* 13-17 上带右端 METER —— 槽 1 = 活跃 agent 数。表里 x 递增，液面
-     * 因此从左往右升（与右端刻度组的从右往左形成反向） */
+    /* 17-21 上带右端 METER —— 槽 1 = 活跃 agent 数。表里 x 递增，液面
+     * 因此从左往右升（与下带刻度的从右往左形成反向） */
     { 353, 106, 3, 14, OPA_TICK, DECO_FWD },
     { 365, 106, 3, 14, OPA_TICK, DECO_FWD },
     { 377, 106, 3, 14, OPA_TICK, DECO_FWD },
     { 389, 106, 3, 14, OPA_TICK, DECO_FWD },
     { 401, 106, 3, 14, OPA_TICK, DECO_FWD },
 
-    /* 18 下带基准线 */
+    /* 22 下带基准线 */
     { 76, 374, 328, DECO_HAIR, OPA_HAIR, DECO_FWD },
-    /* 19-21 下带左端 BLOCKS（静态，节奏与上带不同） */
+    /* 23-25 下带左端 BLOCKS（静态，节奏与上带不同） */
     { 76,  370, 20, 10, OPA_BLOCK, DECO_FWD },
     { 102, 370, 10, 10, OPA_BLOCK, DECO_FWD },
     { 118, 370, 28, 10, OPA_BLOCK, DECO_FWD },
-    /* 22-25 下带右端 TICKS（扫描） */
+    /* 26-29 下带右端 TICKS（扫描） */
     { 401, 368, 3, 14, OPA_TICK, DECO_FWD },
     { 389, 368, 3, 14, OPA_TICK, DECO_FWD },
     { 377, 368, 3, 14, OPA_TICK, DECO_FWD },
     { 365, 368, 3, 14, OPA_TICK, DECO_FWD },
+
+    /* ── 以下只在 AMBIENT 姿态在场 ──────────────────────────────────
+     * 30-35 中央夹持括号：呼吸环墨迹约 x204..276、y172..244，括号摆在
+     * 它左右各 31 px 处——刚好一个 UI_GAP_LG 量级的负空间，不贴脸也不
+     * 失去关联。fleet 姿态下这里是卡片，括号必须让位。 */
+    { 162, 188,  3, 42, OPA_TICK, DECO_FWD },
+    { 162, 188, 11,  3, OPA_TICK, DECO_FWD },
+    { 162, 227, 11,  3, OPA_TICK, DECO_FWD },
+    { 315, 188,  3, 42, OPA_TICK, DECO_REV },
+    { 307, 188, 11,  3, OPA_TICK, DECO_REV },
+    { 307, 227, 11,  3, OPA_TICK, DECO_REV },
+    /* 36-41 侧边两轴。fleet 卡片占 x28..452，两侧只剩 28 px：几何上放得
+     * 下，视觉上放不下——四行卡片已经把画面填满，再贴两条轴就没有喘息
+     * 了。所以它们只属于 ambient。 */
+    { 14,  214,  3, 52, OPA_TICK, DECO_FWD },
+    { 14,  214,  9,  3, OPA_TICK, DECO_FWD },
+    { 14,  263,  9,  3, OPA_TICK, DECO_FWD },
+    { 463, 224,  3, 44, OPA_TICK, DECO_REV },
+    { 455, 224,  9,  3, OPA_TICK, DECO_REV },
+    { 455, 265,  9,  3, OPA_TICK, DECO_REV },
 };
 
 static const deco_elem_t DASH_ELEMS[] = {
-    { DECO_BRACKET, 0,  2,   0, 180, 0, 0 },
-    { DECO_BRACKET, 2,  2,  40, 180, 0, 0 },
-    { DECO_BRACKET, 4,  2,  80, 180, 0, 0 },
-    { DECO_BRACKET, 6,  2, 120, 180, 0, 0 },
-    { DECO_LINE,    8,  1, 170, 240, 0, 0 },
-    { DECO_BLOCKS,  9,  4, 290,  50, 0, UI_DECO_SLOT(0) },
-    { DECO_METER,  13,  5, 320,  40, 0, UI_DECO_SLOT(1) },
-    { DECO_LINE,   18,  1, 380, 240, 0, 0 },
-    { DECO_BLOCKS, 19,  3, 470,  50, 0, 0 },
-    { DECO_TICKS,  22,  4, 500,  40, 0, 0 },
+    { DECO_BRACKET, 0,  3,   0, 180, 0, 0, 0 },
+    { DECO_BRACKET, 3,  3,  40, 180, 0, 0, 0 },
+    { DECO_BRACKET, 6,  3,  80, 180, 0, 0, 0 },
+    { DECO_BRACKET, 9,  3, 120, 180, 0, 0, 0 },
+    { DECO_LINE,   12,  1, 170, 240, 0, 0, 0 },
+    { DECO_BLOCKS, 13,  4, 290,  50, 0, UI_DECO_SLOT(0), 0 },
+    { DECO_METER,  17,  5, 320,  40, 0, UI_DECO_SLOT(1), 0 },
+    { DECO_LINE,   22,  1, 380, 240, 0, 0, 0 },
+    { DECO_BLOCKS, 23,  3, 470,  50, 0, 0, 0 },
+    { DECO_TICKS,  26,  4, 500,  40, 0, 0, 0 },
+    /* AMBIENT 专属。中央括号用 BRACKET 原型是有意的：它带"重锁定"闪，
+     * 而它俩正夹着呼吸环——状态一变，环和括号一起应答。 */
+    { DECO_BRACKET, 30, 3, 430, 200, 0, 0, DASH_ST_AMBIENT | DECO_DEFER },
+    { DECO_BRACKET, 33, 3, 460, 200, 0, 0, DASH_ST_AMBIENT | DECO_DEFER },
+    { DECO_LINE,    36, 1, 400, 180, 0, 0, DASH_ST_AMBIENT | DECO_DEFER },
+    { DECO_TICKS,   37, 2, 470,  50, 0, 0, DASH_ST_AMBIENT | DECO_DEFER },
+    { DECO_LINE,    39, 1, 420, 180, 0, 0, DASH_ST_AMBIENT | DECO_DEFER },
+    { DECO_TICKS,   40, 2, 490,  50, 0, 0, DASH_ST_AMBIENT | DECO_DEFER },
 };
 
 static const ui_deco_spec_t DASH_SPEC = {
@@ -285,57 +332,56 @@ const ui_deco_spec_t *ui_deco_spec_dashboard(void) { return &DASH_SPEC; }
  * 这是"装饰密度与内容密度反向"的直接应用：内容满的页面，装饰退到只剩
  * 结构；否则两层一起挤，谁都读不出来。 */
 static const deco_rect_t WX_RECTS[] = {
-    /* 0-7 四角取景框 */
-    { BRK_INSET, BRK_INSET, BRK_ARM, DECO_STROKE, OPA_BRK, DECO_FWD },
-    { BRK_INSET, BRK_INSET, DECO_STROKE, BRK_ARM, OPA_BRK, DECO_FWD },
-    { 418, 32, BRK_ARM, DECO_STROKE, OPA_BRK, DECO_REV },
-    { 444, 32, DECO_STROKE, BRK_ARM, OPA_BRK, DECO_FWD },
-    { 32, 444, BRK_ARM, DECO_STROKE, OPA_BRK, DECO_FWD },
-    { 32, 418, DECO_STROKE, BRK_ARM, OPA_BRK, DECO_REV },
-    { 418, 444, BRK_ARM, DECO_STROKE, OPA_BRK, DECO_REV },
-    { 444, 418, DECO_STROKE, BRK_ARM, OPA_BRK, DECO_REV },
+    /* 0-3 角标：**每角只有一条臂，方向交替**（左上横 / 右上竖 / 左下竖 /
+     * 右下横）。既不是 clock 的 L+分度，也不是 dashboard 的方括号——这
+     * 一页内容最满，角标必须最轻；交替方向让四角不闭合成"框"，读起来
+     * 是自然的、非仪器的，正合气象页的语气。四个矩形，clock 用了十二个。 */
+    { 32,  32, 34,  4, OPA_BRK, DECO_FWD },
+    { 444, 32,  4, 34, OPA_BRK, DECO_FWD },
+    { 32, 414,  4, 34, OPA_BRK, DECO_REV },
+    { 414, 444, 34, 4, OPA_BRK, DECO_REV },
 
-    /* 8-10 左轴 + 2 齿（x 12..24：插画左缘是 36，留得下） */
+    /* 4-6 左轴 + 2 齿（x 12..24：插画左缘是 36，留得下） */
     { 12, 150, 3, 90, OPA_TICK, DECO_FWD },
     { 12, 150, 10, 3, OPA_TICK, DECO_FWD },
     { 12, 237, 10, 3, OPA_TICK, DECO_FWD },
-    /* 11-13 右轴 + 2 齿（自下而上生长，与左轴反向） */
+    /* 7-9 右轴 + 2 齿（自下而上生长，与左轴反向） */
     { 465, 160, 3, 90, OPA_TICK, DECO_REV },
     { 455, 160, 12, 3, OPA_TICK, DECO_FWD },
     { 455, 247, 12, 3, OPA_TICK, DECO_FWD },
 
-    /* 14 中缝基准线。**不要放到底部**：第一版摆在 y=447，实机上整条
+    /* 10 中缝基准线。**不要放到底部**：第一版摆在 y=447，实机上整条
      * 消失——ui_glow 的边缘环组占着最外圈约 46 px（5 层 x step8+width7，
      * 加运动外溢），443 正好落在环带里被压掉，掉线时那圈琥珀更是把它
      * 完全盖住。这块屏的【外圈 46 px 属于状态辉光】，装饰不能进。
      * 改放插画底（278）与五日条带顶（306）之间那条 28 px 的缝：既避开
      * 辉光，又顺手成了"当下"与"预报"两区的分隔线，有结构意义。 */
     { 100, 293, 280, DECO_HAIR, OPA_HAIR, DECO_FWD },
-    /* 15-20 中缝 GAUGE —— 槽 0 = 一天的时段（4 小时/格） */
+    /* 11-16 中缝 GAUGE —— 槽 0 = 一天的时段（4 小时/格） */
     { 100, 289, 20, 4, 0, DECO_FWD },
     { 126, 289, 20, 4, 0, DECO_FWD },
     { 152, 289, 20, 4, 0, DECO_FWD },
     { 178, 289, 20, 4, 0, DECO_FWD },
     { 204, 289, 20, 4, 0, DECO_FWD },
     { 230, 289, 20, 4, 0, DECO_FWD },
-    /* 21-23 中缝右端静态块 */
+    /* 17-19 中缝右端静态块 */
     { 320, 289,  8, 4, OPA_TICK, DECO_FWD },
     { 332, 289, 18, 4, OPA_TICK, DECO_FWD },
     { 356, 289,  8, 4, OPA_TICK, DECO_FWD },
 };
 
 static const deco_elem_t WX_ELEMS[] = {
-    { DECO_BRACKET, 0,  2,   0, 180, 0, 0 },
-    { DECO_BRACKET, 2,  2,  40, 180, 0, 0 },
-    { DECO_BRACKET, 4,  2,  80, 180, 0, 0 },
-    { DECO_BRACKET, 6,  2, 120, 180, 0, 0 },
-    { DECO_LINE,    8,  1, 200, 200, 0, 0 },
-    { DECO_TICKS,   9,  2, 300,  60, 0, 0 },
-    { DECO_LINE,   11,  1, 230, 200, 0, 0 },
-    { DECO_TICKS,  12,  2, 330,  60, 0, 0 },
-    { DECO_LINE,   14,  1, 380, 220, 0, 0 },
-    { DECO_GAUGE,  15,  6, 470,  35, 0, UI_DECO_SLOT(0) },
-    { DECO_BLOCKS, 21,  3, 530,  50, 1, 0 },
+    { DECO_BRACKET, 0,  1,   0, 180, 0, 0, 0 },
+    { DECO_BRACKET, 1,  1,  40, 180, 0, 0, 0 },
+    { DECO_BRACKET, 2,  1,  80, 180, 0, 0, 0 },
+    { DECO_BRACKET, 3,  1, 120, 180, 0, 0, 0 },
+    { DECO_LINE,    4,  1, 200, 200, 0, 0, 0 },
+    { DECO_TICKS,   5,  2, 300,  60, 0, 0, 0 },
+    { DECO_LINE,    7,  1, 230, 200, 0, 0, 0 },
+    { DECO_TICKS,   8,  2, 330,  60, 0, 0, 0 },
+    { DECO_LINE,   10,  1, 380, 220, 0, 0, 0 },
+    { DECO_GAUGE,  11,  6, 470,  35, 0, UI_DECO_SLOT(0), 0 },
+    { DECO_BLOCKS, 17,  3, 530,  50, 1, 0, 0 },
 };
 
 static const ui_deco_spec_t WX_SPEC = {
@@ -347,7 +393,7 @@ const ui_deco_spec_t *ui_deco_spec_weather(void) { return &WX_SPEC; }
 
 /* ── 引擎 ────────────────────────────────────────────────────────── */
 
-#define DECO_ELEM_MAX   16
+#define DECO_ELEM_MAX   24
 #define DECO_INST_MAX    4
 
 #define TICK_LIVE_MS   200   /* 停留期：必须够慢，好待在 idle 刷新档里 */
@@ -387,8 +433,23 @@ struct ui_deco {
     bool                  holding;   /* 是否持有高刷档（必须成对） */
     int                   slot[UI_DECO_SLOT_N];   /* 场景写入的真值 */
     uint8_t               pulse_left;             /* 事件脉冲剩余拍数 */
+    uint8_t               state;                  /* 当前姿态位 */
+    bool                  morphing;               /* 有元素正在进/退场 */
     deco_rt_t             e[DECO_ELEM_MAX];
 };
+
+/* 本元素在当前姿态里是否在场。姿态位为 0 = 常驻（DECO_DEFER 不算姿态）。 */
+static bool elem_on(const struct ui_deco *d, const deco_elem_t *el)
+{
+    uint8_t m = el->mask & DECO_ST_MASK;
+    return m == 0 || (m & d->state) != 0;
+}
+
+/* 参见 DECO_DEFER：转场入场时按兵不动，落定后由 morphing 补上。 */
+static bool elem_deferred(const deco_elem_t *el)
+{
+    return (el->mask & DECO_DEFER) != 0;
+}
 
 /* 元素读到的槽值；未接槽（slot==0）返回 -1 = "不受控"。 */
 static int slot_of(const struct ui_deco *d, const deco_elem_t *el)
@@ -675,7 +736,10 @@ static void step_inst(struct ui_deco *d)
             else                v = (int32_t)(t - at) * 1000 / (int32_t)span;
             /* 出场是同一条曲线【倒着放】——p 退回 0 时生长类自末端收回、
              * 点亮类自最后一格熄灭，后进先出自动成立。 */
-            rt->p = (int16_t)((d->phase == PH_IN) ? v : 1000 - v);
+            int32_t np = (d->phase == PH_IN) ? v : 1000 - v;
+            if (!elem_on(d, &sp->elems[i])) np = 0;   /* 不属于当前姿态 */
+            if (d->phase == PH_IN && elem_deferred(&sp->elems[i])) np = 0;
+            rt->p = (int16_t)np;
             rt->ph = 0;
         }
         flush_dirty(d);
@@ -684,7 +748,8 @@ static void step_inst(struct ui_deco *d)
             if (d->phase == PH_IN) {
                 d->phase = PH_LIVE;
                 d->tick  = 0;
-                lv_timer_set_period(s_timer, TICK_LIVE_MS);
+                /* 不在这里切回慢拍：DECO_DEFER 的元素正等着补场，
+                 * timer_cb 会依 morphing 决定拍频。 */
             } else {
                 d->phase = PH_HIDDEN;
             }
@@ -696,8 +761,27 @@ static void step_inst(struct ui_deco *d)
     if (d->phase != PH_LIVE) return;
     d->tick++;
     if (d->pulse_left) d->pulse_left--;
-    for (int i = 0; i < sp->elem_n; ++i)
-        d->e[i].ph = live_phase(d, &sp->elems[i], d->tick, i);
+
+    /* 姿态切换的进/退场也在这里推进——【复用转场那套 p 语法】，所以
+     * 换姿态时元素是长出来/收回去的，不是硬切。 */
+    bool moving = false;
+    for (int i = 0; i < sp->elem_n; ++i) {
+        const deco_elem_t *el = &sp->elems[i];
+        deco_rt_t *rt = &d->e[i];
+        int16_t want = elem_on(d, el) ? 1000 : 0;
+        if (rt->p != want) {
+            uint16_t span = want ? rt->in_span : rt->out_span;
+            int32_t step = 1000 * (int32_t)TICK_ANIM_MS / (span ? span : 1);
+            if (step < 1) step = 1;
+            if (rt->p < want) { rt->p = (int16_t)(rt->p + step);
+                                if (rt->p > want) rt->p = want; }
+            else              { rt->p = (int16_t)(rt->p - step);
+                                if (rt->p < want) rt->p = want; }
+            moving = true;
+        }
+        rt->ph = live_phase(d, el, d->tick, i);
+    }
+    d->morphing = moving;
     flush_dirty(d);
 }
 
@@ -709,7 +793,10 @@ static void timer_cb(lv_timer_t *t)
         step_inst(&s_inst[i]);
         if (s_inst[i].phase == PH_IN || s_inst[i].phase == PH_OUT) any_anim = true;
     }
-    /* 没有实例在演出时回落到慢拍；全部隐藏时干脆停表。 */
+    /* 没有实例在演出时回落到慢拍；全部隐藏时干脆停表。姿态切换途中
+     * （morphing）同样要快拍，否则元素会以 200 ms 一步的粗颗粒跳出来。 */
+    for (int i = 0; i < s_inst_n && !any_anim; ++i)
+        if (s_inst[i].morphing) any_anim = true;
     if (!any_anim) {
         bool any_live = false;
         for (int i = 0; i < s_inst_n; ++i)
@@ -804,7 +891,10 @@ void ui_deco_intro(ui_deco_t *d, uint32_t ms)
 {
     if (!d || !s_timer) return;
     if (ms == 0) {                       /* motion_reduced：直接到位 */
-        for (int i = 0; i < d->spec->elem_n; ++i) { d->e[i].p = 1000; d->e[i].ph = 0; }
+        for (int i = 0; i < d->spec->elem_n; ++i) {
+            d->e[i].p = elem_on(d, &d->spec->elems[i]) ? 1000 : 0;
+            d->e[i].ph = 0;
+        }
         d->phase = PH_LIVE; d->tick = 0;
         drop_tier(d);
         lv_obj_invalidate(d->obj);
@@ -867,7 +957,8 @@ void ui_deco_live(ui_deco_t *d, bool on)
     if (on) {
         /* 非转场路径（首次 show、push 卡收回等）也要有完整画面。 */
         if (d->phase == PH_HIDDEN) {
-            for (int i = 0; i < d->spec->elem_n; ++i) d->e[i].p = 1000;
+            for (int i = 0; i < d->spec->elem_n; ++i)
+                d->e[i].p = elem_on(d, &d->spec->elems[i]) ? 1000 : 0;
             d->phase = PH_LIVE;
             d->tick  = 0;
             lv_obj_invalidate(d->obj);
@@ -890,6 +981,17 @@ void ui_deco_set_slot(ui_deco_t *d, int slot, int v)
     for (int i = 0; i < d->spec->elem_n; ++i)
         if (d->spec->elems[i].slot == tag)
             lv_obj_invalidate_area(d->obj, &d->e[i].bbox);
+}
+
+void ui_deco_set_state(ui_deco_t *d, uint8_t state)
+{
+    if (!d || d->state == state) return;
+    d->state = state;
+    if (d->phase == PH_LIVE && s_timer) {
+        d->morphing = true;                       /* 下一拍开始长/收 */
+        lv_timer_set_period(s_timer, TICK_ANIM_MS);
+        lv_timer_resume(s_timer);
+    }
 }
 
 void ui_deco_pulse(ui_deco_t *d)

@@ -438,6 +438,7 @@ static void clock_push_dismiss(clock_state_t *st)
 {
     if (!st->push_active) return;
     st->push_active = false;
+    ui_deco_set_state(st->deco, CLK_ST_FACE);   /* 顶部带随大钟一起回来 */
     if (st->push_hold) lv_timer_pause(st->push_hold);
     lv_anim_delete(st->push_dot, anim_orbit);
 
@@ -519,6 +520,9 @@ static void clock_push_trigger(clock_state_t *st, int kind,
     }
 
     st->push_active = true;
+    /* 大钟这就退到顶部槽位，48px 小钟墨迹落在 61..109——顶部那条装饰带
+     * （60..71）必须同时让位，否则两者叠在一起。 */
+    ui_deco_set_state(st->deco, CLK_ST_PUSH);
     retreat_clock(st);
     enter_push(st);
     if (kind == PUSH_START) start_orbit(st);
@@ -801,6 +805,7 @@ static void clock_init(scene_t *s, lv_obj_t *parent)
      * 的每个功能都原封不动（见 ui_deco.c 的文件头）。第一个建，于是天然
      * 是最底的子对象（ui_deco_attach 内部还会再 move_background 一次）。 */
     st->deco = ui_deco_attach(parent, ui_deco_spec_clock());
+    ui_deco_set_state(st->deco, CLK_ST_FACE);
 
     status_bar_create(parent, &st->sb);
     /* The big face replaces the 48pt top clock. status_bar_update keeps
@@ -953,6 +958,7 @@ static void clock_on_show(scene_t *s)
      * already running when we arrive don't fire a spurious push. */
     st->push_active = false;
     st->run_seeded = false;
+    ui_deco_set_state(st->deco, CLK_ST_FACE);
     if (st->push_hold) lv_timer_pause(st->push_hold);
     lv_anim_delete(st->push_dot, anim_orbit);
     lv_obj_add_flag(st->push_grp, LV_OBJ_FLAG_HIDDEN);

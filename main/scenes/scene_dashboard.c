@@ -607,11 +607,17 @@ static void tick(lv_timer_t *t)
      * `done` — listed, but they no longer drag the display into the
      * multi-row "everyone needs you" view. */
     int active = agent_state_active_count();
+    bool fleet = (active >= 2 && !focus);
     if (active >= 2 && focus) render_single(d, st, focus);
-    else if (active >= 2)     render_fleet(d, st);
+    else if (fleet)           render_fleet(d, st);
     else                      render_ambient(d, st);
     int n_slots = st->slot_count;
     agent_state_unlock();
+
+    /* 装饰跟着姿态走：fleet 时卡片把 y134..360 全占满，中央夹持括号和
+     * 两条侧轴就地退场，只留四角 + 上下带。这不是省性能，是【负空间】
+     * ——四行卡片已经填满画面，再贴装饰就没有喘息了。 */
+    ui_deco_set_state(d->deco, fleet ? DASH_ST_FLEET : DASH_ST_AMBIENT);
 
     /* 装饰层的两个读数（LVGL 写入放在锁外）：上带左端的【块数】= 在册
      * 会话数，右端的【液面】= 活跃数。两者一起把"这台机器现在扛着多少
@@ -679,6 +685,7 @@ static void init(scene_t *s, lv_obj_t *parent)
      * 是【上下两条仪表带】——中部 fleet 卡片区占满 y134..360、x28..452，
      * 两侧只剩 28 px，装饰硬挤进去只会和卡片边缘打架。 */
     d->deco = ui_deco_attach(parent, ui_deco_spec_dashboard());
+    ui_deco_set_state(d->deco, DASH_ST_AMBIENT);   /* 首帧姿态；tick 立刻校正 */
 
     const theme_palette_t *pal = theme_current();
     lv_obj_set_style_bg_color(parent, lv_color_hex(pal ? pal->bg : COL_BG), 0);
