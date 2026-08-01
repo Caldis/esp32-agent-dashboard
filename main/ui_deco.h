@@ -100,6 +100,19 @@ typedef struct {
      * 进出场【复用同一套语法】：目标 p 在 1000/0 之间切换，生长类自末端
      * 收回、点亮类自最后一格熄灭，与转场进出场同一条代码路径。 */
     uint8_t  mask;
+    /* 姿态 A 下整组下移这么多 px（其他姿态为 0）。同一条装饰带在两个
+     * 姿态里面对的邻居不同——dashboard 的上带在 fleet 下要给卡片顶
+     * (134) 让路，在 ambient 下却离呼吸环有 52 px，同一个 y 必然一边挤
+     * 一边空。这是【负空间】的适配，不是位置微调。
+     * 两个字段对应姿态 A / B（第三个姿态用 0）——dashboard 的 ambient
+     * 其实有【两个子姿态】：无 chip 时簇在 y160、awaiting 显示项目 chip
+     * 时整簇上移到 y133 且 chip 墨迹压到 352，同一个偏移适配不了两者。 */
+    int8_t   dy_a, dy_b;
+    /* 形状主参数按槽值（0..1000 千分比）缩放 —— 本层的"动态几何"。
+     * 实现上直接乘进元素的进度 p：入场时 p 从 0 涨到 1000，乘上数据比例
+     * 后停在数据决定的长度上。于是生长类（弧扫多少角、线走多远）与点亮
+     * 类（点到第几格）同时受益，不需要各写一套。 */
+    uint8_t  span_slot;
 } deco_elem_t;
 
 typedef struct {
@@ -146,16 +159,21 @@ void ui_deco_set_state(ui_deco_t *d, uint8_t state);
 /* 各场景的姿态位。装饰按【内容密度】反向配置：内容铺满的姿态只留骨架。 */
 #define DECO_ST_A        0x01
 #define DECO_ST_B        0x02
+#define DECO_ST_C        0x04
 /* mask 的高位开关：本元素【不参与转场入场】，等画面落定后再补上。
  * 转场演的是这一页的【通用骨架】；姿态专属的补充元素跟着一起涌入，既
  * 把最贵的那个窗口又加重一层，叙事上也含糊。落定后屏幕静止，它们的
  * 失效区只剩自己那一小块，AABB 预判重新生效，成本回到静置量级。 */
 #define DECO_DEFER       0x80
 #define DECO_ST_MASK     0x7F
-/* dashboard：单 agent 的 ambient 簇（中部大片留白） / 2-4 行 fleet 卡片
- * （y134..360 x28..452 全占满，两侧只剩 28 px）。 */
-#define DASH_ST_AMBIENT  DECO_ST_A
-#define DASH_ST_FLEET    DECO_ST_B
+/* dashboard 三姿态（ambient 必须拆成两个——见 dy_a/dy_b 的说明）：
+ *   PLAIN 单 agent、无 chip，簇在 y160，呼吸环墨顶 172
+ *   CHIP  awaiting，整簇上移到 y133（环墨顶 145），chip 墨底 352
+ *   FLEET 2-4 行卡片，y134..360 x28..452 全占满 */
+#define DASH_ST_PLAIN    DECO_ST_A
+#define DASH_ST_CHIP     DECO_ST_B
+#define DASH_ST_FLEET    DECO_ST_C
+#define DASH_ST_AMBIENT  (DASH_ST_PLAIN | DASH_ST_CHIP)
 /* clock：大钟居中 / 推送卡弹出（大钟退到顶部槽位，墨迹 61..109）。 */
 #define CLK_ST_FACE      DECO_ST_A
 #define CLK_ST_PUSH      DECO_ST_B

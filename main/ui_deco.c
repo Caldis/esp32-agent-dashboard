@@ -210,32 +210,37 @@ static const deco_shape_t CLOCK_SHAPES[] = {
 /* 入场编排。四角先依次锁定 -> 基准线擦出 -> 数据逐格填入，总 ~690 ms，
  * 与转场的 IN_MS(520) 同量级：机械层先就位并"等着"内容用弹簧落座。 */
 static const deco_elem_t CLOCK_ELEMS[] = {
-    { DECO_BRACKET, 0,  3,   0, 180, 0, 0, 0 },
-    { DECO_BRACKET, 3,  3,  40, 180, 0, 0, 0 },
-    { DECO_BRACKET, 6,  3,  80, 180, 0, 0, 0 },
-    { DECO_BRACKET, 9,  3, 120, 180, 0, 0, 0 },
+    { DECO_BRACKET, 0,  3,   0, 180, 0, 0, 0, 0, 0, 0 },
+    { DECO_BRACKET, 3,  3,  40, 180, 0, 0, 0, 0, 0, 0 },
+    { DECO_BRACKET, 6,  3,  80, 180, 0, 0, 0, 0, 0, 0 },
+    { DECO_BRACKET, 9,  2, 120, 180, 0, 0, 0, 0, 0, 0 },
+    /* 右下角那条同心弧【单独成元素】，跨角随"这一小时走到哪"生长：
+     * 槽 2 = 分钟千分比，一小时扫完 50°。四角看似对称，只有这一角在动
+     * ——本层第一处真正的动态几何（几何量由数据决定，而不是靠点亮第几
+     * 格模拟）。必须拆出来：整组带 span_slot 会把两条 L 臂一起缩短。 */
+    { DECO_BRACKET, 11, 1, 300, 400, 0, 0, 0, 0, UI_DECO_SLOT(2), 0 },
     /* 顶部三件【只在大钟姿态在场】。推送卡弹出时大钟退到顶部槽位，48px
      * 的小钟墨迹落在 61..109——与这条 60..71 的带子完全重叠。第一版没做
      * 姿态区分，实机截图里"00:29"正压在分段块和刻度中间，当时误读成了
      * 巧合的好看，其实是碰撞。让位才是对的。 */
-    { DECO_LINE,   12,  1, 170, 240, 0, 0, CLK_ST_FACE },
-    { DECO_BLOCKS, 13,  6, 290,  45, 0, 0, CLK_ST_FACE },
-    { DECO_TICKS,  19,  5, 320,  40, 0, 0, CLK_ST_FACE },
+    { DECO_LINE,   12,  1, 170, 240, 0, 0, CLK_ST_FACE, 0, 0, 0 },
+    { DECO_BLOCKS, 13,  6, 290,  45, 0, 0, CLK_ST_FACE, 0, 0, 0 },
+    { DECO_TICKS,  19,  5, 320,  40, 0, 0, CLK_ST_FACE, 0, 0, 0 },
     /* 侧边两轴常驻：推送卡的内容居中（92px 字形区 + 标题 + chip），
      * x=24 / x=453 两条窄轴离它很远，两个姿态都放得下。 */
-    { DECO_LINE,   24,  1, 370, 160, 0, 0, 0 },
-    { DECO_TICKS,  25,  3, 420,  45, 0, 0, 0 },
-    { DECO_LINE,   28,  1, 390, 160, 0, 0, 0 },
-    { DECO_TICKS,  29,  2, 440,  45, 0, 0, 0 },
+    { DECO_LINE,   24,  1, 370, 160, 0, 0, 0, 0, 0, 0 },
+    { DECO_TICKS,  25,  3, 420,  45, 0, 0, 0, 0, 0, 0 },
+    { DECO_LINE,   28,  1, 390, 160, 0, 0, 0, 0, 0, 0 },
+    { DECO_TICKS,  29,  2, 440,  45, 0, 0, 0, 0, 0, 0 },
     /* 槽 0 = 分钟（10 分钟/格）。 */
-    { DECO_GAUGE,  31,  6, 480,  35, 0, UI_DECO_SLOT(0), 0 },
+    { DECO_GAUGE,  31,  6, 480,  35, 0, UI_DECO_SLOT(0), 0, 0, 0, 0 },
     /* 槽 1 = 活跃 agent 数：亮着的【块数】就是读数。rev 让它从右往左
      * 点亮，与左边的 GAUGE 反向，同一条基线上两个方向。 */
-    { DECO_BLOCKS, 37,  3, 540,  50, 1, UI_DECO_SLOT(1), 0 },
-    { DECO_GAUGE,  40,  6, 510,  35, 0, UI_DECO_SLOT(0), 0 },
-    { DECO_BRACKET, 46, 1, 450, 160, 0, 0, DECO_DEFER },
-    { DECO_BRACKET, 47, 1, 470, 160, 0, 0, DECO_DEFER },
-    { DECO_BRACKET, 48, 1, 560, 200, 0, 0, DECO_DEFER },
+    { DECO_BLOCKS, 37,  3, 540,  50, 1, UI_DECO_SLOT(1), 0, 0, 0, 0 },
+    { DECO_GAUGE,  40,  6, 510,  35, 0, UI_DECO_SLOT(0), 0, 0, 0, 0 },
+    { DECO_BRACKET, 46, 1, 450, 160, 0, 0, DECO_DEFER, 0, 0, 0 },
+    { DECO_BRACKET, 47, 1, 470, 160, 0, 0, DECO_DEFER, 0, 0, 0 },
+    { DECO_BRACKET, 48, 1, 560, 200, 0, 0, DECO_DEFER, 0, 0, 0 },
 };
 
 static const ui_deco_spec_t CLOCK_SPEC = {
@@ -287,16 +292,16 @@ static const deco_shape_t DASH_SHAPES[] = {
     { 401, 106, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
 
     /* 22 下带基准线 */
-    { 76, 374, 328, DECO_HAIR, OPA_HAIR, DECO_FWD, 0, 0, 0 },
+    { 76, 378, 328, DECO_HAIR, OPA_HAIR, DECO_FWD, 0, 0, 0 },
     /* 23-25 下带左端 BLOCKS（静态，节奏与上带不同） */
-    { 76,  370, 20, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
-    { 102, 370, 10, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
-    { 118, 370, 28, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
+    { 76,  374, 20, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
+    { 102, 374, 10, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
+    { 118, 374, 28, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
     /* 26-29 下带右端 TICKS（扫描） */
-    { 401, 368, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
-    { 389, 368, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
-    { 377, 368, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
-    { 365, 368, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 401, 372, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 389, 372, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 377, 372, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 365, 372, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
 
     /* ── 以下只在 AMBIENT 姿态在场 ──────────────────────────────────
      * 30-35 中央夹持括号：呼吸环墨迹约 x204..276、y172..244，括号摆在
@@ -333,42 +338,53 @@ static const deco_shape_t DASH_SHAPES[] = {
     /* 48/49 两条基准线左端的【端子圆环】——线不再凭空开始，而是从一个
      * 接点引出。r=5 恒定，圆角 mask 的键因此稳定。 */
     { 66, 113, 5, 2, OPA_BLOCK, DECO_FWD, DSHAPE_DOT, 0, 0 },
-    { 66, 375, 5, 2, OPA_BLOCK, DECO_FWD, DSHAPE_DOT, 0, 0 },
+    { 66, 379, 5, 2, OPA_BLOCK, DECO_FWD, DSHAPE_DOT, 0, 0 },
 
     /* 50/51 斜线束两端的【对位斜叉】：给那段剖面标出起止，和 crop mark
      * 是同一族语汇。52 下带块组末尾的【节点菱形】——菱形读作枢纽，与
      * 圆环（端子）分工不同。 */
     { 192, 113, 5, 3, OPA_TICK,  DECO_FWD, DSHAPE_CROSS, 0, 0 },
     { 302, 113, 5, 3, OPA_TICK,  DECO_FWD, DSHAPE_CROSS, 0, 0 },
-    { 160, 375, 5, 5, OPA_BLOCK, DECO_FWD, DSHAPE_DIAMOND, 0, 0 },
+    { 160, 379, 5, 5, OPA_BLOCK, DECO_FWD, DSHAPE_DIAMOND, 0, 0 },
 };
 
+/* dy_a / dy_b = PLAIN / CHIP 两个子姿态的让位量（FLEET 用基准位置）。
+ * 逐姿态实测验收后定的数，不是估的：
+ *   FLEET  上带 16/14、下带 12/12（基准）
+ *   PLAIN  上带 +18 -> 34/34；下带 -26 -> 31/38
+ *   CHIP   上带 +4  -> 20/21；下带 -4  -> 19/20
+ * CHIP 的量必须单列：awaiting 时整簇上移 27 px（环墨顶 172->145）且
+ * chip 墨底压到 ~340，套用 PLAIN 的偏移会让上带贴到环上、下带压住 chip。
+ * 两条带的 y 本来按 fleet 定（卡片顶 134 / 底 360 是硬边界），可 ambient
+ * 中央空出一大片，同一个 y 就成了"贴着 chrome、离内容 52 px"。实测
+ * ambient 下：时间墨底 90→上带 16 px、上带→呼吸环 52 px；词底 315→下带
+ * 53 px、下带→footer 16 px。偏移后两侧各约 34 px。 */
 static const deco_elem_t DASH_ELEMS[] = {
-    { DECO_BRACKET, 0,  3,   0, 180, 0, 0, 0 },
-    { DECO_BRACKET, 3,  3,  40, 180, 0, 0, 0 },
-    { DECO_BRACKET, 6,  3,  80, 180, 0, 0, 0 },
-    { DECO_BRACKET, 9,  3, 120, 180, 0, 0, 0 },
-    { DECO_LINE,   12,  1, 170, 240, 0, 0, 0 },
-    { DECO_BLOCKS, 13,  4, 290,  50, 0, UI_DECO_SLOT(0), 0 },
-    { DECO_METER,  17,  5, 320,  40, 0, UI_DECO_SLOT(1), 0 },
-    { DECO_LINE,   22,  1, 380, 240, 0, 0, 0 },
-    { DECO_BLOCKS, 23,  3, 470,  50, 0, 0, 0 },
-    { DECO_TICKS,  26,  4, 500,  40, 0, 0, 0 },
+    { DECO_BRACKET, 0,  3,   0, 180, 0, 0, 0, 0, 0, 0 },
+    { DECO_BRACKET, 3,  3,  40, 180, 0, 0, 0, 0, 0, 0 },
+    { DECO_BRACKET, 6,  3,  80, 180, 0, 0, 0, 0, 0, 0 },
+    { DECO_BRACKET, 9,  3, 120, 180, 0, 0, 0, 0, 0, 0 },
+    { DECO_LINE,   12,  1, 170, 240, 0, 0, 0, 18, 4, 0 },
+    { DECO_BLOCKS, 13,  4, 290,  50, 0, UI_DECO_SLOT(0), 0, 18, 4, 0 },
+    { DECO_METER,  17,  5, 320,  40, 0, UI_DECO_SLOT(1), 0, 18, 4, 0 },
+    { DECO_LINE,   22,  1, 380, 240, 0, 0, 0, -26, -4, 0 },
+    { DECO_BLOCKS, 23,  3, 470,  50, 0, 0, 0, -26, -4, 0 },
+    { DECO_TICKS,  26,  4, 500,  40, 0, 0, 0, -26, -4, 0 },
     /* AMBIENT 专属。中央括号用 BRACKET 原型是有意的：它带"重锁定"闪，
      * 而它俩正夹着呼吸环——状态一变，环和括号一起应答。 */
-    { DECO_BRACKET, 30, 3, 430, 200, 0, 0, DASH_ST_AMBIENT | DECO_DEFER },
-    { DECO_BRACKET, 33, 3, 460, 200, 0, 0, DASH_ST_AMBIENT | DECO_DEFER },
-    { DECO_LINE,    36, 1, 400, 180, 0, 0, DASH_ST_AMBIENT | DECO_DEFER },
-    { DECO_TICKS,   37, 2, 470,  50, 0, 0, DASH_ST_AMBIENT | DECO_DEFER },
-    { DECO_LINE,    39, 1, 420, 180, 0, 0, DASH_ST_AMBIENT | DECO_DEFER },
-    { DECO_TICKS,   40, 2, 490,  50, 0, 0, DASH_ST_AMBIENT | DECO_DEFER },
+    { DECO_BRACKET, 30, 3, 430, 200, 0, 0, DASH_ST_AMBIENT | DECO_DEFER, 0, 0, 0 },
+    { DECO_BRACKET, 33, 3, 460, 200, 0, 0, DASH_ST_AMBIENT | DECO_DEFER, 0, 0, 0 },
+    { DECO_LINE,    36, 1, 400, 180, 0, 0, DASH_ST_AMBIENT | DECO_DEFER, 0, 0, 0 },
+    { DECO_TICKS,   37, 2, 470,  50, 0, 0, DASH_ST_AMBIENT | DECO_DEFER, 0, 0, 0 },
+    { DECO_LINE,    39, 1, 420, 180, 0, 0, DASH_ST_AMBIENT | DECO_DEFER, 0, 0, 0 },
+    { DECO_TICKS,   40, 2, 490,  50, 0, 0, DASH_ST_AMBIENT | DECO_DEFER, 0, 0, 0 },
     /* 斜线束当 TICKS 演：逐条瞬亮 + 停留期一道扫描掠过，正是剖面线该有
      * 的读法（一条条画上去，不是整块淡入）。 */
-    { DECO_TICKS,   42, 6, 350,  40, 0, 0, 0 },
-    { DECO_BLOCKS,  48, 1, 150, 120, 0, 0, DECO_DEFER },
-    { DECO_BLOCKS,  49, 1, 360, 120, 0, 0, DECO_DEFER },
-    { DECO_BRACKET, 50, 2, 390, 160, 0, 0, DECO_DEFER },
-    { DECO_BLOCKS,  52, 1, 520, 120, 0, 0, DECO_DEFER },
+    { DECO_TICKS,   42, 6, 350,  40, 0, 0, 0, 18, 4, 0 },
+    { DECO_BLOCKS,  48, 1, 150, 120, 0, 0, DECO_DEFER, 18, 4, 0 },
+    { DECO_BLOCKS,  49, 1, 360, 120, 0, 0, DECO_DEFER, -26, -4, 0 },
+    { DECO_BRACKET, 50, 2, 390, 160, 0, 0, DECO_DEFER, 18, 4, 0 },
+    { DECO_BLOCKS,  52, 1, 520, 120, 0, 0, DECO_DEFER, -26, -4, 0 },
 };
 
 static const ui_deco_spec_t DASH_SPEC = {
@@ -440,20 +456,20 @@ static const deco_shape_t WX_SHAPES[] = {
 };
 
 static const deco_elem_t WX_ELEMS[] = {
-    { DECO_BRACKET, 0,  1,   0, 180, 0, 0, 0 },
-    { DECO_BRACKET, 1,  1,  40, 180, 0, 0, 0 },
-    { DECO_BRACKET, 2,  1,  80, 180, 0, 0, 0 },
-    { DECO_BRACKET, 3,  1, 120, 180, 0, 0, 0 },
-    { DECO_LINE,    4,  1, 200, 200, 0, 0, 0 },
-    { DECO_TICKS,   5,  2, 300,  60, 0, 0, 0 },
-    { DECO_LINE,    7,  1, 230, 200, 0, 0, 0 },
-    { DECO_TICKS,   8,  2, 330,  60, 0, 0, 0 },
-    { DECO_LINE,   10,  1, 380, 220, 0, 0, 0 },
-    { DECO_GAUGE,  11,  6, 470,  35, 0, UI_DECO_SLOT(0), 0 },
-    { DECO_BLOCKS, 17,  3, 530,  50, 1, 0, 0 },
-    { DECO_BLOCKS, 20,  1, 560, 120, 0, 0, DECO_DEFER },
-    { DECO_LINE,   21,  1, 420, 240, 0, 0, DECO_DEFER },
-    { DECO_BLOCKS, 22,  1, 500, 120, 0, 0, DECO_DEFER },
+    { DECO_BRACKET, 0,  1,   0, 180, 0, 0, 0, 0, 0, 0 },
+    { DECO_BRACKET, 1,  1,  40, 180, 0, 0, 0, 0, 0, 0 },
+    { DECO_BRACKET, 2,  1,  80, 180, 0, 0, 0, 0, 0, 0 },
+    { DECO_BRACKET, 3,  1, 120, 180, 0, 0, 0, 0, 0, 0 },
+    { DECO_LINE,    4,  1, 200, 200, 0, 0, 0, 0, 0, 0 },
+    { DECO_TICKS,   5,  2, 300,  60, 0, 0, 0, 0, 0, 0 },
+    { DECO_LINE,    7,  1, 230, 200, 0, 0, 0, 0, 0, 0 },
+    { DECO_TICKS,   8,  2, 330,  60, 0, 0, 0, 0, 0, 0 },
+    { DECO_LINE,   10,  1, 380, 220, 0, 0, 0, 0, 0, 0 },
+    { DECO_GAUGE,  11,  6, 470,  35, 0, UI_DECO_SLOT(0), 0, 0, 0, 0 },
+    { DECO_BLOCKS, 17,  3, 530,  50, 1, 0, 0, 0, 0, 0 },
+    { DECO_BLOCKS, 20,  1, 560, 120, 0, 0, DECO_DEFER, 0, 0, 0 },
+    { DECO_LINE,   21,  1, 420, 240, 0, 0, DECO_DEFER, 0, 0, 0 },
+    { DECO_BLOCKS, 22,  1, 500, 120, 0, 0, DECO_DEFER, 0, 0, 0 },
 };
 
 static const ui_deco_spec_t WX_SPEC = {
@@ -518,10 +534,30 @@ static bool elem_on(const struct ui_deco *d, const deco_elem_t *el)
     return m == 0 || (m & d->state) != 0;
 }
 
+/* 几何调制：把 span_slot 的千分比乘进进度。槽值 <0（无数据）按满算，
+ * 否则元素会在数据到来前完全消失——装饰应当先在场，再被数据修剪。 */
+static int32_t elem_span_p(const struct ui_deco *d, const deco_elem_t *el,
+                           int32_t p)
+{
+    if (!el->span_slot || el->span_slot > UI_DECO_SLOT_N) return p;
+    int v = d->slot[el->span_slot - 1];
+    if (v < 0) return p;
+    if (v > 1000) v = 1000;
+    return p * v / 1000;
+}
+
 /* 参见 DECO_DEFER：转场入场时按兵不动，落定后由 morphing 补上。 */
 static bool elem_deferred(const deco_elem_t *el)
 {
     return (el->mask & DECO_DEFER) != 0;
+}
+
+/* 姿态 A 下的整组 y 偏移（见 deco_elem_t.dy_a）。 */
+static int32_t elem_dy(const struct ui_deco *d, const deco_elem_t *el)
+{
+    if (d->state & DECO_ST_A) return el->dy_a;
+    if (d->state & DECO_ST_B) return el->dy_b;
+    return 0;
 }
 
 /* 元素读到的槽值；未接槽（slot==0）返回 -1 = "不受控"。 */
@@ -653,9 +689,12 @@ static void draw_seg(lv_layer_t *layer, lv_color_t col, lv_opa_t opa,
 
 static void draw_shape(lv_layer_t *layer, const lv_area_t *clip,
                        lv_draw_rect_dsc_t *rdsc, lv_color_t col,
-                       const deco_shape_t *sh, bool grow, int32_t p,
-                       lv_opa_t opa)
+                       const deco_shape_t *sh0, bool grow, int32_t p,
+                       lv_opa_t opa, int32_t dy)
 {
+    deco_shape_t shb;
+    const deco_shape_t *sh = sh0;
+    if (dy) { shb = *sh0; shb.y = (int16_t)(shb.y + dy); sh = &shb; }
     switch (sh->kind) {
     case DSHAPE_LINE: {
         int32_t ex = sh->x + (grow ? sh->w * p / 1000 : sh->w);
@@ -881,6 +920,11 @@ static void draw_cb(lv_event_t *e)
         const deco_elem_t *el = &sp->elems[ei];
         const deco_rt_t   *rt = &d->e[ei];
         if (rt->p <= 0) continue;
+        /* 姿态偏移（负空间适配）与几何调制（动态几何）都在这里折进来：
+         * 前者平移整组，后者按数据比例缩短进度。 */
+        int32_t dy    = elem_dy(d, el);
+        int32_t eff_p = elem_span_p(d, el, rt->p);
+        if (eff_p <= 0) continue;
 
         for (int k = 0; k < el->rn; ++k) {
             const deco_shape_t *r = &sp->shapes[el->ri + k];
@@ -929,7 +973,7 @@ static void draw_cb(lv_event_t *e)
             lv_opa_t o = gained(d, opa);
             if (o == 0) continue;
             draw_shape(layer, clip, &dsc, col, r,
-                       arch_is_grow(el->arch), rt->p, o);
+                       arch_is_grow(el->arch), eff_p, o, dy);
         }
 
         /* LINE 的掠过亮段：在基准线上【叠画】一小段，alpha 累积即变亮。
@@ -944,9 +988,10 @@ static void draw_cb(lv_event_t *e)
             if (seg < 8) seg = 8;
             if (at + seg > len) seg = len - at;
             if (seg > 0) {
+                int32_t ly = r->y + elem_dy(d, el);
                 lv_area_t a = horiz
-                    ? (lv_area_t){ r->x + at, r->y, r->x + at + seg - 1, r->y + r->h - 1 }
-                    : (lv_area_t){ r->x, r->y + at, r->x + r->w - 1, r->y + at + seg - 1 };
+                    ? (lv_area_t){ r->x + at, ly, r->x + at + seg - 1, ly + r->h - 1 }
+                    : (lv_area_t){ r->x, ly + at, r->x + r->w - 1, ly + at + seg - 1 };
                 if (!(a.x1 > clip->x2 || a.x2 < clip->x1 ||
                       a.y1 > clip->y2 || a.y2 < clip->y1)) {
                     dsc.bg_opa = gained(d, (int32_t)r->opa * 5 / 2);
@@ -977,8 +1022,17 @@ static int16_t visual_sig(const deco_elem_t *el, int16_t p)
     return (int16_t)((int32_t)p * el->rn / 1000);
 }
 
-/* 只失效【签名变了】的元素的 bbox。停留期通常只有 1-2 个元素在动，
- * 于是整层的持续动效成本约等于几百个像素。 */
+/* 失效一个元素：bbox 是基准位置，按当前姿态的偏移平移后再交给 LVGL。 */
+static void elem_inval(struct ui_deco *d, int i)
+{
+    lv_area_t a = d->e[i].bbox;
+    int32_t dy = elem_dy(d, &d->spec->elems[i]);
+    if (dy) { a.y1 += dy; a.y2 += dy; }
+    lv_obj_invalidate_area(d->obj, &a);
+}
+
+/* 只失效【签名变了】的元素。停留期通常只有 1-2 个元素在动，于是整层的
+ * 持续动效成本约等于几百个像素。 */
 static void flush_dirty(struct ui_deco *d)
 {
     for (int i = 0; i < d->spec->elem_n; ++i) {
@@ -986,7 +1040,7 @@ static void flush_dirty(struct ui_deco *d)
         int16_t sig = visual_sig(&d->spec->elems[i], rt->p);
         if (sig == rt->p_seen && rt->ph == rt->ph_seen) continue;
         rt->p_seen = sig; rt->ph_seen = rt->ph;
-        lv_obj_invalidate_area(d->obj, &rt->bbox);
+        elem_inval(d, i);
     }
 }
 
@@ -1113,6 +1167,10 @@ static void build_rt(struct ui_deco *d)
             if (sb.x2 > b.x2) b.x2 = sb.x2;
             if (sb.y2 > b.y2) b.y2 = sb.y2;
         }
+        /* bbox 存【基准】位置，不含姿态偏移——失效时按当前姿态平移。
+         * 早先按两姿态并集存，上下带的盒子因此凭空高出 18-26 px，常态
+         * 每次失效都在为一个用不到的位置买单（实测 dashboard->clock
+         * render +30%）。姿态切换时改为失效新旧两处，那是稀疏事件。 */
         rt->bbox = b;
     }
 
@@ -1262,14 +1320,25 @@ void ui_deco_set_slot(ui_deco_t *d, int slot, int v)
     /* 只失效读这个槽的元素。 */
     uint8_t tag = UI_DECO_SLOT(slot);
     for (int i = 0; i < d->spec->elem_n; ++i)
-        if (d->spec->elems[i].slot == tag)
-            lv_obj_invalidate_area(d->obj, &d->e[i].bbox);
+        if (d->spec->elems[i].slot == tag || d->spec->elems[i].span_slot == tag)
+            elem_inval(d, i);
 }
 
 void ui_deco_set_state(ui_deco_t *d, uint8_t state)
 {
     if (!d || d->state == state) return;
+    /* 带姿态偏移的元素要把【旧位置】也擦掉，否则平移后留残影。 */
+    if (d->phase != PH_HIDDEN) {
+        for (int i = 0; i < d->spec->elem_n; ++i)
+            if (d->spec->elems[i].dy_a || d->spec->elems[i].dy_b)
+                elem_inval(d, i);
+    }
     d->state = state;
+    if (d->phase != PH_HIDDEN) {
+        for (int i = 0; i < d->spec->elem_n; ++i)
+            if (d->spec->elems[i].dy_a || d->spec->elems[i].dy_b)
+                elem_inval(d, i);
+    }
     if (d->phase == PH_LIVE && s_timer) {
         d->morphing = true;                       /* 下一拍开始长/收 */
         lv_timer_set_period(s_timer, TICK_ANIM_MS);
@@ -1294,7 +1363,7 @@ void ui_deco_pulse(ui_deco_t *d)
         if (d->spec->elems[i].arch != DECO_BRACKET) continue;
         d->e[i].ph = 1;
         d->e[i].ph_seen = 1;
-        lv_obj_invalidate_area(d->obj, &d->e[i].bbox);
+        elem_inval(d, i);
     }
 }
 

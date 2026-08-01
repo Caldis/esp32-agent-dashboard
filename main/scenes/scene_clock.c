@@ -611,6 +611,10 @@ static void clock_tick(lv_timer_t *t)
     /* 装饰层用【节奏】表达设备状态（颜色是内容层的事）：空闲近乎静默、
      * 该你了时整层提亮加快。 */
     ui_deco_set_pace(st->deco, (uint8_t)attn);
+    /* 槽 2 = 这一小时走了多少（千分比）。右下角那条同心弧的跨角直接由
+     * 它决定，每分钟长一点，一小时扫完——四角里只有一角在动。 */
+    ui_deco_set_slot(st->deco, 2, buf[0] == '-' ? -1
+        : ((buf[3] - '0') * 10 + (buf[4] - '0')) * 1000 / 60);
     if (n_active != st->deco_active) {
         st->deco_active = n_active;
         ui_deco_pulse(st->deco);

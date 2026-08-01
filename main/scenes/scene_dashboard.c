@@ -618,7 +618,11 @@ static void tick(lv_timer_t *t)
     /* 装饰跟着姿态走：fleet 时卡片把 y134..360 全占满，中央夹持括号和
      * 两条侧轴就地退场，只留四角 + 上下带。这不是省性能，是【负空间】
      * ——四行卡片已经填满画面，再贴装饰就没有喘息了。 */
-    ui_deco_set_state(d->deco, fleet ? DASH_ST_FLEET : DASH_ST_AMBIENT);
+    /* 三姿态：ambient 还要按有没有 chip 再分——awaiting 时整簇上移 27 px
+     * 且 chip 墨底压到 352，装饰的让位量和无 chip 时完全不同。 */
+    ui_deco_set_state(d->deco,
+        fleet ? DASH_ST_FLEET
+              : (attn == AGENT_ATTN_ALERT ? DASH_ST_CHIP : DASH_ST_PLAIN));
     ui_deco_set_pace(d->deco, (uint8_t)attn);
 
     /* 装饰层的两个读数（LVGL 写入放在锁外）：上带左端的【块数】= 在册
@@ -687,7 +691,7 @@ static void init(scene_t *s, lv_obj_t *parent)
      * 是【上下两条仪表带】——中部 fleet 卡片区占满 y134..360、x28..452，
      * 两侧只剩 28 px，装饰硬挤进去只会和卡片边缘打架。 */
     d->deco = ui_deco_attach(parent, ui_deco_spec_dashboard());
-    ui_deco_set_state(d->deco, DASH_ST_AMBIENT);   /* 首帧姿态；tick 立刻校正 */
+    ui_deco_set_state(d->deco, DASH_ST_PLAIN);   /* 首帧姿态；tick 立刻校正 */
 
     const theme_palette_t *pal = theme_current();
     lv_obj_set_style_bg_color(parent, lv_color_hex(pal ? pal->bg : COL_BG), 0);
