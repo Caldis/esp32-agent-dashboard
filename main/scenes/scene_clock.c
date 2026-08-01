@@ -149,6 +149,7 @@ typedef struct {
     char        cached_wx[96];
     ui_deco_t  *deco;         /* v7.6: 机能装饰层（自绘，参与转场演出） */
     int         deco_active;  /* 上一拍的活跃 agent 数（变化 = 真事件） */
+    int         deco_attn;    /* 上一拍的注意力档（上升到 ALERT = 交还回合） */
 
     /* ── push subsystem ── */
     lv_obj_t   *push_grp;     /* centre card container (fade/slide as one) */
@@ -611,6 +612,11 @@ static void clock_tick(lv_timer_t *t)
     /* 装饰层用【节奏】表达设备状态（颜色是内容层的事）：空闲近乎静默、
      * 该你了时整层提亮加快。 */
     ui_deco_set_pace(st->deco, (uint8_t)attn);
+    /* 升到 ALERT = agent 把回合交还给你——这台面板的唯一职责。装饰层
+     * 放一道锁定确认扫过全层，而不只是事后换个节奏。 */
+    if (attn == AGENT_ATTN_ALERT && st->deco_attn != AGENT_ATTN_ALERT)
+        ui_deco_alert(st->deco);
+    st->deco_attn = attn;
     /* 槽 2 = 这一小时走了多少（千分比）。右下角那条同心弧的跨角直接由
      * 它决定，每分钟长一点，一小时扫完——四角里只有一角在动。 */
     ui_deco_set_slot(st->deco, 2, buf[0] == '-' ? -1

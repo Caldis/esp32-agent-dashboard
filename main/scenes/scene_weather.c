@@ -206,6 +206,7 @@ typedef struct {
      * format-truncation 下必须能证明放得下。 */
     /* v7.6: 机能装饰层（自绘，参与转场演出）。 */
     ui_deco_t     *deco;
+    int            deco_attn;
 } weather_scene_t;
 
 /* ════ 小工具 ═══════════════════════════════════════════════════════ */
@@ -830,6 +831,9 @@ static void weather_tick(lv_timer_t *t)
     agent_state_unlock();
 
     ui_deco_set_pace(st->deco, (uint8_t)attn);
+    if (attn == AGENT_ATTN_ALERT && st->deco_attn != AGENT_ATTN_ALERT)
+        ui_deco_alert(st->deco);
+    st->deco_attn = attn;
 
     /* 装饰层底部 GAUGE 的槽 0 = 一天走到哪个时段（4 小时/格）。这一页
      * 讲的就是"天"，所以它的真值是时段而不是分钟。hhmm 恒为 "HH:MM"

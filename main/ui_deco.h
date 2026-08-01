@@ -152,6 +152,12 @@ void ui_deco_pulse(ui_deco_t *d);
  * 零新增形状、零新增 draw call，只改 opa 乘数和几个周期常数。 */
 void ui_deco_set_pace(ui_deco_t *d, uint8_t attn);
 
+/* 【锁定确认】：一道强调由外向内扫过全层一次，按谱的入场顺序推进，但
+ * 快得多。给设备的核心时刻用——agent 交还回合的那个上升沿。这台面板
+ * 的唯一职责就是说这件事，装饰层不该只是事后跟着换个节奏。
+ * 只在停留期有效；一次性，约 0.5 s。 */
+void ui_deco_alert(ui_deco_t *d);
+
 /* 切换姿态位（见 deco_elem_t.mask）。不在新姿态里的元素就地退场、新进
  * 场的就地生长，走的是与转场同一套动效。内部去重。 */
 void ui_deco_set_state(ui_deco_t *d, uint8_t state);

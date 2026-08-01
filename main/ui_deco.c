@@ -276,20 +276,26 @@ static const deco_shape_t DASH_SHAPES[] = {
     { 432, 414, 16, 4, OPA_BRK, DECO_REV, 0, 0, 0 },
     { 432, 444, 16, 4, OPA_BRK, DECO_REV, 0, 0, 0 },
 
-    /* 12 上带基准线 */
-    { 76, 112, 328, DECO_HAIR, OPA_HAIR, DECO_FWD, 0, 0, 0 },
-    /* 13-16 上带左端 BLOCKS —— 槽 0 = 在册会话数，亮着的块数即读数 */
-    { 76,  108, 24, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
-    { 106, 108, 12, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
-    { 124, 108, 20, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
-    { 150, 108, 30, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
-    /* 17-21 上带右端 METER —— 槽 1 = 活跃 agent 数。表里 x 递增，液面
-     * 因此从左往右升（与下带刻度的从右往左形成反向） */
-    { 353, 106, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
-    { 365, 106, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
-    { 377, 106, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
-    { 389, 106, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
-    { 401, 106, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    /* ── 上带：与顶部时间【同一水平线、左右分列】 ────────────────
+     * 原先横跨 y112，deco_audit 量出它距时间墨底只有 1 px（fleet）/
+     * 5 px（chip）——我目测时以为时间墨底在 90，实际是 107。那里根本
+     * 放不下：107 到卡片顶 134 只有 27 px，塞 14 px 的带子两边各剩 6。
+     * 改成左右两段、垂直与时间墨迹（56..107，中心 81）居中对齐，让开
+     * 中央。上下各得 44/46 px，三个姿态都宽裕，dy 偏移也不再需要。
+     * 构图上也更好：时间被两段数据带夹持，比横跨一条更像仪表。
+     * 12 左段基准线（x40..170） */
+    { 40, 81, 130, DECO_HAIR, OPA_HAIR, DECO_FWD, 0, 0, 0 },
+    /* 13-16 左段 BLOCKS —— 槽 0 = 在册会话数，亮着的块数即读数 */
+    { 40,  77, 24, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
+    { 70,  77, 12, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
+    { 88,  77, 18, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
+    { 112, 77, 28, 10, OPA_BLOCK, DECO_FWD, 0, 0, 0 },
+    /* 17-21 右段 METER —— 槽 1 = 活跃数。x 递增所以液面从左往右升。 */
+    { 345, 75, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 357, 75, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 369, 75, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 381, 75, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
+    { 393, 75, 3, 14, OPA_TICK, DECO_FWD, 0, 0, 0 },
 
     /* 22 下带基准线 */
     { 76, 378, 328, DECO_HAIR, OPA_HAIR, DECO_FWD, 0, 0, 0 },
@@ -328,23 +334,23 @@ static const deco_shape_t DASH_SHAPES[] = {
      * 之前整层只有横竖两个方向。顺带填掉上带中间那段 90 px 空白，而且
      * 因为斜纹是"这一段被划掉/保留"的意思，密度感来得比再加几个方块
      * 更便宜。 */
-    { 200, 120, 14, -14, OPA_TICK, DECO_FWD, DSHAPE_LINE, 2, 0 },
-    { 216, 120, 14, -14, OPA_TICK, DECO_FWD, DSHAPE_LINE, 2, 0 },
-    { 232, 120, 14, -14, OPA_TICK, DECO_FWD, DSHAPE_LINE, 2, 0 },
-    { 248, 120, 14, -14, OPA_TICK, DECO_FWD, DSHAPE_LINE, 2, 0 },
-    { 264, 120, 14, -14, OPA_TICK, DECO_FWD, DSHAPE_LINE, 2, 0 },
-    { 280, 120, 14, -14, OPA_TICK, DECO_FWD, DSHAPE_LINE, 2, 0 },
+    { 200, 386, 14, -14, OPA_TICK, DECO_FWD, DSHAPE_LINE, 2, 0 },
+    { 216, 386, 14, -14, OPA_TICK, DECO_FWD, DSHAPE_LINE, 2, 0 },
+    { 232, 386, 14, -14, OPA_TICK, DECO_FWD, DSHAPE_LINE, 2, 0 },
+    { 248, 386, 14, -14, OPA_TICK, DECO_FWD, DSHAPE_LINE, 2, 0 },
+    { 264, 386, 14, -14, OPA_TICK, DECO_FWD, DSHAPE_LINE, 2, 0 },
+    { 280, 386, 14, -14, OPA_TICK, DECO_FWD, DSHAPE_LINE, 2, 0 },
 
     /* 48/49 两条基准线左端的【端子圆环】——线不再凭空开始，而是从一个
      * 接点引出。r=5 恒定，圆角 mask 的键因此稳定。 */
-    { 66, 113, 5, 2, OPA_BLOCK, DECO_FWD, DSHAPE_DOT, 0, 0 },
+    { 32, 81, 5, 2, OPA_BLOCK, DECO_FWD, DSHAPE_DOT, 0, 0 },
     { 66, 379, 5, 2, OPA_BLOCK, DECO_FWD, DSHAPE_DOT, 0, 0 },
 
     /* 50/51 斜线束两端的【对位斜叉】：给那段剖面标出起止，和 crop mark
      * 是同一族语汇。52 下带块组末尾的【节点菱形】——菱形读作枢纽，与
      * 圆环（端子）分工不同。 */
-    { 192, 113, 5, 3, OPA_TICK,  DECO_FWD, DSHAPE_CROSS, 0, 0 },
-    { 302, 113, 5, 3, OPA_TICK,  DECO_FWD, DSHAPE_CROSS, 0, 0 },
+    { 192, 379, 5, 3, OPA_TICK,  DECO_FWD, DSHAPE_CROSS, 0, 0 },
+    { 302, 379, 5, 3, OPA_TICK,  DECO_FWD, DSHAPE_CROSS, 0, 0 },
     { 160, 379, 5, 5, OPA_BLOCK, DECO_FWD, DSHAPE_DIAMOND, 0, 0 },
 };
 
@@ -364,9 +370,9 @@ static const deco_elem_t DASH_ELEMS[] = {
     { DECO_BRACKET, 3,  3,  40, 180, 0, 0, 0, 0, 0, 0 },
     { DECO_BRACKET, 6,  3,  80, 180, 0, 0, 0, 0, 0, 0 },
     { DECO_BRACKET, 9,  3, 120, 180, 0, 0, 0, 0, 0, 0 },
-    { DECO_LINE,   12,  1, 170, 240, 0, 0, 0, 18, 4, 0 },
-    { DECO_BLOCKS, 13,  4, 290,  50, 0, UI_DECO_SLOT(0), 0, 18, 4, 0 },
-    { DECO_METER,  17,  5, 320,  40, 0, UI_DECO_SLOT(1), 0, 18, 4, 0 },
+    { DECO_LINE,   12,  1, 170, 240, 0, 0, 0, 0, 0, 0 },
+    { DECO_BLOCKS, 13,  4, 290,  50, 0, UI_DECO_SLOT(0), 0, 0, 0, 0 },
+    { DECO_METER,  17,  5, 320,  40, 0, UI_DECO_SLOT(1), 0, 0, 0, 0 },
     { DECO_LINE,   22,  1, 380, 240, 0, 0, 0, -26, -4, 0 },
     { DECO_BLOCKS, 23,  3, 470,  50, 0, 0, 0, -26, -4, 0 },
     { DECO_TICKS,  26,  4, 500,  40, 0, 0, 0, -26, -4, 0 },
@@ -380,10 +386,10 @@ static const deco_elem_t DASH_ELEMS[] = {
     { DECO_TICKS,   40, 2, 490,  50, 0, 0, DASH_ST_AMBIENT | DECO_DEFER, 0, 0, 0 },
     /* 斜线束当 TICKS 演：逐条瞬亮 + 停留期一道扫描掠过，正是剖面线该有
      * 的读法（一条条画上去，不是整块淡入）。 */
-    { DECO_TICKS,   42, 6, 350,  40, 0, 0, 0, 18, 4, 0 },
-    { DECO_BLOCKS,  48, 1, 150, 120, 0, 0, DECO_DEFER, 18, 4, 0 },
+    { DECO_TICKS,   42, 6, 350,  40, 0, 0, 0, -26, -4, 0 },
+    { DECO_BLOCKS,  48, 1, 150, 120, 0, 0, DECO_DEFER, 0, 0, 0 },
     { DECO_BLOCKS,  49, 1, 360, 120, 0, 0, DECO_DEFER, -26, -4, 0 },
-    { DECO_BRACKET, 50, 2, 390, 160, 0, 0, DECO_DEFER, 18, 4, 0 },
+    { DECO_BRACKET, 50, 2, 390, 160, 0, 0, DECO_DEFER, -26, -4, 0 },
     { DECO_BLOCKS,  52, 1, 520, 120, 0, 0, DECO_DEFER, -26, -4, 0 },
 };
 
@@ -495,6 +501,12 @@ const ui_deco_spec_t *ui_deco_spec_weather(void) { return &WX_SPEC; }
  *    转）。顺带省电：入场不再把设备钉在高刷上。 */
 #define TICK_ANIM_MS    66
 #define OUT_SCALE       33   /* 出场 = 入场时长的 33%，须 <= OUT_MS(240) */
+/* 锁定确认：一道窄强调按入场顺序扫过全层。比入场快，读作"确认"而不是
+ * "重新出场"。ph 的第 8 位借来标记"本元素正被扫到"，于是它自动进入
+ * 失效签名——不需要另一套脏管理。 */
+#define ALERT_MS       520
+#define ALERT_W        180   /* 强调窗口宽度（ms） */
+#define ALERT_BIT      0x100
 
 typedef enum { PH_HIDDEN = 0, PH_IN, PH_LIVE, PH_OUT } deco_phase_t;
 
@@ -523,6 +535,8 @@ struct ui_deco {
     uint8_t               pulse_left;             /* 事件脉冲剩余拍数 */
     uint8_t               state;                  /* 当前姿态位 */
     uint8_t               pace;                   /* AGENT_ATTN_*：节奏档 */
+    uint16_t              alert_ms;               /* 锁定确认：剩余毫秒 */
+    uint16_t              max_delay;              /* 谱里最大的入场 delay */
     bool                  morphing;               /* 有元素正在进/退场 */
     deco_rt_t             e[DECO_ELEM_MAX];
 };
@@ -947,24 +961,26 @@ static void draw_cb(lv_event_t *e)
             /* 停留期效果只在完全就位后生效——入场途中再叠一层闪变，读
              * 起来就是两套动画在打架。 */
             if (d->phase == PH_LIVE) {
+                int16_t ph = rt->ph & 0xFF;
+                if (rt->ph & ALERT_BIT) opa = opa * 2;   /* 锁定确认扫过 */
                 switch (el->arch) {
                 case DECO_BRACKET:
-                    if (rt->ph) opa = opa * 9 / 5;
+                    if (ph) opa = opa * 9 / 5;
                     break;
                 case DECO_BLOCKS:
-                    if (rt->ph == k + 1) opa /= 3;
+                    if (ph == k + 1) opa /= 3;
                     break;
                 case DECO_TICKS:
-                    if (rt->ph == k) opa = opa * 5 / 2;
+                    if (ph == k) opa = opa * 5 / 2;
                     break;
                 case DECO_GAUGE:
                     /* 当前格【向上】脉动。压暗是错的：190*3/5=114 已经贴到
                      * "已过"档的 100，半个周期里读者分不清哪一格是当前。
                      * 往上顶到 253 才让"现在"始终是全层最亮的一点。 */
-                    if (rt->ph && k == slot_of(d, el)) opa = opa * 4 / 3;
+                    if (ph && k == slot_of(d, el)) opa = opa * 4 / 3;
                     break;
                 case DECO_METER:
-                    if (rt->ph && k == slot_of(d, el) - 1) opa = opa * 4 / 3;
+                    if (ph && k == slot_of(d, el) - 1) opa = opa * 4 / 3;
                     break;
                 default: break;
                 }
@@ -978,13 +994,13 @@ static void draw_cb(lv_event_t *e)
 
         /* LINE 的掠过亮段：在基准线上【叠画】一小段，alpha 累积即变亮。
          * 单独处理是因为它不是表里的矩形——它是同一个矩形的一个子区间。 */
-        if (el->arch == DECO_LINE && d->phase == PH_LIVE && rt->ph < 16 &&
-            sp->shapes[el->ri].kind == DSHAPE_RECT) {
+        if (el->arch == DECO_LINE && d->phase == PH_LIVE &&
+            (rt->ph & 0xFF) < 16 && sp->shapes[el->ri].kind == DSHAPE_RECT) {
             const deco_shape_t *r = &sp->shapes[el->ri];
             bool horiz = (r->w >= r->h);
             int32_t len = horiz ? r->w : r->h;
             int32_t seg = len / 8;
-            int32_t at  = len * rt->ph / 16;
+            int32_t at  = len * (rt->ph & 0xFF) / 16;
             if (seg < 8) seg = 8;
             if (at + seg > len) seg = len - at;
             if (seg > 0) {
@@ -1115,7 +1131,16 @@ static void step_inst(struct ui_deco *d)
             moving = true;
         }
         rt->ph = live_phase(d, el, d->tick, i);
+        if (d->alert_ms) {
+            int32_t pos = (int32_t)(ALERT_MS - d->alert_ms)
+                        * (d->max_delay + ALERT_W) / ALERT_MS;
+            if (el->delay <= pos && el->delay > pos - ALERT_W)
+                rt->ph |= ALERT_BIT;
+        }
     }
+    if (d->alert_ms)
+        d->alert_ms = (d->alert_ms > TICK_ANIM_MS)
+                    ? (uint16_t)(d->alert_ms - TICK_ANIM_MS) : 0;
     d->morphing = moving;
     flush_dirty(d);
 }
@@ -1131,7 +1156,7 @@ static void timer_cb(lv_timer_t *t)
     /* 没有实例在演出时回落到慢拍；全部隐藏时干脆停表。姿态切换途中
      * （morphing）同样要快拍，否则元素会以 200 ms 一步的粗颗粒跳出来。 */
     for (int i = 0; i < s_inst_n && !any_anim; ++i)
-        if (s_inst[i].morphing) any_anim = true;
+        if (s_inst[i].morphing || s_inst[i].alert_ms) any_anim = true;
     if (!any_anim) {
         bool any_live = false;
         for (int i = 0; i < s_inst_n; ++i)
@@ -1184,6 +1209,9 @@ static void build_rt(struct ui_deco *d)
         rt->out_span = (uint16_t)(rt->in_span * OUT_SCALE / 100);
     }
     d->span = in_total;
+    d->max_delay = 0;
+    for (int i = 0; i < sp->elem_n; ++i)
+        if (sp->elems[i].delay > d->max_delay) d->max_delay = sp->elems[i].delay;
 }
 
 /* ── 公开 API ────────────────────────────────────────────────────── */
@@ -1353,6 +1381,14 @@ void ui_deco_set_pace(ui_deco_t *d, uint8_t attn)
     /* 亮度乘数变了 = 整层视觉都变了，只能整块失效一次。节奏切换很稀疏
      * （空闲↔思考↔该你了），不在热路径上。 */
     if (d->phase != PH_HIDDEN) lv_obj_invalidate(d->obj);
+}
+
+void ui_deco_alert(ui_deco_t *d)
+{
+    if (!d || !s_timer || d->phase != PH_LIVE) return;
+    d->alert_ms = ALERT_MS;
+    lv_timer_set_period(s_timer, TICK_ANIM_MS);
+    lv_timer_resume(s_timer);
 }
 
 void ui_deco_pulse(ui_deco_t *d)

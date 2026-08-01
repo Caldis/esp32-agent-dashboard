@@ -136,6 +136,7 @@ typedef struct {
     /* v7.6: 机能装饰层（自绘，参与转场演出）。 */
     ui_deco_t *deco;
     int       deco_active;       /* 上一拍的活跃数（变化 = 真事件 = pulse） */
+    int       deco_attn;         /* 上一拍的注意力档 */
 } dash_t;
 
 /* ── helpers ─────────────────────────────────────────────────────── */
@@ -624,6 +625,9 @@ static void tick(lv_timer_t *t)
         fleet ? DASH_ST_FLEET
               : (attn == AGENT_ATTN_ALERT ? DASH_ST_CHIP : DASH_ST_PLAIN));
     ui_deco_set_pace(d->deco, (uint8_t)attn);
+    if (attn == AGENT_ATTN_ALERT && d->deco_attn != AGENT_ATTN_ALERT)
+        ui_deco_alert(d->deco);       /* 回合交还的那一下 */
+    d->deco_attn = attn;
 
     /* 装饰层的两个读数（LVGL 写入放在锁外）：上带左端的【块数】= 在册
      * 会话数，右端的【液面】= 活跃数。两者一起把"这台机器现在扛着多少
