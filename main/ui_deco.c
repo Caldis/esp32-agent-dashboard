@@ -319,19 +319,14 @@ static const deco_shape_t DASH_SHAPES[] = {
     { 315, 188,  3, 42, OPA_TICK, DECO_REV, 0, 0, 0 },
     { 307, 188, 11,  3, OPA_TICK, DECO_REV, 0, 0, 0 },
     { 307, 227, 11,  3, OPA_TICK, DECO_REV, 0, 0, 0 },
-    /* 36-41 侧边两轴。fleet 卡片占 x28..452，两侧只剩 28 px：几何上放得
-     * 下，视觉上放不下——四行卡片已经把画面填满，再贴两条轴就没有喘息
-     * 了。所以它们只属于 ambient。 */
-    { 14,  214,  3, 52, OPA_TICK, DECO_FWD, 0, 0, 0 },
-    { 14,  214,  9,  3, OPA_TICK, DECO_FWD, 0, 0, 0 },
-    { 14,  263,  9,  3, OPA_TICK, DECO_FWD, 0, 0, 0 },
-    { 463, 224,  3, 44, OPA_TICK, DECO_REV, 0, 0, 0 },
-    { 455, 224,  9,  3, OPA_TICK, DECO_REV, 0, 0, 0 },
-    { 455, 265,  9,  3, OPA_TICK, DECO_REV, 0, 0, 0 },
+    /* （曾经这里有左右两条侧轴。删了：它们【不夹持任何东西】——呼吸环
+     * 已经由上面那对中央括号夹住——而且形态与 clock 的侧轴几乎一样，
+     * 正是三张谱差异化要消除的那种重复。没有语义的元素就该拿掉，哪怕
+     * 它占的是空地。） */
 
-    /* 42-47 上带中段的【45° 斜线束】。这是工程制图的剖面线语汇（参照
+    /* 36-41 下带中段的【45° 斜线束】。这是工程制图的剖面线语汇（参照
      * 图里那个斜纹按钮就是它），也是本层第一处【带角度】的图形——在此
-     * 之前整层只有横竖两个方向。顺带填掉上带中间那段 90 px 空白，而且
+     * 之前整层只有横竖两个方向。顺带填掉下带中间那段空白，而且
      * 因为斜纹是"这一段被划掉/保留"的意思，密度感来得比再加几个方块
      * 更便宜。 */
     { 200, 386, 14, -14, OPA_TICK, DECO_FWD, DSHAPE_LINE, 2, 0 },
@@ -341,13 +336,13 @@ static const deco_shape_t DASH_SHAPES[] = {
     { 264, 386, 14, -14, OPA_TICK, DECO_FWD, DSHAPE_LINE, 2, 0 },
     { 280, 386, 14, -14, OPA_TICK, DECO_FWD, DSHAPE_LINE, 2, 0 },
 
-    /* 48/49 两条基准线左端的【端子圆环】——线不再凭空开始，而是从一个
+    /* 42/43 两条基准线左端的【端子圆环】——线不再凭空开始，而是从一个
      * 接点引出。r=5 恒定，圆角 mask 的键因此稳定。 */
     { 32, 81, 5, 2, OPA_BLOCK, DECO_FWD, DSHAPE_DOT, 0, 0 },
     { 66, 379, 5, 2, OPA_BLOCK, DECO_FWD, DSHAPE_DOT, 0, 0 },
 
-    /* 50/51 斜线束两端的【对位斜叉】：给那段剖面标出起止，和 crop mark
-     * 是同一族语汇。52 下带块组末尾的【节点菱形】——菱形读作枢纽，与
+    /* 44/45 斜线束两端的【对位标记】：给那段剖面标出起止，和 crop mark
+     * 是同一族语汇。46 下带块组末尾的【节点菱形】——菱形读作枢纽，与
      * 圆环（端子）分工不同。 */
     { 192, 379, 5, 3, OPA_TICK,  DECO_FWD, DSHAPE_CROSS, 0, 0 },
     { 302, 379, 5, 3, OPA_TICK,  DECO_FWD, DSHAPE_CROSS, 0, 0 },
@@ -380,17 +375,13 @@ static const deco_elem_t DASH_ELEMS[] = {
      * 而它俩正夹着呼吸环——状态一变，环和括号一起应答。 */
     { DECO_BRACKET, 30, 3, 430, 200, 0, 0, DASH_ST_AMBIENT | DECO_DEFER, 0, 0, 0 },
     { DECO_BRACKET, 33, 3, 460, 200, 0, 0, DASH_ST_AMBIENT | DECO_DEFER, 0, 0, 0 },
-    { DECO_LINE,    36, 1, 400, 180, 0, 0, DASH_ST_AMBIENT | DECO_DEFER, 0, 0, 0 },
-    { DECO_TICKS,   37, 2, 470,  50, 0, 0, DASH_ST_AMBIENT | DECO_DEFER, 0, 0, 0 },
-    { DECO_LINE,    39, 1, 420, 180, 0, 0, DASH_ST_AMBIENT | DECO_DEFER, 0, 0, 0 },
-    { DECO_TICKS,   40, 2, 490,  50, 0, 0, DASH_ST_AMBIENT | DECO_DEFER, 0, 0, 0 },
     /* 斜线束当 TICKS 演：逐条瞬亮 + 停留期一道扫描掠过，正是剖面线该有
      * 的读法（一条条画上去，不是整块淡入）。 */
-    { DECO_TICKS,   42, 6, 350,  40, 0, 0, 0, -26, -4, 0 },
-    { DECO_BLOCKS,  48, 1, 150, 120, 0, 0, DECO_DEFER, 0, 0, 0 },
-    { DECO_BLOCKS,  49, 1, 360, 120, 0, 0, DECO_DEFER, -26, -4, 0 },
-    { DECO_BRACKET, 50, 2, 390, 160, 0, 0, DECO_DEFER, -26, -4, 0 },
-    { DECO_BLOCKS,  52, 1, 520, 120, 0, 0, DECO_DEFER, -26, -4, 0 },
+    { DECO_TICKS,   36, 6, 350,  40, 0, 0, 0, -26, -4, 0 },
+    { DECO_BLOCKS,  42, 1, 150, 120, 0, 0, DECO_DEFER, 0, 0, 0 },
+    { DECO_BLOCKS,  43, 1, 360, 120, 0, 0, DECO_DEFER, -26, -4, 0 },
+    { DECO_BRACKET, 44, 2, 390, 160, 0, 0, DECO_DEFER, -26, -4, 0 },
+    { DECO_BLOCKS,  46, 1, 520, 120, 0, 0, DECO_DEFER, -26, -4, 0 },
 };
 
 static const ui_deco_spec_t DASH_SPEC = {

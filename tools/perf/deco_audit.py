@@ -125,25 +125,27 @@ def row_profile(img: Image.Image, th: int) -> list[int]:
     return [sum(1 for v in px[y * w:(y + 1) * w] if v >= th) for y in range(h)]
 
 
-def band_x(img: Image.Image, y1: int, y2: int, th: int) -> tuple[int, int]:
-    """墨带在 x 方向的跨度。**必须带上它**：行投影只看垂直方向，一条装饰
+def band_cols(img: Image.Image, y1: int, y2: int, th: int) -> bytearray:
+    """墨带【实际覆盖的列】。**必须带上它**：行投影只看垂直方向，一条装饰
     带和一块内容落在同一行，可能是垂直挤压，也可能是左右并排——完全相反
-    的两件事。dashboard 的上带就是与顶部时间同行分列的，没有这个检查会
-    把"并排"误报成"距内容 3 px"。"""
+    的两件事。
+
+    而且必须是逐列的覆盖，不能退化成 (min,max) 区间：dashboard 的上带是
+    【左段 + 右段】分列在时间两侧的，min/max 会把中间那段空隙也算进去，
+    于是"并排"又被误判成"重叠"。分离的元素只有列集合表达得了。"""
     w = img.size[0]
     px = img.tobytes()
-    lo, hi = w, -1
+    cols = bytearray(w)
     for y in range(y1, y2 + 1):
         row = px[y * w:(y + 1) * w]
         for x in range(w):
             if row[x] >= th:
-                if x < lo: lo = x
-                if x > hi: hi = x
-    return (lo, hi) if hi >= 0 else (0, w - 1)
+                cols[x] = 1
+    return cols
 
 
-def x_hit(a: tuple[int, int], b: tuple[int, int]) -> bool:
-    return not (a[1] < b[0] or a[0] > b[1])
+def x_hit(a: bytearray, b: bytearray) -> bool:
+    return any(u and v for u, v in zip(a, b))
 
 
 def bands(profile: list[int], min_ink: int) -> list[tuple[int, int]]:
@@ -176,12 +178,19 @@ def audit_case(name: str, key: str, snap: str, keep: bool,
     console(f"dash btn {key}")
     time.sleep(SETTLE_S)
 
-    console("?deco 0")
-    time.sleep(0.6)
-    img_content = shoot(OUT / f"{name}-content.png")
-    console("?deco 1")
-    time.sleep(0.6)
-    img_full = shoot(OUT / f"{name}-full.png")
+    # ?deco 0 -> 截图 -> ?deco 1 -> 截图。**必须 finally 恢复**：一旦在
+    # 这中间被打断（脚本超时、Ctrl+C、主机死机），设备会停在"装饰关闭"
+    # 状态，而设备是 USB 供电的——主机重启它也不断电，那个状态就一直留
+    # 着，看起来像"装饰丢了"。踩过一次。
+    try:
+        console("?deco 0")
+        time.sleep(0.6)
+        img_content = shoot(OUT / f"{name}-content.png")
+        console("?deco 1")
+        time.sleep(0.6)
+        img_full = shoot(OUT / f"{name}-full.png")
+    finally:
+        console("?deco 1")
 
     img_deco = diff_image(img_full, img_content)
     if keep:
@@ -198,11 +207,11 @@ def audit_case(name: str, key: str, snap: str, keep: bool,
     if not d_bands:
         return [f"{name}: 未检出任何装饰墨带（?deco 差分为空）"]
 
-    cx = {b: band_x(img_content, b[0], b[1], CONTENT_TH) for b in c_bands}
+    cx = {b: band_cols(img_content, b[0], b[1], CONTENT_TH) for b in c_bands}
 
     problems = []
     for (dy1, dy2) in d_bands:
-        dx = band_x(img_deco, dy1, dy2, DECO_TH)
+        dx = band_cols(img_deco, dy1, dy2, DECO_TH)
         # 只有 x 方向真的压在一起的内容才算"相邻"。
         above = [b for b in c_bands if b[1] < dy1 and x_hit(dx, cx[b])]
         below = [b for b in c_bands if b[0] > dy2 and x_hit(dx, cx[b])]
@@ -237,13 +246,16 @@ def main() -> int:
         return print(f"未知姿态：{a.case}") or 2
 
     all_problems = []
-    for name, key, snap, ratio in cases:
-        try:
-            all_problems += audit_case(name, key, snap, a.keep, ratio)
-        except Exception as e:                       # noqa: BLE001
-            all_problems.append(f"{name}: 采集失败 {e}")
-
-    console(f"dash snapshot {EMPTY}")
+    try:
+        for name, key, snap, ratio in cases:
+            try:
+                all_problems += audit_case(name, key, snap, a.keep, ratio)
+            except Exception as e:                   # noqa: BLE001
+                all_problems.append(f"{name}: 采集失败 {e}")
+    finally:
+        # 无论怎么退出，设备都要留在"装饰开启、无假 agent"的干净状态。
+        console("?deco 1")
+        console(f"dash snapshot {EMPTY}")
     print("\n" + "=" * 46)
     if all_problems:
         print(f"FAIL — {len(all_problems)} 处")
