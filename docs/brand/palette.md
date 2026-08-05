@@ -1,59 +1,67 @@
 # palette
 
-Exact colour hex codes for `esp32-agent-dashboard`. These are sibling-
-compatible with `esp-harness`'s palette (`paper`, `ink`, `rust`, …)
-and add a teal accent that signals the dashboard / agent side of the
-family. The firmware `theme.h` (when Agent F1 writes it) should pull
-these exact values so docs + device read as one design.
+Exact colour values for `esp32-agent-dashboard`. The firmware's
+`main/theme.c` pulls these numbers verbatim; docs, homepage and device
+must read as one system.
 
-## Core (shared with esp-harness)
+## The contract (before any token)
+
+**Colour follows STATE, never the page.** The device has exactly three
+stateful colours and one glyph (the breathing ring) that wears them:
+
+| State | Colour | Meaning |
+|---|---|---|
+| **gold** | `#B89020` (bright `#E0B43C` on dark) | your move — an agent handed the turn back |
+| **teal** | `#2BB3B1` (light-bg `#0E7C7B`) | an agent is thinking |
+| **dim** | `#7D746C` | nothing needs you |
+
+Everything else on the panel is achromatic. The decoration layer
+(`ui_deco`) is **never** allowed a colour of its own — it expresses
+state through tempo, not hue. Introducing a fourth signal colour means
+trading away the state contract; don't.
+
+## Core neutrals (shared with esp-harness)
 
 | Token | Hex | Use |
 |---|---|---|
-| `paper` | `#f3eee2` | Light background, centre dot, light-variant text on dark |
-| `ink` | `#1c1814` | Body text, screen ring, dark-variant background |
-| `ink-mute` | `#5a514a` | Secondary text, captions on paper |
-| `ink-fade` | `#8a807a` | Tertiary text, URL footers |
+| `bg` / noir | `#0B0A09` | Device background, homepage background. Warm near-black — never pure `#000`. |
+| `surface` / ink | `#1C1814` | Cards, fleet rows, code blocks on dark |
+| `paper` | `#F3EEE2` | Primary text on dark; light-theme background |
+| `ink-fade` | `#8A807A` | Secondary text on dark |
+| `ink-mute` | `#5A514A` | Tertiary text, decoration strokes, hairlines |
 
 ## Accents
 
 | Token | Hex | Use |
 |---|---|---|
-| `teal` | `#0E7C7B` | **Primary accent.** Pulse line, hyphens in wordmark, the dashboard's signature colour. Codex-side cool counterpart to harness's rust. |
-| `teal-bright` | `#2BB3B1` | Teal on dark backgrounds (`logo-dark.svg`, device noir theme). |
-| `rust` | `#b8431a` | Tertiary accent. Kept as a single quiet dot in the mark for cross-family unity with esp-harness. Do not expand this. |
-| `dusk` | `#6B7AA8` | Idle-scene indigo on device (matches `scene_idle.c`). Use sparingly in docs. |
-| `moss` | `#344a36` | "Done / passing" status. Approve button on prompt scene. |
-| `gold` | `#b89020` | "Warning / blocked" status. |
+| `gold` | `#B89020` | The product moment. Ring, greeting, project chip, waiting rows. |
+| `gold-bright` | `#E0B43C` | Gold emphasis on dark (waiting-row meta, urgent) |
+| `teal-bright` | `#2BB3B1` | Running/thinking on dark; `codex` agent accent |
+| `teal` | `#0E7C7B` | Same on light backgrounds |
+| `rust` | `#B8431A` | `claude-code` agent accent; the nav-dot marker; the family tie to esp-harness. A dot, not a paint bucket. |
+| `moss` | `#344A36` | ok / done / passing (badges, docs) |
 
-## Agent kind colours
+Agent kinds beyond claude-code/codex get deterministic hue-allocated
+accents at runtime (`theme.c`, djb2 + golden-angle); they are data
+colours, not brand colours.
 
-Picked by the device based on `agents[].kind` in `dash snapshot`.
+## Device themes (`dash config theme=…`)
 
-| Kind | Hex | Notes |
-|---|---|---|
-| `claude-code` | `#b8431a` (rust) | Anthropic/harness side — warm |
-| `codex` | `#0E7C7B` (teal) | Codex side — cool. Matches brand accent. |
-| `other` | `#5a514a` (ink-mute) | Generic / unknown agent |
-
-## Theme variants (device-side, set via `dash config theme=…`)
-
-| Theme | Background | Foreground | Accent |
+| Theme | Background | Foreground | Notes |
 |---|---|---|---|
-| `noir` (default) | `#0b0a09` near-black | `#f3eee2` paper | `#2BB3B1` teal-bright |
-| `lab` | `#f3eee2` paper | `#1c1814` ink | `#0E7C7B` teal |
-| `mono` | `#0b0a09` | `#f3eee2` | (none — no accent) |
+| `noir` (default) | `#0B0A09` | `#F3EEE2` | The brand look; AMOLED black = pixels off |
+| `lab` | `#F3EEE2` | `#1C1814` | Light bench variant |
+| `mono` | `#080808` | `#EDEDED` | Single-hue accessibility variant |
 
-## When to reach for each
+## Rules of thumb
 
-- **Need a link / emphasis on a paper background** → `teal #0E7C7B`.
-- **Same on dark / device** → `teal-bright #2BB3B1`.
-- **Sibling-marker / "this lives in the esp-harness world"** → a
-  single quiet `rust #b8431a` dot. Don't paint things rust just
-  because esp-harness does; that's the harness's territory.
-- **Body text** → `ink #1c1814` on paper; `paper #f3eee2` on ink.
-- **Secondary text / captions** → `ink-mute #5a514a` / `ink-fade
-  #8a807a`.
-- **Status: ok / done** → `moss #344a36`. **Status: blocked /
-  warning** → `gold #b89020`. **Status: idle / sleepy** → `dusk
-  #6B7AA8`.
+- Dark surfaces are the native medium (the panel is an AMOLED). Docs
+  and homepage commit to noir; light contexts (print, light-theme
+  README views) use paper + ink with the same accents.
+- Gold is *earned*: it appears only when something actually awaits the
+  user. Never use it as decorative emphasis in UI mockups.
+- Decoration/structure strokes: `ink-mute`, hairline-thin is fine
+  (lines may be thin; blocks must not be small — see the ui_deco notes
+  in `CLAUDE.md`).
+- Body text on noir → `paper`; secondary → `ink-fade`; never grey-on-
+  colour.

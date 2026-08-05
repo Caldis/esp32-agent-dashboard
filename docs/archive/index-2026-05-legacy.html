@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>esp32-agent-dashboard — see what your AI agents are doing</title>
+<meta name="description" content="A live dashboard for AI-agent sessions on a 466x466 AMOLED panel. Watch Claude Code and Codex in real time, approve permission prompts with a physical button, track tokens.">
+<meta property="og:title" content="esp32-agent-dashboard">
+<meta property="og:description" content="A live dashboard for AI-agent sessions on a 466x466 AMOLED panel.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://caldis.github.io/esp32-agent-dashboard/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT,WONK@9..144,300..900,0..100,0..1&family=Geist:wght@300..700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper:     #f3eee2;
+    --paper-2:   #ebe5d6;
+    --rule:      #d6cdb7;
+    --ink:       #1c1814;
+    --ink-mute:  #5a514a;
+    --ink-fade:  #8a807a;
+    --rust:      #b8431a;
+    --rust-deep: #8a3214;
+    --moss:      #344a36;
+    --gold:      #b89020;
+    --amber:     #e89066;
+    --serif: "Fraunces", "Iowan Old Style", Georgia, serif;
+    --sans:  "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono:  "IBM Plex Mono", "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: clamp(15px, 1vw + 0.5rem, 17px);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  body::before {
+    content: ""; position: fixed; inset: 0;
+    background:
+      radial-gradient(ellipse 80% 50% at 50% 0%, rgba(184,67,26,0.05), transparent 60%),
+      radial-gradient(ellipse 60% 40% at 100% 100%, rgba(52,74,54,0.04), transparent 60%);
+    pointer-events: none; z-index: -1;
+  }
+  .container { max-width: 1180px; margin: 0 auto; padding: 0 clamp(24px, 5vw, 80px); }
+
+  /* ── nav ── */
+  nav {
+    padding: clamp(20px, 3vh, 32px) 0;
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: var(--mono); font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--rule);
+  }
+  nav .brand {
+    display: flex; align-items: center; gap: 14px;
+    color: var(--ink); font-weight: 600; text-transform: lowercase;
+    font-size: 0.92rem; letter-spacing: 0;
+    text-decoration: none;
+  }
+  nav .brand .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--rust);
+    box-shadow: 0 0 0 3px rgba(184,67,26,0.18);
+  }
+  nav .links { display: flex; gap: 28px; flex-wrap: wrap; }
+  nav .links a {
+    color: var(--ink-mute); text-decoration: none;
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  nav .links a:hover { color: var(--rust); }
+
+  /* ── hero ── */
+  .hero { padding: clamp(60px, 12vh, 140px) 0 clamp(48px, 8vh, 96px); }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr;
+    gap: clamp(40px, 6vw, 80px);
+    align-items: center;
+  }
+  @media (max-width: 800px) {
+    .hero-grid { grid-template-columns: 1fr; }
+  }
+  .hero h1 {
+    font-family: var(--serif);
+    font-weight: 350;
+    font-size: clamp(2.4rem, 6.4vw, 5.2rem);
+    letter-spacing: -0.04em;
+    line-height: 0.98;
+    font-variation-settings: "opsz" 144, "SOFT" 50;
+  }
+  .hero h1 .accent {
+    color: var(--rust); font-style: italic;
+    font-variation-settings: "opsz" 144, "SOFT" 80, "WONK" 1;
+  }
+  .hero .lede {
+    margin-top: clamp(28px, 4vh, 42px);
+    font-family: var(--serif);
+    font-size: clamp(1.05rem, 1.3vw + 0.4rem, 1.4rem);
+    line-height: 1.45; font-weight: 300;
+    color: var(--ink); max-width: 42ch;
+    font-variation-settings: "opsz" 24;
+  }
+  .hero .cta {
+    margin-top: clamp(32px, 5vh, 48px);
+    display: flex; flex-wrap: wrap; gap: 14px;
+  }
+  .btn {
+    font-family: var(--mono); font-size: 0.82rem;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 14px 24px; border-radius: 2px;
+    text-decoration: none; transition: all 0.15s;
+    display: inline-block;
+  }
+  .btn-primary {
+    background: var(--ink); color: var(--paper);
+    border: 1px solid var(--ink);
+  }
+  .btn-primary:hover { background: var(--rust); border-color: var(--rust); }
+  .btn-ghost {
+    background: transparent; color: var(--ink);
+    border: 1px solid var(--ink);
+  }
+  .btn-ghost:hover { background: var(--ink); color: var(--paper); }
+
+  /* device illustration */
+  .device {
+    aspect-ratio: 1; width: 100%; max-width: 360px;
+    margin: 0 auto;
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .device::before {
+    /* outer ring (the bezel) */
+    content: ""; position: absolute; inset: 0;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle at 30% 30%, #2a2520, #14110d 70%);
+    box-shadow:
+      0 30px 60px -20px rgba(28,24,20,0.4),
+      0 8px 16px -8px rgba(28,24,20,0.3),
+      inset 0 0 0 1px rgba(243,238,226,0.05);
+  }
+  .device-screen {
+    position: absolute; inset: 6%;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle at 50% 30%, #1c1814, #050403 80%);
+    box-shadow: inset 0 0 30px rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  .device-content {
+    text-align: center; color: var(--paper);
+    font-family: var(--mono); padding: 18%;
+  }
+  .device-content .session-line {
+    font-size: 0.7rem; letter-spacing: 0.08em;
+    color: var(--amber); margin-bottom: 4px;
+    text-transform: uppercase;
+  }
+  .device-content .session-cwd {
+    font-size: 0.62rem; color: var(--ink-fade);
+    margin-bottom: 16px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .device-content .session-counter {
+    font-family: var(--serif);
+    font-size: 2.4rem; font-weight: 300;
+    color: var(--paper); line-height: 1;
+    font-variation-settings: "opsz" 56;
+  }
+  .device-content .session-label {
+    font-size: 0.6rem; color: var(--ink-fade);
+    letter-spacing: 0.12em; text-transform: uppercase;
+    margin-top: 6px;
+  }
+  .device-content .pulse {
+    margin-top: 14px;
+    display: flex; gap: 4px; justify-content: center;
+  }
+  .device-content .pulse span {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--amber);
+    animation: pulse 1.4s infinite ease-in-out;
+  }
+  .device-content .pulse span:nth-child(2) { animation-delay: 0.2s; }
+  .device-content .pulse span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.2; transform: scale(0.8); }
+    50%      { opacity: 1;   transform: scale(1); }
+  }
+  .device-buttons {
+    position: absolute;
+    right: -8px; top: 30%;
+    display: flex; flex-direction: column; gap: 24px;
+  }
+  .device-buttons span {
+    display: block; width: 8px; height: 36px;
+    background: #1a1714; border-radius: 2px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+  }
+
+  /* ── pitch / terminal ── */
+  .pitch {
+    padding: clamp(48px, 8vh, 96px) 0;
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+    background:
+      linear-gradient(to right, transparent, var(--paper-2), transparent);
+  }
+  .pitch-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: clamp(40px, 5vw, 64px); align-items: center;
+  }
+  @media (max-width: 800px) { .pitch-grid { grid-template-columns: 1fr; } }
+  .pitch h2 {
+    font-family: var(--serif); font-weight: 400;
+    font-size: clamp(1.8rem, 3.5vw, 2.8rem);
+    letter-spacing: -0.02em; line-height: 1.1;
+    font-variation-settings: "opsz" 56;
+  }
+  .pitch h2 em { color: var(--rust); font-variation-settings: "opsz" 56, "SOFT" 80; }
+  .pitch .quote {
+    margin-top: 24px;
+    font-family: var(--serif); font-style: italic;
+    color: var(--ink-mute); font-size: 1.05rem;
+    line-height: 1.6; max-width: 42ch;
+  }
+  .terminal {
+    background: var(--ink); color: var(--paper);
+    border-radius: 6px; overflow: hidden;
+    font-family: var(--mono); font-size: 0.82rem;
+    line-height: 1.65;
+    box-shadow: 0 30px 60px -20px rgba(28,24,20,0.25),
+                0 8px 16px -8px rgba(28,24,20,0.2);
+  }
+  .terminal-bar {
+    background: #2a2520; padding: 10px 14px;
+    display: flex; gap: 6px; align-items: center;
+  }
+  .terminal-bar span {
+    display: block; width: 10px; height: 10px; border-radius: 50%;
+    background: rgba(243,238,226,0.25);
+  }
+  .terminal-bar .title {
+    width: auto; height: auto; border-radius: 0;
+    margin-left: auto;
+    background: transparent;
+    font-size: 0.7rem; color: var(--ink-fade);
+    letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .terminal-body { padding: 22px 26px; white-space: pre; overflow-x: auto; }
+  .terminal-body .prompt { color: var(--amber); }
+  .terminal-body .cmd    { color: var(--paper); }
+  .terminal-body .out    { color: #c7e0a4; opacity: 0.85; }
+  .terminal-body .ok     { color: #c7e0a4; }
+  .terminal-body .dim    { color: rgba(243,238,226,0.45); }
+  .terminal-body .accent { color: var(--amber); }
+
+  /* ── sections ── */
+  section { padding: clamp(64px, 10vh, 120px) 0; }
+  .section-h {
+    font-family: var(--mono); font-size: 0.78rem;
+    letter-spacing: 0.15em; text-transform: uppercase;
+    color: var(--rust); margin-bottom: 12px;
+  }
+  section h2 {
+    font-family: var(--serif); font-weight: 400;
+    font-size: clamp(1.8rem, 3.5vw, 3rem);
+    letter-spacing: -0.02em; line-height: 1.05;
+    font-variation-settings: "opsz" 72; max-width: 24ch;
+    margin-bottom: clamp(40px, 6vh, 60px);
+  }
+  section h2 em { color: var(--rust); font-variation-settings: "opsz" 72, "SOFT" 80; }
+
+  /* ── scene gallery ── */
+  .scenes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: clamp(20px, 3vw, 32px);
+  }
+  .scene-card {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    padding: clamp(22px, 3vw, 30px);
+    transition: border-color 0.15s, transform 0.15s;
+  }
+  .scene-card:hover { border-color: var(--rust); transform: translateY(-2px); }
+  .scene-card .scene-thumb {
+    aspect-ratio: 1;
+    background: var(--ink);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 18px;
+    color: var(--paper);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    text-align: center;
+    padding: 14%;
+    box-shadow: inset 0 0 30px rgba(0,0,0,0.6);
+    background-size: cover; background-position: center;
+  }
+  .scene-card h3 {
+    font-family: var(--serif); font-weight: 400;
+    font-size: 1.2rem; margin-bottom: 6px;
+    font-variation-settings: "opsz" 28;
+  }
+  .scene-card .scene-tag {
+    font-family: var(--mono); font-size: 0.68rem;
+    color: var(--rust); letter-spacing: 0.12em;
+    text-transform: uppercase; margin-bottom: 10px;
+  }
+  .scene-card p {
+    color: var(--ink-mute); font-size: 0.88rem;
+    line-height: 1.55;
+  }
+
+  /* ── architecture (3-row diagram) ── */
+  .arch {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 20px;
+    max-width: 720px;
+  }
+  .arch-row {
+    border: 1px solid var(--rule);
+    background: var(--paper);
+    padding: clamp(20px, 3vw, 28px);
+    display: grid; grid-template-columns: 1fr 2fr;
+    gap: clamp(20px, 3vw, 36px); align-items: start;
+  }
+  @media (max-width: 600px) { .arch-row { grid-template-columns: 1fr; } }
+  .arch-row .arch-label {
+    font-family: var(--mono); font-size: 0.7rem;
+    letter-spacing: 0.12em; color: var(--rust);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .arch-row h3 {
+    font-family: var(--serif); font-weight: 400;
+    font-size: 1.25rem;
+    font-variation-settings: "opsz" 28;
+  }
+  .arch-row p {
+    color: var(--ink-mute); font-size: 0.92rem;
+    line-height: 1.55;
+  }
+  .arch-row p code {
+    background: var(--paper-2); padding: 1px 6px;
+    font-family: var(--mono); font-size: 0.85em;
+    color: var(--ink);
+  }
+  .arch-link {
+    font-family: var(--mono); font-size: 0.78rem;
+    color: var(--rust); text-decoration: none;
+    letter-spacing: 0.04em;
+    display: inline-block; margin-top: 12px;
+  }
+  .arch-link:hover { text-decoration: underline; }
+  .arch-flow {
+    text-align: center; color: var(--ink-fade);
+    font-family: var(--mono); font-size: 1.2rem;
+    line-height: 1;
+  }
+
+  /* ── compare ── */
+  .compare {
+    width: 100%; border-collapse: collapse;
+    margin-top: 8px;
+  }
+  .compare th, .compare td {
+    padding: 18px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--rule);
+    font-size: 0.92rem; line-height: 1.5;
+    vertical-align: top;
+  }
+  .compare th {
+    font-family: var(--mono); font-size: 0.7rem;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--ink-fade); font-weight: 500;
+  }
+  .compare tr:last-child td { border-bottom: none; }
+  .compare .tool {
+    font-family: var(--serif); font-style: italic;
+    color: var(--ink); white-space: nowrap;
+    font-variation-settings: "opsz" 18;
+  }
+  .compare .tool.us {
+    font-weight: 500; color: var(--rust); font-style: normal;
+  }
+  .compare .check { color: var(--moss); font-weight: 600; }
+  .compare .x     { color: var(--ink-fade); }
+  @media (max-width: 700px) {
+    .compare th, .compare td { padding: 12px 8px; font-size: 0.84rem; }
+    .compare th:nth-child(5), .compare td:nth-child(5) { display: none; }
+  }
+
+  /* ── roadmap ── */
+  .roadmap {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: clamp(20px, 3vw, 32px);
+  }
+  .roadmap-card {
+    padding: clamp(24px, 3vw, 32px);
+    border: 1px solid var(--rule);
+    background: var(--paper);
+    position: relative;
+  }
+  .roadmap-card .status {
+    font-family: var(--mono); font-size: 0.66rem;
+    text-transform: uppercase; letter-spacing: 0.12em;
+    padding: 4px 10px; border-radius: 999px;
+    display: inline-block; margin-bottom: 14px;
+  }
+  .roadmap-card .status.shipped { background: rgba(52,74,54,0.12); color: var(--moss); }
+  .roadmap-card .status.design  { background: rgba(184,144,32,0.15); color: var(--gold); }
+  .roadmap-card .status.sketch  { background: rgba(138,128,122,0.15); color: var(--ink-fade); }
+  .roadmap-card h3 {
+    font-family: var(--serif); font-weight: 400;
+    font-size: 1.5rem; line-height: 1.1;
+    margin-bottom: 12px;
+    font-variation-settings: "opsz" 36;
+  }
+  .roadmap-card h3 .ver { color: var(--rust); font-style: italic; }
+  .roadmap-card p {
+    color: var(--ink-mute); font-size: 0.9rem;
+    line-height: 1.55;
+  }
+
+  /* ── CTA ── */
+  .cta-block {
+    text-align: center;
+    padding: clamp(56px, 10vh, 100px) 0;
+    border-top: 1px solid var(--rule);
+    background:
+      linear-gradient(to bottom, transparent, var(--paper-2));
+  }
+  .cta-block h2 {
+    margin-left: auto; margin-right: auto; max-width: 22ch;
+    margin-bottom: 32px;
+  }
+  .cta-block .cta { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+
+  /* ── footer ── */
+  footer {
+    padding: clamp(60px, 8vh, 100px) 0 32px;
+    border-top: 1px solid var(--rule);
+  }
+  .footer-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr;
+    gap: 40px; margin-bottom: 56px;
+  }
+  @media (max-width: 700px) {
+    .footer-grid { grid-template-columns: 1fr 1fr; }
+  }
+  .footer-grid h4 {
+    font-family: var(--mono); font-size: 0.7rem;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--rust); margin-bottom: 14px;
+  }
+  .footer-grid ul { list-style: none; }
+  .footer-grid li { margin-bottom: 8px; font-size: 0.88rem; }
+  .footer-grid a { color: var(--ink-mute); text-decoration: none; }
+  .footer-grid a:hover { color: var(--rust); }
+  .footer-tagline {
+    font-family: var(--serif); font-size: 0.95rem;
+    color: var(--ink-mute); line-height: 1.5;
+    max-width: 36ch;
+  }
+  .footer-bar {
+    padding-top: 24px; border-top: 1px solid var(--rule);
+    display: flex; justify-content: space-between;
+    font-family: var(--mono); font-size: 0.72rem;
+    color: var(--ink-fade); letter-spacing: 0.06em;
+    text-transform: uppercase;
+    flex-wrap: wrap; gap: 16px;
+  }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .hero h1, .hero .lede, .hero .cta {
+    animation: rise 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+  }
+  .hero h1 { animation-delay: 0.1s; }
+  .hero .lede { animation-delay: 0.25s; }
+  .hero .cta { animation-delay: 0.4s; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+<!-- ── NAV ── -->
+<nav>
+  <a href="#top" class="brand">
+    <span class="dot"></span>
+    esp32-agent-dashboard
+  </a>
+  <div class="links">
+    <a href="#scenes">Scenes</a>
+    <a href="#arch">Architecture</a>
+    <a href="#compare">Vs others</a>
+    <a href="#roadmap">Roadmap</a>
+    <a href="https://github.com/Caldis/esp32-agent-dashboard/tree/master/docs/blog">Blog</a>
+    <a href="https://github.com/Caldis/esp32-agent-dashboard">GitHub</a>
+  </div>
+</nav>
+
+<!-- ── HERO ── -->
+<section class="hero" id="top">
+  <div class="hero-grid">
+    <div>
+      <h1>See what<br>your agents<br>are <span class="accent">doing</span>.</h1>
+      <p class="lede">
+        A physical dashboard for Claude Code and Codex. Lives next to your
+        keyboard. Streams the current session, the running tool, the
+        token spend. Tap to approve or deny.
+      </p>
+      <div class="cta">
+        <a href="#start" class="btn btn-primary">Quickstart →</a>
+        <a href="https://github.com/Caldis/esp32-agent-dashboard" class="btn btn-ghost">View on GitHub</a>
+      </div>
+    </div>
+    <div class="device" aria-hidden="true">
+      <div class="device-screen">
+        <div class="device-content">
+          <div class="session-line">claude-code · running</div>
+          <div class="session-cwd">~/code/my-firmware</div>
+          <div class="session-counter">2</div>
+          <div class="session-label">agents · 1 waiting</div>
+          <div class="pulse"><span></span><span></span><span></span></div>
+        </div>
+      </div>
+      <div class="device-buttons">
+        <span title="BOOT — approve"></span>
+        <span title="USER — deny"></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── PITCH / TERMINAL ── -->
+<section class="pitch" id="start">
+  <div class="pitch-grid">
+    <div>
+      <div class="section-h">§ Quickstart — 30 seconds</div>
+      <h2>Clone, build, flash,<br>and the dashboard<br><em>knows what you're doing</em>.</h2>
+      <p class="quote">
+        The toolkit is esp-harness. The protocol is one-line JSON.
+        The bridge is a single Python file. No cloud, no telemetry,
+        no daemon you can't read.
+      </p>
+    </div>
+    <div class="terminal">
+      <div class="terminal-bar">
+        <span></span><span></span><span></span>
+        <div class="title">~/code</div>
+      </div>
+      <div class="terminal-body"><span class="dim"># 1. toolkit (esp-harness — provides build / flash / console)</span>
+<span class="prompt">$</span> <span class="cmd">git clone github.com/Caldis/esp-harness</span>
+<span class="prompt">$</span> <span class="cmd">pip install -e esp-harness/tools/esp-harness/</span>
+
+<span class="dim"># 2. this repo</span>
+<span class="prompt">$</span> <span class="cmd">git clone github.com/Caldis/esp32-agent-dashboard</span>
+<span class="prompt">$</span> <span class="cmd">cd esp32-agent-dashboard</span>
+
+<span class="dim"># 3. build + flash (Waveshare ESP32-S3-Touch-AMOLED-2.16)</span>
+<span class="prompt">$</span> <span class="cmd">esp-harness build --project .</span>
+<span class="ok">build OK in 18.2s · 1.6 MB</span>
+<span class="prompt">$</span> <span class="cmd">esp-harness flash --project . --port COM9</span>
+<span class="ok">flashed · device alive</span>
+
+<span class="dim"># 4. wake the bridge — listens for Claude Code hooks</span>
+<span class="prompt">$</span> <span class="cmd">python tools/claude_buddy_bridge.py serve --serial-port COM9</span>
+<span class="out">[bridge] serving on 127.0.0.1:7321 | dry_run=False | serial=COM9</span>
+<span class="out">[bridge] device alive · console v1.7.5 · scenes=5</span>
+
+<span class="dim"># …now start a Claude Code session. The panel wakes.</span>
+<span class="accent">EVT: permission id=req_abc decision=once</span>
+</div>
+    </div>
+  </div>
+</section>
+
+<!-- ── SCENES ── -->
+<section id="scenes">
+  <div class="section-h">§ Five scenes</div>
+  <h2>One panel,<br>five states,<br>zero <em>context switch</em>.</h2>
+
+  <div class="scenes">
+    <div class="scene-card">
+      <div class="scene-thumb" style="background-image: url('img/dash-idle.png');" aria-label="idle scene"></div>
+      <div class="scene-tag">▸ when quiet</div>
+      <h3>idle</h3>
+      <p>Gentle "zZz" pulse. No agent has emitted an event in 60 s.</p>
+    </div>
+    <div class="scene-card">
+      <div class="scene-thumb" style="background-image: url('img/dash-sessions.png');" aria-label="sessions scene"></div>
+      <div class="scene-tag">▸ when running</div>
+      <h3>sessions</h3>
+      <p>One row per agent. Status pip, cwd, last 3-5 transcript entries. Totals header.</p>
+    </div>
+    <div class="scene-card">
+      <div class="scene-thumb" style="background-image: url('img/dash-prompt.png');" aria-label="prompt scene"></div>
+      <div class="scene-tag">▸ when blocked</div>
+      <h3>prompt</h3>
+      <p>Tool name, command preview, BOOT to approve, USER to deny. 60 s timeout.</p>
+    </div>
+    <div class="scene-card">
+      <div class="scene-thumb" style="background-image: url('img/dash-tokens.png');" aria-label="tokens scene"></div>
+      <div class="scene-tag">▸ on demand</div>
+      <h3>tokens</h3>
+      <p>Cumulative + today's spend. 24 h sparkline. Per-agent breakdown.</p>
+    </div>
+    <div class="scene-card">
+      <div class="scene-thumb" style="background-image: url('img/dash-status.png');" aria-label="status scene"></div>
+      <div class="scene-tag">▸ on demand</div>
+      <h3>status</h3>
+      <p>Battery, heap, uptime, build info. The "is the box healthy" view.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ── ARCHITECTURE ── -->
+<section id="arch">
+  <div class="section-h">§ Architecture</div>
+  <h2>Hook → bridge<br>→ wire → panel,<br>and <em>back again</em>.</h2>
+
+  <div class="arch">
+    <div class="arch-row">
+      <div>
+        <div class="arch-label">▸ Host side</div>
+        <h3>Hooks &amp; the bridge</h3>
+      </div>
+      <p>
+        Claude Code's hook system calls <code>hook_dispatch.py</code> on every
+        <code>PreToolUse</code> / <code>PostToolUse</code> / <code>Stop</code>.
+        Codex's JSONL stream is tee'd through <code>codex_wrapper.py</code>.
+        Both forward to the long-running <code>claude_buddy_bridge.py</code>
+        which aggregates per-agent state and throttles pushes to ≤ 1 / 250 ms.
+        <a href="https://github.com/Caldis/esp32-agent-dashboard/blob/master/docs/HOST_INTEGRATION.md" class="arch-link">Read the host integration doc →</a>
+      </p>
+    </div>
+
+    <div class="arch-flow">↓</div>
+
+    <div class="arch-row">
+      <div>
+        <div class="arch-label">▸ Wire</div>
+        <h3>One verb per state class</h3>
+      </div>
+      <p>
+        <code>dash snapshot</code> for periodic state, <code>dash prompt</code>
+        when blocked on approval, <code>dash event</code> for transient
+        transcript lines, <code>dash tokens</code> for spend, <code>dash idle</code>
+        to sleep. Replies are <code>OK:</code> / <code>ERR:</code> / <code>EVT:</code>
+        framed by esp-harness's console_protocol. v1 over USB-Serial.
+        <a href="https://github.com/Caldis/esp32-agent-dashboard/blob/master/PROTOCOL.md" class="arch-link">Read the protocol spec →</a>
+      </p>
+    </div>
+
+    <div class="arch-flow">↓</div>
+
+    <div class="arch-row">
+      <div>
+        <div class="arch-label">▸ Device side</div>
+        <h3>LVGL on a 466 round AMOLED</h3>
+      </div>
+      <p>
+        Firmware built on the <a href="https://github.com/Caldis/esp-harness" class="arch-link" style="display:inline">esp-harness</a> scene framework
+        (LVGL 9.x, ESP-IDF v6.0+). Five scenes registered through
+        <code>harness_scene_register</code>. BOOT &amp; USER buttons routed
+        into <code>EVT: permission id=… decision=…</code> events back to
+        the bridge.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ── COMPARE ── -->
+<section id="compare">
+  <div class="section-h">§ Where this sits</div>
+  <h2>What other tools<br>give you, vs what<br>this <em>adds</em>.</h2>
+
+  <table class="compare">
+    <thead>
+      <tr>
+        <th>Project</th>
+        <th>Transport</th>
+        <th>Agents</th>
+        <th>Hardware</th>
+        <th>Approval button</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="tool">claude-desktop-buddy</td>
+        <td>BLE (NUS)</td>
+        <td>Claude Desktop (single)</td>
+        <td>nRF reference / generic BLE</td>
+        <td class="x">— display only</td>
+      </tr>
+      <tr>
+        <td class="tool">claude-dashboard plugin</td>
+        <td>in-app status line</td>
+        <td>Claude Code</td>
+        <td>none (lives in your terminal)</td>
+        <td class="x">— no hardware</td>
+      </tr>
+      <tr>
+        <td class="tool us">esp32-agent-dashboard <small style="opacity:0.6">(this repo)</small></td>
+        <td>USB-Serial → BLE → WiFi</td>
+        <td><strong>Claude Code + Codex</strong> (multi-agent)</td>
+        <td>Waveshare ESP32-S3-Touch-AMOLED-2.16</td>
+        <td class="check">✓ BOOT / USER + 60s timeout</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ── ROADMAP ── -->
+<section id="roadmap">
+  <div class="section-h">§ Roadmap</div>
+  <h2>Three milestones,<br>each adding<br>a <em>transport</em>.</h2>
+
+  <div class="roadmap">
+    <div class="roadmap-card">
+      <span class="status shipped">✓ shipped</span>
+      <h3><span class="ver">v0.1</span> — USB-Serial</h3>
+      <p>
+        Multi-agent dashboard over USB-Serial. Claude Code hooks
+        + Codex wrapper, five scenes, physical approval button,
+        TCP mock for CI.
+      </p>
+    </div>
+    <div class="roadmap-card">
+      <span class="status design">⊕ in design</span>
+      <h3><span class="ver">v1.0</span> — BLE NUS</h3>
+      <p>
+        Nordic UART Service for tetherless Claude Desktop pairing.
+        Same wire format, just framed over BLE characteristics.
+        No USB cable on your desk.
+      </p>
+    </div>
+    <div class="roadmap-card">
+      <span class="status sketch">○ sketched</span>
+      <h3><span class="ver">v2.0</span> — WiFi push</h3>
+      <p>
+        Headless dev box on a server, dashboard on your desk.
+        mDNS discovery, TLS to localhost relay, USB fallback when
+        the network's down.
+      </p>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<!-- ── CTA ── -->
+<section class="cta-block">
+  <div class="container">
+    <div class="section-h" style="text-align: center;">§ Try it</div>
+    <h2>Open the repo,<br>read the <em>30-second</em> quickstart.</h2>
+    <div class="cta">
+      <a href="https://github.com/Caldis/esp32-agent-dashboard" class="btn btn-primary">Repo on GitHub →</a>
+      <a href="https://github.com/Caldis/esp32-agent-dashboard/blob/master/PROTOCOL.md" class="btn btn-ghost">Read the wire protocol</a>
+    </div>
+  </div>
+</section>
+
+<!-- ── FOOTER ── -->
+<footer>
+  <div class="container">
+    <div class="footer-grid">
+      <div>
+        <a href="#top" class="brand" style="display:inline-flex; align-items:center; gap:10px; text-decoration:none; margin-bottom:14px;">
+          <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:var(--rust); box-shadow: 0 0 0 3px rgba(184,67,26,0.18);"></span>
+          <strong style="font-family:var(--mono); color:var(--ink); font-size:0.92rem;">esp32-agent-dashboard</strong>
+        </a>
+        <p class="footer-tagline">
+          A physical surface for your AI agents. Multi-agent, USB-Serial,
+          tap to approve. <em>See the loop.</em>
+        </p>
+      </div>
+      <div>
+        <h4>Docs</h4>
+        <ul>
+          <li><a href="https://github.com/Caldis/esp32-agent-dashboard/blob/master/README.md">README</a></li>
+          <li><a href="https://github.com/Caldis/esp32-agent-dashboard/blob/master/PROTOCOL.md">Wire protocol</a></li>
+          <li><a href="https://github.com/Caldis/esp32-agent-dashboard/blob/master/docs/E2E_DEMO.md">E2E runbook</a></li>
+          <li><a href="https://github.com/Caldis/esp32-agent-dashboard/blob/master/docs/HOST_INTEGRATION.md">Host integration</a></li>
+          <li><a href="https://github.com/Caldis/esp32-agent-dashboard/blob/master/CHANGELOG.md">Changelog</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Repo</h4>
+        <ul>
+          <li><a href="https://github.com/Caldis/esp32-agent-dashboard">GitHub</a></li>
+          <li><a href="https://github.com/Caldis/esp32-agent-dashboard/releases">Releases</a></li>
+          <li><a href="https://github.com/Caldis/esp32-agent-dashboard/issues">Issues</a></li>
+          <li><a href="https://github.com/Caldis/esp32-agent-dashboard/blob/master/CONTRIBUTING.md">Contributing</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Stack</h4>
+        <ul>
+          <li><a href="https://github.com/Caldis/esp-harness">esp-harness</a></li>
+          <li><a href="https://docs.espressif.com/projects/esp-idf/">ESP-IDF</a></li>
+          <li><a href="https://lvgl.io/">LVGL</a></li>
+          <li><a href="https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-2.16">Waveshare board</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bar">
+      <span>© 2026 Caldis · MIT</span>
+      <span>v0.1.0 · USB-Serial · multi-agent</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

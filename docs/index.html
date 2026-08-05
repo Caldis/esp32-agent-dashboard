@@ -3,835 +3,799 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>esp32-agent-dashboard — see what your AI agents are doing</title>
-<meta name="description" content="A live dashboard for AI-agent sessions on a 466x466 AMOLED panel. Watch Claude Code and Codex in real time, approve permission prompts with a physical button, track tokens.">
+<title>esp32-agent-dashboard — it tells you when it's your turn</title>
+<meta name="description" content="A 2.16-inch AMOLED field unit beside your keyboard with one job: turning gold the moment your AI agent hands the turn back. Claude Code, Codex, Cursor — multi-agent, USB serial, open source.">
 <meta property="og:title" content="esp32-agent-dashboard">
-<meta property="og:description" content="A live dashboard for AI-agent sessions on a 466x466 AMOLED panel.">
+<meta property="og:description" content="The desk-side panel that tells you when it's your turn. Gold = your move, teal = thinking, dim = idle.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://caldis.github.io/esp32-agent-dashboard/">
+<meta property="og:image" content="https://caldis.github.io/esp32-agent-dashboard/img/v7/dashboard-your-turn.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#191613">
+<link rel="icon" href="brand/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT,WONK@9..144,300..900,0..100,0..1&family=Geist:wght@300..700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..900&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@500;700&text=该你了到啦来吧轮接着交给请手咯空闲思考中。&display=swap" rel="stylesheet">
 <style>
+  /* ────────────────────────────────────────────────────────────────
+     Industrial spec-sheet language (structure, tabs, dot-leaders,
+     hatched controls, steel-grey display type) fused with this
+     project's own contract: the page chassis is warm charcoal, the
+     device screens stay true AMOLED black, and colour appears ONLY
+     as state — gold: your move / teal: thinking / dim: idle.
+     ──────────────────────────────────────────────────────────────── */
   :root {
-    --paper:     #f3eee2;
-    --paper-2:   #ebe5d6;
-    --rule:      #d6cdb7;
-    --ink:       #1c1814;
-    --ink-mute:  #5a514a;
-    --ink-fade:  #8a807a;
-    --rust:      #b8431a;
-    --rust-deep: #8a3214;
-    --moss:      #344a36;
-    --gold:      #b89020;
-    --amber:     #e89066;
-    --serif: "Fraunces", "Iowan Old Style", Georgia, serif;
-    --sans:  "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    --mono:  "IBM Plex Mono", "Cascadia Code", Consolas, monospace;
+    --bg:        #191613;   /* chassis charcoal, warm */
+    --bg-deep:   #0b0a09;   /* AMOLED noir: panels, code, screens */
+    --line:      #322b23;
+    --line-soft: #262019;
+    --tab-bg:    #262019;
+    --display:   #b4ab9e;   /* steel-warm grey display type */
+    --text:      #c6bdb0;
+    --text-dim:  #9a9187;   /* ≥4.5:1 on chassis — reading text */
+    --text-mute: #7c7267;   /* de-emphasis, still legible */
+    --text-ghost:#5f574e;   /* decorative geometry only */
+    --gold:      #d9a92f;
+    --gold-deep: #b89020;
+    --teal:      #2bb3b1;
+    --rust:      #cc4a1e;
+    --dim-ring:  #7d746c;
+    --disp: "Archivo", "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", "Cascadia Code", Consolas, monospace;
+    --cjk: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+    --pad: clamp(20px, 4vw, 56px);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html { scroll-behavior: smooth; }
+  ::selection { background: var(--gold); color: var(--bg-deep); }
+  :focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+  section { scroll-margin-top: 20px; }
   body {
-    background: var(--paper);
-    color: var(--ink);
-    font-family: var(--sans);
-    font-size: clamp(15px, 1vw + 0.5rem, 17px);
-    line-height: 1.55;
+    background: var(--bg); color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px; line-height: 1.7;
     -webkit-font-smoothing: antialiased;
     overflow-x: hidden;
   }
-  body::before {
-    content: ""; position: fixed; inset: 0;
-    background:
-      radial-gradient(ellipse 80% 50% at 50% 0%, rgba(184,67,26,0.05), transparent 60%),
-      radial-gradient(ellipse 60% 40% at 100% 100%, rgba(52,74,54,0.04), transparent 60%);
-    pointer-events: none; z-index: -1;
-  }
-  .container { max-width: 1180px; margin: 0 auto; padding: 0 clamp(24px, 5vw, 80px); }
+  a { color: inherit; }
+  img { max-width: 100%; }
 
-  /* ── nav ── */
-  nav {
-    padding: clamp(20px, 3vh, 32px) 0;
-    display: flex; justify-content: space-between; align-items: center;
-    font-family: var(--mono); font-size: 0.78rem;
-    letter-spacing: 0.04em;
-    border-bottom: 1px solid var(--rule);
+  /* full-bleed structural rules */
+  .rule { border: 0; border-top: 1px solid var(--line); }
+
+  /* ── ops header ── */
+  .ops {
+    display: grid;
+    grid-template-columns: minmax(150px, 1.1fr) 1.6fr 1.4fr minmax(150px, 1fr);
+    gap: clamp(16px, 3vw, 48px);
+    padding: clamp(18px, 2.6vh, 30px) var(--pad);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    font-size: 11.5px; line-height: 1.85; color: var(--text-dim);
   }
-  nav .brand {
-    display: flex; align-items: center; gap: 14px;
-    color: var(--ink); font-weight: 600; text-transform: lowercase;
-    font-size: 0.92rem; letter-spacing: 0;
-    text-decoration: none;
+  .ops a { text-decoration: none; }
+  .ops .brand { color: var(--display); font-weight: 700; font-size: 15px; letter-spacing: 0.04em; line-height: 1.35; }
+  .ops .brand .bars { display: flex; gap: 3px; margin-top: 10px; }
+  .ops .brand .bars i { display: block; height: 5px; background: var(--text-mute); }
+  .ops .brand .bars i:nth-child(1) { width: 26px; }
+  .ops .brand .bars i:nth-child(2) { width: 9px; }
+  .ops .brand .bars i:nth-child(3) { width: 16px; background: var(--rust); }
+  .ops .k { color: var(--text-mute); }
+  .ops .gold { color: var(--gold); }
+  .ops .right { text-align: right; }
+  .ops .nav-ln { display: inline-block; margin-left: 14px; color: var(--text-dim); }
+  .ops .nav-ln:hover { color: var(--gold); }
+  @media (max-width: 940px) {
+    .ops { grid-template-columns: 1fr 1fr; }
+    .ops .col-status { display: none; }
   }
-  nav .brand .dot {
-    width: 10px; height: 10px; border-radius: 50%;
-    background: var(--rust);
-    box-shadow: 0 0 0 3px rgba(184,67,26,0.18);
+  @media (max-width: 560px) {
+    .ops { grid-template-columns: 1fr; gap: 10px; }
+    .ops .right { text-align: left; }
   }
-  nav .links { display: flex; gap: 28px; flex-wrap: wrap; }
-  nav .links a {
-    color: var(--ink-mute); text-decoration: none;
-    text-transform: uppercase; letter-spacing: 0.08em;
-  }
-  nav .links a:hover { color: var(--rust); }
 
   /* ── hero ── */
-  .hero { padding: clamp(60px, 12vh, 140px) 0 clamp(48px, 8vh, 96px); }
+  .hero-head { padding: clamp(40px, 7vh, 84px) var(--pad) 0; }
+  h1 {
+    font-family: var(--disp);
+    font-variation-settings: "wdth" 110;
+    font-weight: 800;
+    font-size: clamp(3rem, 10.5vw, 9.2rem);
+    line-height: 0.96; letter-spacing: -0.02em;
+    color: var(--display); text-transform: none;
+    max-width: 12em; text-wrap: balance;
+  }
+  h1 .gold { color: var(--gold); }
   .hero-grid {
-    display: grid;
-    grid-template-columns: 1.3fr 1fr;
-    gap: clamp(40px, 6vw, 80px);
-    align-items: center;
+    display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
+    gap: clamp(32px, 5vw, 80px); align-items: center;
+    padding: clamp(40px, 6vh, 72px) var(--pad) clamp(48px, 8vh, 96px);
   }
-  @media (max-width: 800px) {
-    .hero-grid { grid-template-columns: 1fr; }
+  .lede {
+    text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--text-dim); font-size: 12.5px; line-height: 2.05;
+    max-width: 52ch;
   }
-  .hero h1 {
-    font-family: var(--serif);
-    font-weight: 350;
-    font-size: clamp(2.4rem, 6.4vw, 5.2rem);
-    letter-spacing: -0.04em;
-    line-height: 0.98;
-    font-variation-settings: "opsz" 144, "SOFT" 50;
-  }
-  .hero h1 .accent {
-    color: var(--rust); font-style: italic;
-    font-variation-settings: "opsz" 144, "SOFT" 80, "WONK" 1;
-  }
-  .hero .lede {
-    margin-top: clamp(28px, 4vh, 42px);
-    font-family: var(--serif);
-    font-size: clamp(1.05rem, 1.3vw + 0.4rem, 1.4rem);
-    line-height: 1.45; font-weight: 300;
-    color: var(--ink); max-width: 42ch;
-    font-variation-settings: "opsz" 24;
-  }
-  .hero .cta {
-    margin-top: clamp(32px, 5vh, 48px);
-    display: flex; flex-wrap: wrap; gap: 14px;
-  }
+  .lede b { color: var(--text); font-weight: 600; }
+  .lede .gold { color: var(--gold); }
+  .cta { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 34px; align-items: center; }
   .btn {
-    font-family: var(--mono); font-size: 0.82rem;
-    letter-spacing: 0.06em; text-transform: uppercase;
-    padding: 14px 24px; border-radius: 2px;
-    text-decoration: none; transition: all 0.15s;
-    display: inline-block;
+    display: inline-block; text-decoration: none;
+    font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 15px 30px; position: relative;
+    transition: filter 0.2s, background-color 0.25s;
   }
-  .btn-primary {
-    background: var(--ink); color: var(--paper);
-    border: 1px solid var(--ink);
-  }
-  .btn-primary:hover { background: var(--rust); border-color: var(--rust); }
-  .btn-ghost {
-    background: transparent; color: var(--ink);
-    border: 1px solid var(--ink);
-  }
-  .btn-ghost:hover { background: var(--ink); color: var(--paper); }
-
-  /* device illustration */
-  .device {
-    aspect-ratio: 1; width: 100%; max-width: 360px;
-    margin: 0 auto;
-    position: relative;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .device::before {
-    /* outer ring (the bezel) */
-    content: ""; position: absolute; inset: 0;
-    border-radius: 50%;
+  .btn.hatch {
+    color: var(--gold); border: 1px solid var(--gold);
     background:
-      radial-gradient(circle at 30% 30%, #2a2520, #14110d 70%);
-    box-shadow:
-      0 30px 60px -20px rgba(28,24,20,0.4),
-      0 8px 16px -8px rgba(28,24,20,0.3),
-      inset 0 0 0 1px rgba(243,238,226,0.05);
+      repeating-linear-gradient(45deg, transparent 0 5px, rgba(217,169,47,0.30) 5px 6px),
+      rgba(217,169,47,0.10);
   }
-  .device-screen {
-    position: absolute; inset: 6%;
-    border-radius: 50%;
-    background:
-      radial-gradient(circle at 50% 30%, #1c1814, #050403 80%);
-    box-shadow: inset 0 0 30px rgba(0,0,0,0.6);
-    display: flex; align-items: center; justify-content: center;
-    overflow: hidden;
-  }
-  .device-content {
-    text-align: center; color: var(--paper);
-    font-family: var(--mono); padding: 18%;
-  }
-  .device-content .session-line {
-    font-size: 0.7rem; letter-spacing: 0.08em;
-    color: var(--amber); margin-bottom: 4px;
-    text-transform: uppercase;
-  }
-  .device-content .session-cwd {
-    font-size: 0.62rem; color: var(--ink-fade);
-    margin-bottom: 16px; overflow: hidden;
-    text-overflow: ellipsis; white-space: nowrap;
-  }
-  .device-content .session-counter {
-    font-family: var(--serif);
-    font-size: 2.4rem; font-weight: 300;
-    color: var(--paper); line-height: 1;
-    font-variation-settings: "opsz" 56;
-  }
-  .device-content .session-label {
-    font-size: 0.6rem; color: var(--ink-fade);
-    letter-spacing: 0.12em; text-transform: uppercase;
-    margin-top: 6px;
-  }
-  .device-content .pulse {
-    margin-top: 14px;
-    display: flex; gap: 4px; justify-content: center;
-  }
-  .device-content .pulse span {
-    width: 6px; height: 6px; border-radius: 50%;
-    background: var(--amber);
-    animation: pulse 1.4s infinite ease-in-out;
-  }
-  .device-content .pulse span:nth-child(2) { animation-delay: 0.2s; }
-  .device-content .pulse span:nth-child(3) { animation-delay: 0.4s; }
-  @keyframes pulse {
-    0%, 100% { opacity: 0.2; transform: scale(0.8); }
-    50%      { opacity: 1;   transform: scale(1); }
-  }
-  .device-buttons {
-    position: absolute;
-    right: -8px; top: 30%;
-    display: flex; flex-direction: column; gap: 24px;
-  }
-  .device-buttons span {
-    display: block; width: 8px; height: 36px;
-    background: #1a1714; border-radius: 2px;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+  .btn.hatch:hover { background-color: rgba(217,169,47,0.22); }
+  .btn.plain { color: var(--text-dim); border: 1px solid var(--line); }
+  .btn.plain:hover { color: var(--text); border-color: var(--text-mute); }
+  .btn:active { transform: translateY(1px); }
+  .cta .hint { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-mute); }
+  @media (max-width: 860px) {
+    .hero-grid { grid-template-columns: 1fr; gap: 52px; }
   }
 
-  /* ── pitch / terminal ── */
-  .pitch {
-    padding: clamp(48px, 8vh, 96px) 0;
-    border-top: 1px solid var(--rule);
-    border-bottom: 1px solid var(--rule);
-    background:
-      linear-gradient(to right, transparent, var(--paper-2), transparent);
+  /* ── device replica (unchanged geometry — ratios measured off the firmware) ── */
+  .device-col { display: flex; justify-content: center; }
+  .bezel {
+    width: min(400px, 86vw); aspect-ratio: 1;
+    border-radius: 19.5%;
+    background: linear-gradient(145deg, #211c17, #080605 55%);
+    padding: 4.2%;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.55), inset 0 1px 0 rgba(198,189,176,0.08);
   }
-  .pitch-grid {
-    display: grid; grid-template-columns: 1fr 1fr;
-    gap: clamp(40px, 5vw, 64px); align-items: center;
-  }
-  @media (max-width: 800px) { .pitch-grid { grid-template-columns: 1fr; } }
-  .pitch h2 {
-    font-family: var(--serif); font-weight: 400;
-    font-size: clamp(1.8rem, 3.5vw, 2.8rem);
-    letter-spacing: -0.02em; line-height: 1.1;
-    font-variation-settings: "opsz" 56;
-  }
-  .pitch h2 em { color: var(--rust); font-variation-settings: "opsz" 56, "SOFT" 80; }
-  .pitch .quote {
-    margin-top: 24px;
-    font-family: var(--serif); font-style: italic;
-    color: var(--ink-mute); font-size: 1.05rem;
-    line-height: 1.6; max-width: 42ch;
-  }
-  .terminal {
-    background: var(--ink); color: var(--paper);
-    border-radius: 6px; overflow: hidden;
-    font-family: var(--mono); font-size: 0.82rem;
-    line-height: 1.65;
-    box-shadow: 0 30px 60px -20px rgba(28,24,20,0.25),
-                0 8px 16px -8px rgba(28,24,20,0.2);
-  }
-  .terminal-bar {
-    background: #2a2520; padding: 10px 14px;
-    display: flex; gap: 6px; align-items: center;
-  }
-  .terminal-bar span {
-    display: block; width: 10px; height: 10px; border-radius: 50%;
-    background: rgba(243,238,226,0.25);
-  }
-  .terminal-bar .title {
-    width: auto; height: auto; border-radius: 0;
-    margin-left: auto;
-    background: transparent;
-    font-size: 0.7rem; color: var(--ink-fade);
-    letter-spacing: 0.08em; text-transform: uppercase;
-  }
-  .terminal-body { padding: 22px 26px; white-space: pre; overflow-x: auto; }
-  .terminal-body .prompt { color: var(--amber); }
-  .terminal-body .cmd    { color: var(--paper); }
-  .terminal-body .out    { color: #c7e0a4; opacity: 0.85; }
-  .terminal-body .ok     { color: #c7e0a4; }
-  .terminal-body .dim    { color: rgba(243,238,226,0.45); }
-  .terminal-body .accent { color: var(--amber); }
-
-  /* ── sections ── */
-  section { padding: clamp(64px, 10vh, 120px) 0; }
-  .section-h {
-    font-family: var(--mono); font-size: 0.78rem;
-    letter-spacing: 0.15em; text-transform: uppercase;
-    color: var(--rust); margin-bottom: 12px;
-  }
-  section h2 {
-    font-family: var(--serif); font-weight: 400;
-    font-size: clamp(1.8rem, 3.5vw, 3rem);
-    letter-spacing: -0.02em; line-height: 1.05;
-    font-variation-settings: "opsz" 72; max-width: 24ch;
-    margin-bottom: clamp(40px, 6vh, 60px);
-  }
-  section h2 em { color: var(--rust); font-variation-settings: "opsz" 72, "SOFT" 80; }
-
-  /* ── scene gallery ── */
-  .scenes {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: clamp(20px, 3vw, 32px);
-  }
-  .scene-card {
-    background: var(--paper);
-    border: 1px solid var(--rule);
-    padding: clamp(22px, 3vw, 30px);
-    transition: border-color 0.15s, transform 0.15s;
-  }
-  .scene-card:hover { border-color: var(--rust); transform: translateY(-2px); }
-  .scene-card .scene-thumb {
-    aspect-ratio: 1;
-    background: var(--ink);
-    border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    margin-bottom: 18px;
-    color: var(--paper);
+  .panel {
+    position: relative; width: 100%; height: 100%;
+    border-radius: 15.8%;               /* r=76 on 480 — measured, ?vis 3 */
+    background: #050403; overflow: hidden;
     font-family: var(--mono);
-    font-size: 0.78rem;
-    text-align: center;
-    padding: 14%;
-    box-shadow: inset 0 0 30px rgba(0,0,0,0.6);
-    background-size: cover; background-position: center;
+    container-type: size;
   }
-  .scene-card h3 {
-    font-family: var(--serif); font-weight: 400;
-    font-size: 1.2rem; margin-bottom: 6px;
-    font-variation-settings: "opsz" 28;
+  .panel * { position: absolute; }
+  .nav-dots { top: 4.6%; left: 0; width: 100%; height: 2%; }
+  .nav-dots i { top: 50%; width: 1.7%; aspect-ratio: 1; border-radius: 50%; background: #3a352f; transform: translate(-50%, -50%); }
+  .nav-dots i:nth-child(1) { left: 25%; background: var(--rust); }
+  .nav-dots i:nth-child(2) { left: 50%; }
+  .nav-dots i:nth-child(3) { left: 75%; }
+  .pbr { border: 0 solid #55504a; width: 3.8%; aspect-ratio: 0.82; opacity: 0.9; }
+  .pbr.tl { top: 7.4%; left: 6.8%; border-left-width: 2px; border-top-width: 2px; border-bottom-width: 2px; }
+  .pbr.tr { top: 7.4%; right: 6.8%; border-right-width: 2px; border-top-width: 2px; border-bottom-width: 2px; }
+  .pbr.bl { bottom: 6.4%; left: 6.8%; border-left-width: 2px; border-top-width: 2px; border-bottom-width: 2px; }
+  .pbr.br { bottom: 6.4%; right: 6.8%; border-right-width: 2px; border-top-width: 2px; border-bottom-width: 2px; }
+  .deco-top { top: 16.4%; left: 6.5%; width: 30%; height: 1px; background: #47423c; }
+  .deco-top::before { content: ""; position: absolute; left: -2.4%; top: -3px; width: 7px; height: 7px; border: 1px solid #47423c; border-radius: 50%; }
+  .deco-ticks { top: 15.4%; right: 7%; width: 12%; height: 2.4%; display: flex; gap: 14%; justify-content: flex-end; }
+  .deco-ticks i { position: static; display: block; width: 8%; height: 100%; background: #55504a; }
+  .deco-ticks i:nth-child(1) { height: 60%; align-self: flex-end; }
+  .p-clock {
+    top: 12.6%; left: 0; width: 100%; text-align: center;
+    font-size: 13.4cqw; font-weight: 700; color: #f3eee2;
   }
-  .scene-card .scene-tag {
-    font-family: var(--mono); font-size: 0.68rem;
-    color: var(--rust); letter-spacing: 0.12em;
-    text-transform: uppercase; margin-bottom: 10px;
+  .ring-wrap { top: 30.4%; left: 50%; width: 19.6%; aspect-ratio: 1; transform: translateX(-50%); }
+  .ring {
+    inset: 0; border-radius: 50%;
+    border: 2.5px solid var(--dim-ring);
+    transition: border-color 0.7s;
+    animation: breath 3s var(--ease-out) infinite;
   }
-  .scene-card p {
-    color: var(--ink-mute); font-size: 0.88rem;
-    line-height: 1.55;
+  .ring-dot {
+    top: 50%; left: 50%; width: 36%; aspect-ratio: 1; border-radius: 50%;
+    background: var(--dim-ring); transform: translate(-50%, -50%);
+    transition: background 0.7s;
   }
-
-  /* ── architecture (3-row diagram) ── */
-  .arch {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 20px;
-    max-width: 720px;
+  .ring-brk { top: 34%; left: 50%; width: 32%; aspect-ratio: 2.6; transform: translateX(-50%); }
+  .ring-brk i { position: absolute; width: 12%; height: 100%; border: 0 solid #4a453f; }
+  .ring-brk i:first-child { left: 0; border-left-width: 2px; border-top-width: 2px; border-bottom-width: 2px; }
+  .ring-brk i:last-child { right: 0; border-right-width: 2px; border-top-width: 2px; border-bottom-width: 2px; }
+  @keyframes breath {
+    0%, 100% { transform: scale(0.94); opacity: 0.75; }
+    45%      { transform: scale(1.0);  opacity: 1; }
   }
-  .arch-row {
-    border: 1px solid var(--rule);
-    background: var(--paper);
-    padding: clamp(20px, 3vw, 28px);
-    display: grid; grid-template-columns: 1fr 2fr;
-    gap: clamp(20px, 3vw, 36px); align-items: start;
+  .p-word {
+    top: 52%; left: 0; width: 100%; text-align: center;
+    font-family: var(--cjk); font-weight: 500;
+    font-size: 11.2cqw; color: #f3eee2; line-height: 1;
+    transition: opacity 0.45s;
   }
-  @media (max-width: 600px) { .arch-row { grid-template-columns: 1fr; } }
-  .arch-row .arch-label {
-    font-family: var(--mono); font-size: 0.7rem;
-    letter-spacing: 0.12em; color: var(--rust);
-    text-transform: uppercase;
-    margin-bottom: 4px;
+  .p-chip {
+    top: 67.5%; left: 0; width: 100%; text-align: center;
+    font-size: 4.6cqw; letter-spacing: 0.04em; color: var(--gold);
+    opacity: 0; transition: opacity 0.6s, transform 0.6s var(--ease-out);
+    transform: translateY(8%);
   }
-  .arch-row h3 {
-    font-family: var(--serif); font-weight: 400;
-    font-size: 1.25rem;
-    font-variation-settings: "opsz" 28;
-  }
-  .arch-row p {
-    color: var(--ink-mute); font-size: 0.92rem;
-    line-height: 1.55;
-  }
-  .arch-row p code {
-    background: var(--paper-2); padding: 1px 6px;
-    font-family: var(--mono); font-size: 0.85em;
-    color: var(--ink);
-  }
-  .arch-link {
-    font-family: var(--mono); font-size: 0.78rem;
-    color: var(--rust); text-decoration: none;
-    letter-spacing: 0.04em;
-    display: inline-block; margin-top: 12px;
-  }
-  .arch-link:hover { text-decoration: underline; }
-  .arch-flow {
-    text-align: center; color: var(--ink-fade);
-    font-family: var(--mono); font-size: 1.2rem;
-    line-height: 1;
-  }
-
-  /* ── compare ── */
-  .compare {
-    width: 100%; border-collapse: collapse;
-    margin-top: 8px;
-  }
-  .compare th, .compare td {
-    padding: 18px 14px;
-    text-align: left;
-    border-bottom: 1px solid var(--rule);
-    font-size: 0.92rem; line-height: 1.5;
-    vertical-align: top;
-  }
-  .compare th {
-    font-family: var(--mono); font-size: 0.7rem;
-    text-transform: uppercase; letter-spacing: 0.1em;
-    color: var(--ink-fade); font-weight: 500;
-  }
-  .compare tr:last-child td { border-bottom: none; }
-  .compare .tool {
-    font-family: var(--serif); font-style: italic;
-    color: var(--ink); white-space: nowrap;
-    font-variation-settings: "opsz" 18;
-  }
-  .compare .tool.us {
-    font-weight: 500; color: var(--rust); font-style: normal;
-  }
-  .compare .check { color: var(--moss); font-weight: 600; }
-  .compare .x     { color: var(--ink-fade); }
-  @media (max-width: 700px) {
-    .compare th, .compare td { padding: 12px 8px; font-size: 0.84rem; }
-    .compare th:nth-child(5), .compare td:nth-child(5) { display: none; }
+  .p-chip em { font-style: normal; color: var(--gold-deep); margin-right: 1.2em; }
+  .deco-base { top: 76.5%; left: 11%; width: 78%; height: 2%; }
+  .deco-base i { position: absolute; top: 40%; height: 1px; background: #47423c; }
+  .deco-base i:nth-child(1) { left: 0; width: 100%; opacity: 0.5; }
+  .deco-base b { position: absolute; top: 0; height: 100%; background: #6a6058; }
+  .deco-base b:nth-child(2) { left: 2%; width: 5%; }
+  .deco-base b:nth-child(3) { left: 8.6%; width: 2.4%; }
+  .deco-base b:nth-child(4) { left: 12.4%; width: 7%; }
+  .deco-base b:nth-child(5) { right: 8%; width: 1.4%; }
+  .deco-base b:nth-child(6) { right: 4.6%; width: 1.4%; }
+  .deco-base b:nth-child(7) { right: 1%; width: 1.4%; }
+  .p-foot { top: 83%; left: 0; width: 100%; }
+  .p-foot .col { position: absolute; top: 0; width: 50%; text-align: center; }
+  .p-foot .col:first-child { left: 3%; }
+  .p-foot .col:last-child { right: 3%; }
+  .p-foot .num { position: static; display: block; font-size: 6.4cqw; font-weight: 700; color: #f3eee2; }
+  .p-foot .col:first-child .num { color: var(--teal); }
+  .p-foot .lbl { position: static; display: block; margin-top: 2%; font-size: 3.4cqw; color: var(--text-mute); letter-spacing: 0.08em; }
+  .panel[data-state="thinking"] .ring { border-color: var(--teal); animation-duration: 2.4s; }
+  .panel[data-state="thinking"] .ring-dot { background: var(--teal); }
+  .panel[data-state="gold"] .ring { border-color: var(--gold); animation-duration: 1.7s; }
+  .panel[data-state="gold"] .ring-dot { background: var(--gold); }
+  .panel[data-state="gold"] .p-chip { opacity: 1; transform: translateY(0); }
+  .replica-cap {
+    text-align: center; margin-top: 18px;
+    font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--text-mute);
   }
 
-  /* ── roadmap ── */
-  .roadmap {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    gap: clamp(20px, 3vw, 32px);
+  /* ── star separator + spec strip ── */
+  .starline {
+    padding: 0 var(--pad); color: var(--text-mute); font-size: 11px;
+    overflow: hidden; white-space: nowrap; letter-spacing: 2px; user-select: none;
   }
-  .roadmap-card {
-    padding: clamp(24px, 3vw, 32px);
-    border: 1px solid var(--rule);
-    background: var(--paper);
-    position: relative;
+  .spec-strip {
+    display: flex; flex-wrap: wrap; gap: 6px clamp(24px, 5vw, 80px);
+    padding: 10px var(--pad);
+    text-transform: uppercase; font-size: 11.5px; letter-spacing: 0.08em;
+    color: var(--text-dim);
   }
-  .roadmap-card .status {
-    font-family: var(--mono); font-size: 0.66rem;
-    text-transform: uppercase; letter-spacing: 0.12em;
-    padding: 4px 10px; border-radius: 999px;
-    display: inline-block; margin-bottom: 14px;
+  .spec-strip .k { color: var(--text-mute); }
+  .spec-strip .gold { color: var(--gold); }
+
+  /* ── section scaffolding: full-bleed rule + tab label ── */
+  section { margin-top: clamp(64px, 11vh, 130px); }
+  .tab-row { position: relative; }
+  .tab {
+    display: inline-block; transform: translateY(-1px);
+    margin-left: var(--pad);
+    background: var(--tab-bg); color: var(--display);
+    border: 1px solid var(--line);
+    padding: 9px 18px 8px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
   }
-  .roadmap-card .status.shipped { background: rgba(52,74,54,0.12); color: var(--moss); }
-  .roadmap-card .status.design  { background: rgba(184,144,32,0.15); color: var(--gold); }
-  .roadmap-card .status.sketch  { background: rgba(138,128,122,0.15); color: var(--ink-fade); }
-  .roadmap-card h3 {
-    font-family: var(--serif); font-weight: 400;
-    font-size: 1.5rem; line-height: 1.1;
-    margin-bottom: 12px;
-    font-variation-settings: "opsz" 36;
+  .sec-body { padding: clamp(30px, 5vh, 56px) var(--pad) 0; }
+  .h-giant {
+    font-family: var(--disp);
+    font-variation-settings: "wdth" 110;
+    font-weight: 800;
+    font-size: clamp(2.4rem, 6.4vw, 5.4rem);
+    line-height: 0.98; letter-spacing: -0.015em;
+    color: var(--display); margin-bottom: clamp(24px, 4vh, 44px);
   }
-  .roadmap-card h3 .ver { color: var(--rust); font-style: italic; }
-  .roadmap-card p {
-    color: var(--ink-mute); font-size: 0.9rem;
-    line-height: 1.55;
+  .h-giant .gold { color: var(--gold); }
+  .prose {
+    text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--text-dim); font-size: 12.5px; line-height: 2.05;
+    max-width: 68ch;
+  }
+  .prose b { color: var(--text); font-weight: 600; }
+  .prose a { color: var(--text); text-decoration-color: var(--gold-deep); text-underline-offset: 3px; }
+  .prose code { color: var(--gold); font-size: 12px; }
+
+  /* ── loop diagram ── */
+  .loop-diagram { margin-top: clamp(34px, 5vh, 56px); }
+  .loop-row { display: grid; grid-template-columns: repeat(4, 1fr); position: relative; }
+  .loop-row::before {
+    content: ""; position: absolute; top: 7px; left: 12.5%; right: 12.5%;
+    height: 1px; background: var(--line);
+  }
+  .loop-pulse {
+    position: absolute; top: 4px; left: 12.5%; width: 7px; height: 7px;
+    background: var(--gold);
+    animation: pulse-run 5.2s linear infinite;
+  }
+  @keyframes pulse-run {
+    0%   { left: 12.5%; background: var(--teal); opacity: 0; }
+    6%   { opacity: 1; }
+    66%  { background: var(--teal); }
+    82%  { background: var(--gold); }
+    96%  { left: calc(87.5% - 7px); opacity: 1; }
+    100% { left: calc(87.5% - 7px); opacity: 0; }
+  }
+  .loop-node { text-align: center; padding: 0 10px; }
+  .loop-node .mark {
+    display: block; width: 9px; height: 9px; margin: 1px auto 20px;
+    background: var(--bg); border: 2px solid var(--text-mute);
+    transform: rotate(45deg); position: relative; z-index: 1;
+  }
+  .loop-node:last-child .mark { border-color: var(--gold); background: var(--gold); }
+  .loop-node h3 {
+    font-size: 12.5px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--text); margin-bottom: 8px;
+  }
+  .loop-node:last-child h3 { color: var(--gold); }
+  .loop-node code { font-size: 11px; color: var(--text-dim); word-break: break-all; }
+  @media (max-width: 720px) {
+    .loop-row { grid-template-columns: 1fr; gap: 24px; }
+    .loop-row::before, .loop-pulse { display: none; }
+    .loop-node { text-align: left; display: grid; grid-template-columns: 26px 1fr; gap: 0 12px; }
+    .loop-node .mark { margin: 6px 0 0; grid-row: span 2; }
+    .loop-node h3, .loop-node code { grid-column: 2; }
   }
 
-  /* ── CTA ── */
-  .cta-block {
-    text-align: center;
-    padding: clamp(56px, 10vh, 100px) 0;
-    border-top: 1px solid var(--rule);
-    background:
-      linear-gradient(to bottom, transparent, var(--paper-2));
+  /* ── screenshot galleries ── */
+  .shots { display: grid; grid-template-columns: repeat(3, 1fr); gap: clamp(16px, 2.6vw, 32px); margin-top: clamp(30px, 5vh, 52px); }
+  .shot img {
+    width: 100%; height: auto; display: block;
+    border-radius: 13%; border: 1px solid var(--line-soft);
+    background: var(--bg-deep);
   }
-  .cta-block h2 {
-    margin-left: auto; margin-right: auto; max-width: 22ch;
-    margin-bottom: 32px;
+  .shot figcaption {
+    margin-top: 14px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--text-dim); display: flex; align-items: baseline; gap: 10px;
   }
-  .cta-block .cta { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  .shot .st { width: 8px; height: 8px; flex: none; align-self: center; }
+  .st.g { background: var(--gold); } .st.t { background: var(--teal); } .st.d { background: var(--dim-ring); }
+  .shot .zh { color: var(--text-mute); font-family: var(--cjk); text-transform: none; }
+  .keycap {
+    flex: none; align-self: center;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+    border: 1px solid var(--line); border-bottom-width: 3px;
+    padding: 2px 8px; color: var(--text);
+    background: var(--tab-bg);
+  }
+  @media (max-width: 720px) { .shots { grid-template-columns: 1fr; max-width: 340px; } }
+
+  /* ── dot-leader spec ledger ── */
+  .specs {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: clamp(20px, 4vh, 34px) clamp(40px, 6vw, 96px);
+    margin-top: clamp(30px, 5vh, 52px);
+  }
+  .spec { font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; }
+  .spec .line { display: flex; align-items: baseline; gap: 10px; }
+  .spec .key { color: var(--text); font-weight: 600; flex: none; }
+  .spec .dots { flex: 1; border-bottom: 1px dotted var(--text-mute); transform: translateY(-3px); min-width: 20px; }
+  .spec .val { color: var(--gold); font-weight: 700; flex: none; text-align: right; }
+  .spec .val.t { color: var(--teal); }
+  .spec .note { margin-top: 7px; color: var(--text-dim); font-size: 11.5px; line-height: 1.85; text-transform: none; letter-spacing: 0.03em; }
+  .spec .note code { color: var(--text-dim); }
+  @media (max-width: 860px) { .specs { grid-template-columns: 1fr; } }
+
+  /* ── decommissioned list ── */
+  .decomm { margin-top: clamp(26px, 4vh, 44px); max-width: 78ch; }
+  .decomm li {
+    list-style: none; display: flex; gap: 14px; align-items: baseline;
+    padding: 11px 0; border-bottom: 1px dotted var(--line);
+    font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .decomm li::before { content: "×"; color: var(--rust); flex: none; font-weight: 700; }
+  .decomm b { color: var(--text); font-weight: 600; }
+
+  /* ── deployment ── */
+  .qs-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: clamp(28px, 4vw, 64px); align-items: start; margin-top: clamp(30px, 5vh, 52px); }
+  pre {
+    background: var(--bg-deep); border: 1px solid var(--line-soft);
+    padding: clamp(18px, 2.6vw, 30px); overflow-x: auto;
+    font-family: var(--mono); font-size: 12px; line-height: 1.9;
+    scrollbar-width: thin; scrollbar-color: var(--line) transparent;
+  }
+  pre .c { color: var(--text-mute); }
+  .qs-side { font-size: 12px; }
+  .qs-side .spec-block {
+    border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+    padding: 14px 0; margin-bottom: 22px;
+    text-transform: uppercase; letter-spacing: 0.07em; line-height: 2;
+    color: var(--text-dim);
+  }
+  .qs-side .spec-block .k { color: var(--text-mute); }
+  .qs-side .prose { font-size: 11.5px; max-width: none; }
+  .qs-side .hatch-panel {
+    margin-top: 26px; height: 110px;
+    background: repeating-linear-gradient(45deg, transparent 0 9px, var(--line-soft) 9px 15px);
+    border: 1px solid var(--line-soft);
+  }
+  @media (max-width: 860px) { .qs-grid { grid-template-columns: 1fr; } }
 
   /* ── footer ── */
-  footer {
-    padding: clamp(60px, 8vh, 100px) 0 32px;
-    border-top: 1px solid var(--rule);
+  footer { margin-top: clamp(70px, 12vh, 140px); }
+  .foot-grid {
+    display: grid; grid-template-columns: 1fr auto 1fr; gap: 18px;
+    align-items: center; padding: clamp(26px, 4vh, 40px) var(--pad) clamp(34px, 5vh, 52px);
+    font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-mute);
   }
-  .footer-grid {
-    display: grid;
-    grid-template-columns: 2fr 1fr 1fr 1fr;
-    gap: 40px; margin-bottom: 56px;
-  }
-  @media (max-width: 700px) {
-    .footer-grid { grid-template-columns: 1fr 1fr; }
-  }
-  .footer-grid h4 {
-    font-family: var(--mono); font-size: 0.7rem;
-    letter-spacing: 0.12em; text-transform: uppercase;
-    color: var(--rust); margin-bottom: 14px;
-  }
-  .footer-grid ul { list-style: none; }
-  .footer-grid li { margin-bottom: 8px; font-size: 0.88rem; }
-  .footer-grid a { color: var(--ink-mute); text-decoration: none; }
-  .footer-grid a:hover { color: var(--rust); }
-  .footer-tagline {
-    font-family: var(--serif); font-size: 0.95rem;
-    color: var(--ink-mute); line-height: 1.5;
-    max-width: 36ch;
-  }
-  .footer-bar {
-    padding-top: 24px; border-top: 1px solid var(--rule);
-    display: flex; justify-content: space-between;
-    font-family: var(--mono); font-size: 0.72rem;
-    color: var(--ink-fade); letter-spacing: 0.06em;
-    text-transform: uppercase;
-    flex-wrap: wrap; gap: 16px;
+  .foot-grid .motto { text-align: center; font-family: var(--cjk); font-size: 15px; color: var(--text); text-transform: none; letter-spacing: 0.02em; }
+  .foot-grid .motto .en { font-family: var(--mono); font-size: 11px; color: var(--text-mute); letter-spacing: 0.1em; margin-left: 10px; }
+  .foot-grid .links { text-align: right; }
+  .foot-grid .links a { color: var(--text-mute); text-decoration: none; margin-left: 18px; }
+  .foot-grid .links a:hover { color: var(--gold); }
+  @media (max-width: 720px) {
+    .foot-grid { grid-template-columns: 1fr; text-align: left; gap: 10px; }
+    .foot-grid .motto, .foot-grid .links { text-align: left; }
+    .foot-grid .links a { margin-left: 0; margin-right: 18px; }
   }
 
-  @keyframes rise {
-    from { opacity: 0; transform: translateY(12px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-  .hero h1, .hero .lede, .hero .cta {
-    animation: rise 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
-  }
-  .hero h1 { animation-delay: 0.1s; }
-  .hero .lede { animation-delay: 0.25s; }
-  .hero .cta { animation-delay: 0.4s; }
-
+  /* ── reveal ── */
+  .reveal { opacity: 0; transform: translateY(16px); transition: opacity 0.8s var(--ease-out), transform 0.8s var(--ease-out); transition-delay: var(--d, 0s); }
+  .reveal.in { opacity: 1; transform: none; }
   @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .reveal { opacity: 1; transform: none; transition: none; }
+    .ring, .loop-pulse { animation: none !important; }
+    html { scroll-behavior: auto; }
   }
 </style>
 </head>
 <body>
 
-<div class="container">
-
-<!-- ── NAV ── -->
-<nav>
-  <a href="#top" class="brand">
-    <span class="dot"></span>
-    esp32-agent-dashboard
-  </a>
-  <div class="links">
-    <a href="#scenes">Scenes</a>
-    <a href="#arch">Architecture</a>
-    <a href="#compare">Vs others</a>
-    <a href="#roadmap">Roadmap</a>
-    <a href="https://github.com/Caldis/esp32-agent-dashboard/tree/master/docs/blog">Blog</a>
-    <a href="https://github.com/Caldis/esp32-agent-dashboard">GitHub</a>
+<!-- ═══════════ ops header ═══════════ -->
+<header class="ops">
+  <div class="brand">
+    ESP32-AGENT<br>-DASHBOARD
+    <span class="bars" aria-hidden="true"><i></i><i></i><i></i></span>
   </div>
-</nav>
+  <div>
+    <span class="k">A PHYSICAL SURFACE FOR AI CODING AGENTS —</span><br>
+    CLAUDE CODE / CODEX / CURSOR / MULTI-AGENT<br>
+    <span class="k">SIGNAL:</span> HOOK → BRIDGE → USB SERIAL → PANEL
+  </div>
+  <div class="col-status">
+    <span class="k">STATUS:</span> FIELD OPERATION — <span class="gold">ACTIVE</span><br>
+    <span class="k">FW LINE:</span> V7.8 · LVGL 9 · ESP-IDF 6<br>
+    <span class="k">LICENSE:</span> MIT — ALL WORK IS OUR OWN
+  </div>
+  <div class="right">
+    <span id="ops-clock">--:--</span><br>
+    <span id="ops-date" class="k">—</span><br>
+    <a class="nav-ln" href="#start">DEPLOY</a><a class="nav-ln" href="https://github.com/Caldis/esp32-agent-dashboard">GITHUB ↗</a>
+  </div>
+</header>
+<hr class="rule">
 
-<!-- ── HERO ── -->
-<section class="hero" id="top">
-  <div class="hero-grid">
-    <div>
-      <h1>See what<br>your agents<br>are <span class="accent">doing</span>.</h1>
-      <p class="lede">
-        A physical dashboard for Claude Code and Codex. Lives next to your
-        keyboard. Streams the current session, the running tool, the
-        token spend. Tap to approve or deny.
-      </p>
-      <div class="cta">
-        <a href="#start" class="btn btn-primary">Quickstart →</a>
-        <a href="https://github.com/Caldis/esp32-agent-dashboard" class="btn btn-ghost">View on GitHub</a>
-      </div>
+<!-- ═══════════ hero ═══════════ -->
+<div class="hero-head">
+  <h1 class="reveal">It tells you when it's <span class="gold">your&nbsp;turn.</span></h1>
+</div>
+<div class="hero-grid">
+  <div>
+    <p class="lede reveal" style="--d:0.08s">
+      Your agents run in terminals you aren't watching. The expensive
+      failure isn't a slow model — it's a <b>finished</b> one you don't
+      notice. This 2.16″ AMOLED unit sits beside your keyboard and turns
+      <span class="gold">gold</span> the moment an agent hands the turn
+      back. Until then: a clock, the weather, a quiet ring.
+    </p>
+    <div class="cta reveal" style="--d:0.16s">
+      <a class="btn hatch" href="https://github.com/Caldis/esp32-agent-dashboard#quickstart">Build one</a>
+      <a class="btn plain" href="https://github.com/Caldis/esp32-agent-dashboard/blob/master/PROTOCOL.md">Read the protocol</a>
     </div>
-    <div class="device" aria-hidden="true">
-      <div class="device-screen">
-        <div class="device-content">
-          <div class="session-line">claude-code · running</div>
-          <div class="session-cwd">~/code/my-firmware</div>
-          <div class="session-counter">2</div>
-          <div class="session-label">agents · 1 waiting</div>
-          <div class="pulse"><span></span><span></span><span></span></div>
+  </div>
+  <div class="device-col reveal" style="--d:0.12s">
+    <div>
+      <div class="bezel">
+        <div class="panel" id="panel" data-state="idle" role="img"
+             aria-label="Live reconstruction of the panel cycling through its three states: idle, thinking, your turn">
+          <span class="nav-dots"><i></i><i></i><i></i></span>
+          <i class="pbr tl"></i><i class="pbr tr"></i><i class="pbr bl"></i><i class="pbr br"></i>
+          <span class="deco-top"></span>
+          <span class="deco-ticks"><i></i><i></i><i></i><i></i><i></i></span>
+          <span class="p-clock" id="p-clock">09:41</span>
+          <span class="ring-brk"><i></i><i></i></span>
+          <span class="ring-wrap"><span class="ring"></span><span class="ring-dot"></span></span>
+          <span class="p-word" id="p-word" lang="zh-CN">空闲</span>
+          <span class="p-chip"><em>cc</em>esp32-agent-dashboard</span>
+          <span class="deco-base"><i></i><b></b><b></b><b></b><b></b><b></b><b></b></span>
+          <span class="p-foot">
+            <span class="col"><span class="num" id="p-active">0</span><span class="lbl">active</span></span>
+            <span class="col"><span class="num" id="p-tokens">0</span><span class="lbl">tokens</span></span>
+          </span>
         </div>
       </div>
-      <div class="device-buttons">
-        <span title="BOOT — approve"></span>
-        <span title="USER — deny"></span>
-      </div>
+      <p class="replica-cap">live css reconstruction — real captures below</p>
     </div>
   </div>
-</section>
-
-<!-- ── PITCH / TERMINAL ── -->
-<section class="pitch" id="start">
-  <div class="pitch-grid">
-    <div>
-      <div class="section-h">§ Quickstart — 30 seconds</div>
-      <h2>Clone, build, flash,<br>and the dashboard<br><em>knows what you're doing</em>.</h2>
-      <p class="quote">
-        The toolkit is esp-harness. The protocol is one-line JSON.
-        The bridge is a single Python file. No cloud, no telemetry,
-        no daemon you can't read.
-      </p>
-    </div>
-    <div class="terminal">
-      <div class="terminal-bar">
-        <span></span><span></span><span></span>
-        <div class="title">~/code</div>
-      </div>
-      <div class="terminal-body"><span class="dim"># 1. toolkit (esp-harness — provides build / flash / console)</span>
-<span class="prompt">$</span> <span class="cmd">git clone github.com/Caldis/esp-harness</span>
-<span class="prompt">$</span> <span class="cmd">pip install -e esp-harness/tools/esp-harness/</span>
-
-<span class="dim"># 2. this repo</span>
-<span class="prompt">$</span> <span class="cmd">git clone github.com/Caldis/esp32-agent-dashboard</span>
-<span class="prompt">$</span> <span class="cmd">cd esp32-agent-dashboard</span>
-
-<span class="dim"># 3. build + flash (Waveshare ESP32-S3-Touch-AMOLED-2.16)</span>
-<span class="prompt">$</span> <span class="cmd">esp-harness build --project .</span>
-<span class="ok">build OK in 18.2s · 1.6 MB</span>
-<span class="prompt">$</span> <span class="cmd">esp-harness flash --project . --port COM9</span>
-<span class="ok">flashed · device alive</span>
-
-<span class="dim"># 4. wake the bridge — listens for Claude Code hooks</span>
-<span class="prompt">$</span> <span class="cmd">python tools/claude_buddy_bridge.py serve --serial-port COM9</span>
-<span class="out">[bridge] serving on 127.0.0.1:7321 | dry_run=False | serial=COM9</span>
-<span class="out">[bridge] device alive · console v1.7.5 · scenes=5</span>
-
-<span class="dim"># …now start a Claude Code session. The panel wakes.</span>
-<span class="accent">EVT: permission id=req_abc decision=once</span>
-</div>
-    </div>
-  </div>
-</section>
-
-<!-- ── SCENES ── -->
-<section id="scenes">
-  <div class="section-h">§ Five scenes</div>
-  <h2>One panel,<br>five states,<br>zero <em>context switch</em>.</h2>
-
-  <div class="scenes">
-    <div class="scene-card">
-      <div class="scene-thumb" style="background-image: url('img/dash-idle.png');" aria-label="idle scene"></div>
-      <div class="scene-tag">▸ when quiet</div>
-      <h3>idle</h3>
-      <p>Gentle "zZz" pulse. No agent has emitted an event in 60 s.</p>
-    </div>
-    <div class="scene-card">
-      <div class="scene-thumb" style="background-image: url('img/dash-sessions.png');" aria-label="sessions scene"></div>
-      <div class="scene-tag">▸ when running</div>
-      <h3>sessions</h3>
-      <p>One row per agent. Status pip, cwd, last 3-5 transcript entries. Totals header.</p>
-    </div>
-    <div class="scene-card">
-      <div class="scene-thumb" style="background-image: url('img/dash-prompt.png');" aria-label="prompt scene"></div>
-      <div class="scene-tag">▸ when blocked</div>
-      <h3>prompt</h3>
-      <p>Tool name, command preview, BOOT to approve, USER to deny. 60 s timeout.</p>
-    </div>
-    <div class="scene-card">
-      <div class="scene-thumb" style="background-image: url('img/dash-tokens.png');" aria-label="tokens scene"></div>
-      <div class="scene-tag">▸ on demand</div>
-      <h3>tokens</h3>
-      <p>Cumulative + today's spend. 24 h sparkline. Per-agent breakdown.</p>
-    </div>
-    <div class="scene-card">
-      <div class="scene-thumb" style="background-image: url('img/dash-status.png');" aria-label="status scene"></div>
-      <div class="scene-tag">▸ on demand</div>
-      <h3>status</h3>
-      <p>Battery, heap, uptime, build info. The "is the box healthy" view.</p>
-    </div>
-  </div>
-</section>
-
-<!-- ── ARCHITECTURE ── -->
-<section id="arch">
-  <div class="section-h">§ Architecture</div>
-  <h2>Hook → bridge<br>→ wire → panel,<br>and <em>back again</em>.</h2>
-
-  <div class="arch">
-    <div class="arch-row">
-      <div>
-        <div class="arch-label">▸ Host side</div>
-        <h3>Hooks &amp; the bridge</h3>
-      </div>
-      <p>
-        Claude Code's hook system calls <code>hook_dispatch.py</code> on every
-        <code>PreToolUse</code> / <code>PostToolUse</code> / <code>Stop</code>.
-        Codex's JSONL stream is tee'd through <code>codex_wrapper.py</code>.
-        Both forward to the long-running <code>claude_buddy_bridge.py</code>
-        which aggregates per-agent state and throttles pushes to ≤ 1 / 250 ms.
-        <a href="https://github.com/Caldis/esp32-agent-dashboard/blob/master/docs/HOST_INTEGRATION.md" class="arch-link">Read the host integration doc →</a>
-      </p>
-    </div>
-
-    <div class="arch-flow">↓</div>
-
-    <div class="arch-row">
-      <div>
-        <div class="arch-label">▸ Wire</div>
-        <h3>One verb per state class</h3>
-      </div>
-      <p>
-        <code>dash snapshot</code> for periodic state, <code>dash prompt</code>
-        when blocked on approval, <code>dash event</code> for transient
-        transcript lines, <code>dash tokens</code> for spend, <code>dash idle</code>
-        to sleep. Replies are <code>OK:</code> / <code>ERR:</code> / <code>EVT:</code>
-        framed by esp-harness's console_protocol. v1 over USB-Serial.
-        <a href="https://github.com/Caldis/esp32-agent-dashboard/blob/master/PROTOCOL.md" class="arch-link">Read the protocol spec →</a>
-      </p>
-    </div>
-
-    <div class="arch-flow">↓</div>
-
-    <div class="arch-row">
-      <div>
-        <div class="arch-label">▸ Device side</div>
-        <h3>LVGL on a 466 round AMOLED</h3>
-      </div>
-      <p>
-        Firmware built on the <a href="https://github.com/Caldis/esp-harness" class="arch-link" style="display:inline">esp-harness</a> scene framework
-        (LVGL 9.x, ESP-IDF v6.0+). Five scenes registered through
-        <code>harness_scene_register</code>. BOOT &amp; USER buttons routed
-        into <code>EVT: permission id=… decision=…</code> events back to
-        the bridge.
-      </p>
-    </div>
-  </div>
-</section>
-
-<!-- ── COMPARE ── -->
-<section id="compare">
-  <div class="section-h">§ Where this sits</div>
-  <h2>What other tools<br>give you, vs what<br>this <em>adds</em>.</h2>
-
-  <table class="compare">
-    <thead>
-      <tr>
-        <th>Project</th>
-        <th>Transport</th>
-        <th>Agents</th>
-        <th>Hardware</th>
-        <th>Approval button</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td class="tool">claude-desktop-buddy</td>
-        <td>BLE (NUS)</td>
-        <td>Claude Desktop (single)</td>
-        <td>nRF reference / generic BLE</td>
-        <td class="x">— display only</td>
-      </tr>
-      <tr>
-        <td class="tool">claude-dashboard plugin</td>
-        <td>in-app status line</td>
-        <td>Claude Code</td>
-        <td>none (lives in your terminal)</td>
-        <td class="x">— no hardware</td>
-      </tr>
-      <tr>
-        <td class="tool us">esp32-agent-dashboard <small style="opacity:0.6">(this repo)</small></td>
-        <td>USB-Serial → BLE → WiFi</td>
-        <td><strong>Claude Code + Codex</strong> (multi-agent)</td>
-        <td>Waveshare ESP32-S3-Touch-AMOLED-2.16</td>
-        <td class="check">✓ BOOT / USER + 60s timeout</td>
-      </tr>
-    </tbody>
-  </table>
-</section>
-
-<!-- ── ROADMAP ── -->
-<section id="roadmap">
-  <div class="section-h">§ Roadmap</div>
-  <h2>Three milestones,<br>each adding<br>a <em>transport</em>.</h2>
-
-  <div class="roadmap">
-    <div class="roadmap-card">
-      <span class="status shipped">✓ shipped</span>
-      <h3><span class="ver">v0.1</span> — USB-Serial</h3>
-      <p>
-        Multi-agent dashboard over USB-Serial. Claude Code hooks
-        + Codex wrapper, five scenes, physical approval button,
-        TCP mock for CI.
-      </p>
-    </div>
-    <div class="roadmap-card">
-      <span class="status design">⊕ in design</span>
-      <h3><span class="ver">v1.0</span> — BLE NUS</h3>
-      <p>
-        Nordic UART Service for tetherless Claude Desktop pairing.
-        Same wire format, just framed over BLE characteristics.
-        No USB cable on your desk.
-      </p>
-    </div>
-    <div class="roadmap-card">
-      <span class="status sketch">○ sketched</span>
-      <h3><span class="ver">v2.0</span> — WiFi push</h3>
-      <p>
-        Headless dev box on a server, dashboard on your desk.
-        mDNS discovery, TLS to localhost relay, USB fallback when
-        the network's down.
-      </p>
-    </div>
-  </div>
-</section>
-
 </div>
 
-<!-- ── CTA ── -->
-<section class="cta-block">
-  <div class="container">
-    <div class="section-h" style="text-align: center;">§ Try it</div>
-    <h2>Open the repo,<br>read the <em>30-second</em> quickstart.</h2>
-    <div class="cta">
-      <a href="https://github.com/Caldis/esp32-agent-dashboard" class="btn btn-primary">Repo on GitHub →</a>
-      <a href="https://github.com/Caldis/esp32-agent-dashboard/blob/master/PROTOCOL.md" class="btn btn-ghost">Read the wire protocol</a>
+<div class="starline" aria-hidden="true">************************************************************************************************************************************************************************************************************************************************************************************************************</div>
+<div class="spec-strip">
+  <span><span class="k">UNIT:</span> DESK-SIDE FIELD PANEL</span>
+  <span><span class="k">GLASS:</span> 480×480 AMOLED — MEASURED, NOT SPEC'D</span>
+  <span><span class="k">KEYS:</span> 3 PHYSICAL</span>
+  <span><span class="k">COST:</span> ~US$30</span>
+  <span><span class="k">STATE:</span> <span class="gold">GOLD = YOUR MOVE</span></span>
+</div>
+<div class="starline" aria-hidden="true">************************************************************************************************************************************************************************************************************************************************************************************************************</div>
+
+<!-- ═══════════ 01 signal path ═══════════ -->
+<section id="loop">
+  <div class="tab-row"><hr class="rule"><span class="tab">01 / Signal Path</span></div>
+  <div class="sec-body">
+    <p class="prose reveal">
+      Everything on the device is ambience except this chain. A hook
+      fires when your agent stops, a resident bridge folds it into one
+      state snapshot, one line of JSON crosses the USB serial link, and
+      the panel <b>pulls itself</b> to the gold pose — one-shot, only on
+      a fresh signal, never for stale state. Key away and it stays away
+      for that round.
+    </p>
+    <div class="loop-diagram reveal" style="--d:0.1s">
+      <div class="loop-row">
+        <span class="loop-pulse" aria-hidden="true"></span>
+        <div class="loop-node">
+          <span class="mark"></span>
+          <h3>Agent stops</h3>
+          <code>hook_dispatch.py stop</code>
+        </div>
+        <div class="loop-node">
+          <span class="mark"></span>
+          <h3>Bridge folds state</h3>
+          <code>claude_buddy_bridge.py</code>
+        </div>
+        <div class="loop-node">
+          <span class="mark"></span>
+          <h3>One line of JSON</h3>
+          <code>dash snapshot {"agents":[…]}</code>
+        </div>
+        <div class="loop-node">
+          <span class="mark"></span>
+          <h3>Panel turns gold</h3>
+          <code><span lang="zh-CN">接着来</span> · your move</code>
+        </div>
+      </div>
+    </div>
+    <p class="prose reveal" style="margin-top: clamp(28px, 4.5vh, 44px)">
+      The bridge is <b>self-healing</b>: hooks auto-start it, port loss
+      is detected in under a second, every reconnect force-pushes
+      config, time and the full snapshot. If the host goes silent the
+      panel says so and retreats to the clock — it never freezes with a
+      stale promise on screen.
+    </p>
+  </div>
+</section>
+
+<!-- ═══════════ 02 state contract ═══════════ -->
+<section id="state">
+  <div class="tab-row"><hr class="rule"><span class="tab">02 / State Contract</span></div>
+  <div class="sec-body">
+    <h2 class="h-giant reveal">Colour is state,<br>never décor.</h2>
+    <p class="prose reveal">
+      One breathing ring is the only status glyph on the device, and its
+      colour is a device-wide contract. No icon zoo, no badge counts —
+      a glance from a metre away is the entire interface.
+    </p>
+    <div class="shots">
+      <figure class="shot reveal">
+        <img src="img/v7/dashboard-idle.png" alt="Dashboard, idle: dim ring, the word 空闲" width="480" height="480" loading="lazy">
+        <figcaption><span class="st d"></span>DIM — NOTHING NEEDS YOU <span class="zh" lang="zh-CN">空闲</span></figcaption>
+      </figure>
+      <figure class="shot reveal" style="--d:0.08s">
+        <img src="img/v7/dashboard-thinking.png" alt="Dashboard, thinking: teal ring, the word 思考中" width="480" height="480" loading="lazy">
+        <figcaption><span class="st t"></span>TEAL — AGENT WORKING <span class="zh" lang="zh-CN">思考中</span></figcaption>
+      </figure>
+      <figure class="shot reveal" style="--d:0.16s">
+        <img src="img/v7/dashboard-your-turn.png" alt="Dashboard, your turn: gold ring, a greeting word, project chip" width="480" height="480" loading="lazy">
+        <figcaption><span class="st g"></span>GOLD — YOUR MOVE <span class="zh" lang="zh-CN">该你了</span></figcaption>
+      </figure>
+    </div>
+    <p class="prose reveal" style="margin-top: clamp(28px, 4.5vh, 48px)">
+      The decoration layer is held to the same rule: its brackets,
+      ticks and arcs never take a colour of their own. When an agent
+      hands the turn back, only their <b>tempo</b> rises.
+    </p>
+  </div>
+</section>
+
+<!-- ═══════════ 03 views ═══════════ -->
+<section id="views">
+  <div class="tab-row"><hr class="rule"><span class="tab">03 / Views &amp; Keys</span></div>
+  <div class="sec-body">
+    <p class="prose reveal">
+      No menus, no modes, no gestures. Three physical keys map to three
+      views, one each; pressing the key of the view you're already on
+      just flashes the frame. With two to four agents the dashboard
+      becomes a fleet — waiting rows carry the gold.
+    </p>
+    <div class="shots">
+      <figure class="shot reveal">
+        <img src="img/v7/clock.png" alt="Clock view: large 09:41, weather line, active and token footer" width="480" height="480" loading="lazy">
+        <figcaption><span class="keycap">PWR</span>CLOCK — HOST-SYNCED, RETREAT VIEW</figcaption>
+      </figure>
+      <figure class="shot reveal" style="--d:0.08s">
+        <img src="img/v7/weather.png" alt="Weather view: 27 degrees, sunny, five-day strip for Shenzhen Futian" width="480" height="480" loading="lazy">
+        <figcaption><span class="keycap">USER</span>WEATHER — BRIDGE-PUSHED, 5-DAY</figcaption>
+      </figure>
+      <figure class="shot reveal" style="--d:0.16s">
+        <img src="img/v7/dashboard-fleet.png" alt="Fleet view: four project rows, one waiting row highlighted gold" width="480" height="480" loading="lazy">
+        <figcaption><span class="keycap">BOOT</span>FLEET — 4 AGENTS, ONE WAITING</figcaption>
+      </figure>
     </div>
   </div>
 </section>
 
-<!-- ── FOOTER ── -->
-<footer>
-  <div class="container">
-    <div class="footer-grid">
-      <div>
-        <a href="#top" class="brand" style="display:inline-flex; align-items:center; gap:10px; text-decoration:none; margin-bottom:14px;">
-          <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:var(--rust); box-shadow: 0 0 0 3px rgba(184,67,26,0.18);"></span>
-          <strong style="font-family:var(--mono); color:var(--ink); font-size:0.92rem;">esp32-agent-dashboard</strong>
-        </a>
-        <p class="footer-tagline">
-          A physical surface for your AI agents. Multi-agent, USB-Serial,
-          tap to approve. <em>See the loop.</em>
+<!-- ═══════════ 04 field record ═══════════ -->
+<section id="craft">
+  <div class="tab-row"><hr class="rule"><span class="tab">04 / Field Record</span></div>
+  <div class="sec-body">
+    <h2 class="h-giant reveal">Built by<br>measuring.</h2>
+    <p class="prose reveal">
+      Screenshots lie and timers lie, so every claim gets an instrument:
+      windowed render timing on-device (<code>?perf</code>), a
+      transition benchmark with a committed baseline that fails on
+      regression, a negative-space audit for the decoration layer, and
+      a ledger of optimisations that <b>made things worse</b> — kept on
+      file so they never get retried.
+    </p>
+    <div class="specs reveal" style="--d:0.08s">
+      <div class="spec">
+        <div class="line"><span class="key">Weather transitions</span><span class="dots"></span><span class="val">−27% render</span></div>
+        <p class="note">Vector scenes pre-composited to bitmaps at rest — transition
+        frames blit instead of re-rasterising ~90 objects. Idle repaint −53%.</p>
+      </div>
+      <div class="spec">
+        <div class="line"><span class="key">Motion sampling</span><span class="dots"></span><span class="val t">30 → 60 Hz</span></div>
+        <p class="note">LVGL's anim timer never followed the raised refresh tier;
+        syncing them cut per-frame dirty unions and raised drawn frames 15–35%.</p>
+      </div>
+      <div class="spec">
+        <div class="line"><span class="key">Decoration layer</span><span class="dots"></span><span class="val">+7% ceiling</span></div>
+        <p class="note">The full mechanical-ornament layer, entrance deferred until
+        actors land; holds the 66 ms idle tier at rest. First cut cost +58% —
+        measured, redesigned.</p>
+      </div>
+      <div class="spec">
+        <div class="line"><span class="key">Panel geometry</span><span class="dots"></span><span class="val t">466 → 480</span></div>
+        <p class="note">The spec sheet said 466×466; on-device edge rulers
+        (<code>?vis</code>) proved all 480×480 visible, corner radius 76 — and
+        exposed a 7 px centring error every layout had inherited.</p>
+      </div>
+      <div class="spec">
+        <div class="line"><span class="key">Springs</span><span class="dots"></span><span class="val t">ζ 0.68 / 0.92</span></div>
+        <p class="note">Damped harmonic oscillator LUTs, not easing presets. The
+        clock morphs through font rungs across every scene change; shared elements
+        recognise each other and hold still.</p>
+      </div>
+      <div class="spec">
+        <div class="line"><span class="key">Dead ends</span><span class="dots"></span><span class="val">3 on file</span></div>
+        <p class="note">A second draw unit, full-screen coalescing, sprite-baking
+        the ambient cluster — all "obviously right", all measured slower, all
+        documented where they died.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 05 decommissioned ═══════════ -->
+<section id="retired">
+  <div class="tab-row"><hr class="rule"><span class="tab">05 / Decommissioned</span></div>
+  <div class="sec-body">
+    <p class="prose reveal">
+      Earlier versions did more, on purpose. A panel you must
+      <b>operate</b> is just another terminal — what survived is an
+      attention machine.
+    </p>
+    <ul class="decomm reveal" style="--d:0.08s">
+      <li><b>Device-side approve / deny buttons</b> — decisions belong in the terminal, next to the diff</li>
+      <li><b>The takeover page</b> — five headline variants, marquee, options list; the gold pose says it with one word</li>
+      <li><b>The pet mascot</b> — charming, and competing with the one glyph that matters</li>
+      <li><b>Multi-modal keys</b> — cycling, locking, focus modes; now one key, one view, forever</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ═══════════ 06 deployment ═══════════ -->
+<section id="start">
+  <div class="tab-row"><hr class="rule"><span class="tab">06 / Deployment</span></div>
+  <div class="sec-body">
+    <h2 class="h-giant reveal">Build<br>one.</h2>
+    <div class="qs-grid">
+      <pre class="reveal"><span class="c"># toolkit: build / flash / console / screenshot</span>
+git clone https://github.com/Caldis/esp-harness
+pip install -e esp-harness/tools/esp-harness/
+
+git clone https://github.com/Caldis/esp32-agent-dashboard
+cd esp32-agent-dashboard
+
+esp-harness build --project .
+esp-harness flash --project . --port COM9
+
+<span class="c"># the bridge (hooks auto-start it afterwards)</span>
+python tools/claude_buddy_bridge.py serve \
+       --port-kind serial --port COM9
+
+<span class="c"># no board? the tokeniser-exact mock runs everything but the glass</span>
+python tools/mock_device_v1.py --port 9876 -v</pre>
+      <div class="qs-side reveal" style="--d:0.1s">
+        <div class="spec-block">
+          <span class="k">BOARD:</span> WAVESHARE ESP32-S3-TOUCH-AMOLED-2.16<br>
+          <span class="k">GLASS:</span> 480×480 AMOLED · CORNER R=76<br>
+          <span class="k">LINK:</span> USB-C SERIAL · ESP-IDF V6 · LVGL 9<br>
+          <span class="k">REQ:</span> PYTHON 3.10+ · ~US$30
+        </div>
+        <p class="prose">
+          Then point Claude Code's hooks at
+          <code>tools/hook_dispatch.py</code> — six events, one line
+          each. The dispatcher auto-starts the bridge and
+          circuit-breaks on timeouts, so a dead bridge can never stall
+          your session. Codex goes through <code>codex_wrapper.py</code>.
+          Full wiring in the
+          <a href="https://github.com/Caldis/esp32-agent-dashboard#quickstart">README</a>.
         </p>
-      </div>
-      <div>
-        <h4>Docs</h4>
-        <ul>
-          <li><a href="https://github.com/Caldis/esp32-agent-dashboard/blob/master/README.md">README</a></li>
-          <li><a href="https://github.com/Caldis/esp32-agent-dashboard/blob/master/PROTOCOL.md">Wire protocol</a></li>
-          <li><a href="https://github.com/Caldis/esp32-agent-dashboard/blob/master/docs/E2E_DEMO.md">E2E runbook</a></li>
-          <li><a href="https://github.com/Caldis/esp32-agent-dashboard/blob/master/docs/HOST_INTEGRATION.md">Host integration</a></li>
-          <li><a href="https://github.com/Caldis/esp32-agent-dashboard/blob/master/CHANGELOG.md">Changelog</a></li>
-        </ul>
-      </div>
-      <div>
-        <h4>Repo</h4>
-        <ul>
-          <li><a href="https://github.com/Caldis/esp32-agent-dashboard">GitHub</a></li>
-          <li><a href="https://github.com/Caldis/esp32-agent-dashboard/releases">Releases</a></li>
-          <li><a href="https://github.com/Caldis/esp32-agent-dashboard/issues">Issues</a></li>
-          <li><a href="https://github.com/Caldis/esp32-agent-dashboard/blob/master/CONTRIBUTING.md">Contributing</a></li>
-        </ul>
-      </div>
-      <div>
-        <h4>Stack</h4>
-        <ul>
-          <li><a href="https://github.com/Caldis/esp-harness">esp-harness</a></li>
-          <li><a href="https://docs.espressif.com/projects/esp-idf/">ESP-IDF</a></li>
-          <li><a href="https://lvgl.io/">LVGL</a></li>
-          <li><a href="https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-2.16">Waveshare board</a></li>
-        </ul>
+        <div class="hatch-panel" aria-hidden="true"></div>
       </div>
     </div>
-    <div class="footer-bar">
-      <span>© 2026 Caldis · MIT</span>
-      <span>v0.1.0 · USB-Serial · multi-agent</span>
-    </div>
+  </div>
+</section>
+
+<!-- ═══════════ footer ═══════════ -->
+<footer>
+  <div class="starline" aria-hidden="true">************************************************************************************************************************************************************************************************************************************************************************************************************</div>
+  <hr class="rule">
+  <div class="foot-grid">
+    <span>ESP32-AGENT-DASHBOARD // MIT</span>
+    <span class="motto"><span lang="zh-CN">该你了。</span><span class="en">IT'S YOUR TURN</span></span>
+    <span class="links">
+      <a href="https://github.com/Caldis/esp32-agent-dashboard">GITHUB</a>
+      <a href="https://github.com/Caldis/esp32-agent-dashboard/blob/master/PROTOCOL.md">PROTOCOL</a>
+      <a href="https://github.com/Caldis/esp-harness">ESP-HARNESS</a>
+      <a href="archive/index-2026-05-legacy.html">V0.1 SITE</a>
+    </span>
   </div>
 </footer>
 
+<script>
+  // ── live clocks: the replica's face + the ops-header timestamp ──
+  const clk = document.getElementById("p-clock");
+  const opsClk = document.getElementById("ops-clock");
+  const opsDate = document.getElementById("ops-date");
+  const DAYS = ["SUNDAY","MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY"];
+  const MONTHS = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+  function tickClock() {
+    const d = new Date();
+    const hm = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+    clk.textContent = hm;
+    opsClk.textContent = hm + " LOCAL";
+    opsDate.textContent = DAYS[d.getDay()] + ", " + MONTHS[d.getMonth()] + " " +
+      String(d.getDate()).padStart(2, "0") + ", " + d.getFullYear();
+  }
+  tickClock(); setInterval(tickClock, 5000);
+
+  // ── three-state cycle: idle → thinking → gold ──
+  // Greeting table mirrors main/agent_state.c (8 rotating words).
+  const GREETINGS = ["该你了","到你啦","你来吧","轮到你","接着来","交给你","请接手","该你咯"];
+  const panel = document.getElementById("panel");
+  const word = document.getElementById("p-word");
+  const nActive = document.getElementById("p-active");
+  const nTokens = document.getElementById("p-tokens");
+  let gi = Math.floor(Math.random() * GREETINGS.length);
+  const STATES = [
+    { id: "idle",     word: () => "空闲",  active: "0", tokens: "0",     hold: 3200 },
+    { id: "thinking", word: () => "思考中", active: "1", tokens: "12.4k", hold: 4600 },
+    { id: "gold",     word: () => GREETINGS[gi = (gi + 1 + Math.floor(Math.random() * 6)) % 8],
+                      active: "1", tokens: "12.4k", hold: 5200 },
+  ];
+  let si = 0;
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function setState(s) {
+    panel.dataset.state = s.id;
+    word.style.opacity = 0;
+    setTimeout(() => { word.textContent = s.word(); word.style.opacity = 1; }, reduced ? 0 : 380);
+    nActive.textContent = s.active; nTokens.textContent = s.tokens;
+  }
+  if (reduced) {
+    setState(STATES[2]);   // rest on the state that is the product
+  } else {
+    setState(STATES[0]);
+    (function cycle() {
+      setTimeout(() => { si = (si + 1) % STATES.length; setState(STATES[si]); cycle(); },
+                 STATES[si].hold);
+    })();
+  }
+
+  // ── scroll reveals ──
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); }
+  }, { threshold: 0.12, rootMargin: "0px 0px -6% 0px" });
+  document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+</script>
 </body>
 </html>

@@ -1,21 +1,29 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="esp32-agent-dashboard">
+<!-- Dark-context variant: identical mark with a slightly stronger
+     hairline so the panel edge reads against near-black backgrounds. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="esp32-agent-dashboard logo">
   <title>esp32-agent-dashboard</title>
-  <desc>Dark-background variant: paper-coloured screen ring and ticks, teal pulse, rust dot retained.</desc>
-
-  <rect x="14" y="14" width="92" height="92" rx="18"
-        fill="none" stroke="#f3eee2" stroke-width="2"
-        stroke-dasharray="5 4" opacity="0.32"/>
-
-  <circle cx="60" cy="60" r="30" fill="none" stroke="#f3eee2" stroke-width="3.2"/>
-
-  <rect x="32" y="58.4" width="13" height="3.2" rx="0.4" fill="#2BB3B1"/>
-  <path d="M 45 60 L 49 60 L 51.5 50 L 54 70 L 56.5 56 L 60 60"
-        fill="none" stroke="#2BB3B1" stroke-width="3.2"
-        stroke-linecap="round" stroke-linejoin="round"/>
-  <rect x="60" y="58.4" width="28" height="3.2" rx="0.4" fill="#2BB3B1"/>
-
-  <circle cx="60" cy="60" r="3.4" fill="#1c1814" stroke="#f3eee2" stroke-width="1.4"/>
-
-  <rect x="86" y="58.4" width="3" height="3.2" rx="0.4" fill="#d8632e"/>
+  <rect x="8" y="8" width="104" height="104" rx="16.5" fill="#0b0a09"/>
+  <rect x="8.75" y="8.75" width="102.5" height="102.5" rx="16" fill="none"
+        stroke="#f3eee2" stroke-opacity="0.22" stroke-width="1.5"/>
+  <circle cx="34" cy="21" r="2.4" fill="#cc4a1e"/>
+  <g stroke="#5a514a" stroke-width="2" fill="none">
+    <path d="M 24 32 h -4 v 8"/>
+    <path d="M 96 32 h 4 v 8"/>
+    <path d="M 24 88 h -4 v -8"/>
+    <path d="M 96 88 h 4 v -8"/>
+  </g>
+  <g stroke="#4a453f" stroke-width="2.4" fill="none">
+    <path d="M 41 48 h -5 v 20 h 5"/>
+    <path d="M 79 48 h 5 v 20 h -5"/>
+  </g>
+  <circle cx="60" cy="58" r="13.5" fill="none" stroke="#d9a92f" stroke-width="3.4"/>
+  <circle cx="60" cy="58" r="5" fill="#d9a92f"/>
+  <g fill="#6a6058">
+    <rect x="34" y="94" width="12" height="3"/>
+    <rect x="49" y="94" width="5" height="3"/>
+    <rect x="57" y="94" width="14" height="3"/>
+    <rect x="76" y="94" width="3" height="3"/>
+    <rect x="82" y="94" width="3" height="3"/>
+  </g>
 </svg>

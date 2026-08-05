@@ -1,78 +1,106 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- GitHub social card: 1280x640 (2:1 aspect). Used as the og:image / Twitter card. -->
+<!-- GitHub social card: 1280x640. Noir field, device face in the gold
+     pose on the left, claim on the right. Rasterise before uploading
+     (GitHub needs PNG); CJK text renders with system fallbacks. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" role="img" aria-label="esp32-agent-dashboard social card">
-  <title>esp32-agent-dashboard — A live dashboard for AI-agent sessions</title>
+  <title>esp32-agent-dashboard — it tells you when it's your turn</title>
 
-  <defs>
-    <radialGradient id="bg" cx="0.85" cy="0.15" r="0.9">
-      <stop offset="0%"  stop-color="#f9f4e6"/>
-      <stop offset="100%" stop-color="#f3eee2"/>
-    </radialGradient>
-    <!-- Subtle teal pulse highlight for the device screen -->
-    <radialGradient id="screenGlow" cx="0.5" cy="0.5" r="0.7">
-      <stop offset="0%"  stop-color="#0E7C7B" stop-opacity="0.18"/>
-      <stop offset="100%" stop-color="#0E7C7B" stop-opacity="0"/>
-    </radialGradient>
-  </defs>
-  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect width="1280" height="640" fill="#0b0a09"/>
 
-  <!-- Decorative accent rule (echoes the harness cross-bar — quiet family marker) -->
-  <rect x="80" y="540" width="1120" height="2" fill="#0E7C7B" opacity="0.45"/>
-  <rect x="80" y="540" width="120" height="2" fill="#b8431a" opacity="0.6"/>
-
-  <!-- Logo mark, scaled up, positioned left -->
-  <g transform="translate(80, 130) scale(2.4)">
-    <rect x="14" y="14" width="92" height="92" rx="18"
-          fill="none" stroke="#1c1814" stroke-width="2"
-          stroke-dasharray="5 4" opacity="0.32"/>
-    <circle cx="60" cy="60" r="30" fill="url(#screenGlow)"/>
-    <circle cx="60" cy="60" r="30" fill="none" stroke="#1c1814" stroke-width="3.2"/>
-    <rect x="32" y="58.4" width="13" height="3.2" rx="0.4" fill="#0E7C7B"/>
-    <path d="M 45 60 L 49 60 L 51.5 50 L 54 70 L 56.5 56 L 60 60"
-          fill="none" stroke="#0E7C7B" stroke-width="3.2"
-          stroke-linecap="round" stroke-linejoin="round"/>
-    <rect x="60" y="58.4" width="28" height="3.2" rx="0.4" fill="#0E7C7B"/>
-    <circle cx="60" cy="60" r="3.4" fill="#f3eee2" stroke="#1c1814" stroke-width="1.4"/>
-    <rect x="86" y="58.4" width="3" height="3.2" rx="0.4" fill="#b8431a"/>
+  <!-- viewport corner brackets -->
+  <g stroke="#5a514a" stroke-width="2" fill="none" opacity="0.7">
+    <path d="M 36 60 v -24 h 24"/>
+    <path d="M 1244 60 v -24 h -24"/>
+    <path d="M 36 580 v 24 h 24"/>
+    <path d="M 1244 580 v 24 h -24"/>
   </g>
 
-  <!-- Wordmark + tagline on the right -->
-  <text x="430" y="240"
-        font-family="'Fraunces', 'Iowan Old Style', Georgia, serif"
-        font-size="84"
-        font-weight="400"
-        fill="#1c1814"
-        letter-spacing="-1.6">esp32<tspan fill="#0E7C7B" font-style="italic">-</tspan>agent</text>
-  <text x="430" y="324"
-        font-family="'Fraunces', 'Iowan Old Style', Georgia, serif"
-        font-size="84"
-        font-weight="400"
-        fill="#1c1814"
-        letter-spacing="-1.6"><tspan fill="#0E7C7B" font-style="italic">-</tspan>dashboard</text>
-
-  <text x="430" y="388"
-        font-family="'Fraunces', 'Iowan Old Style', Georgia, serif"
-        font-size="30"
-        font-style="italic"
-        fill="#5a514a"
-        font-weight="300">A live dashboard for AI-agent sessions</text>
-  <text x="430" y="426"
-        font-family="'Fraunces', 'Iowan Old Style', Georgia, serif"
-        font-size="30"
-        font-style="italic"
-        fill="#5a514a"
-        font-weight="300">on a 466 × 466 AMOLED panel.</text>
-
-  <!-- Three-pillar lozenges -->
-  <g font-family="'IBM Plex Mono', Consolas, monospace" font-size="22" fill="#1c1814">
-    <text x="430" y="492">▸ watch what Claude Code &amp; Codex do</text>
-    <text x="430" y="524">▸ approve / deny permissions via button</text>
+  <!-- ── device face, gold pose ── -->
+  <g transform="translate(96, 128)">
+    <rect x="-10" y="-10" width="404" height="404" rx="82" fill="#171310"/>
+    <rect x="0" y="0" width="384" height="384" rx="61" fill="#050403"/>
+    <!-- nav dots -->
+    <circle cx="96" cy="26" r="4" fill="#cc4a1e"/>
+    <circle cx="192" cy="26" r="4" fill="#3a352f"/>
+    <circle cx="288" cy="26" r="4" fill="#3a352f"/>
+    <!-- clock -->
+    <text x="192" y="86" text-anchor="middle"
+          font-family="'IBM Plex Mono', Consolas, monospace"
+          font-size="50" font-weight="700" fill="#f3eee2">09:41</text>
+    <!-- corner brackets -->
+    <g stroke="#55504a" stroke-width="2.4" fill="none">
+      <path d="M 40 30 h -12 v 26"/>
+      <path d="M 344 30 h 12 v 26"/>
+      <path d="M 40 356 h -12 v -26"/>
+      <path d="M 344 356 h 12 v -26"/>
+    </g>
+    <!-- clamp brackets + ring -->
+    <g stroke="#4a453f" stroke-width="3" fill="none">
+      <path d="M 148 122 h -12 v 52 h 12"/>
+      <path d="M 236 122 h 12 v 52 h -12"/>
+    </g>
+    <circle cx="192" cy="148" r="30" fill="none" stroke="#d9a92f" stroke-width="5"/>
+    <circle cx="192" cy="148" r="11" fill="#d9a92f"/>
+    <!-- greeting -->
+    <text x="192" y="238" text-anchor="middle"
+          font-family="'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif"
+          font-size="44" font-weight="500" fill="#f3eee2">该你了</text>
+    <!-- chip -->
+    <text x="192" y="276" text-anchor="middle"
+          font-family="'IBM Plex Mono', Consolas, monospace"
+          font-size="17" fill="#d9a92f"><tspan fill="#b89020">cc</tspan>  esp32-agent-dashboard</text>
+    <!-- baseline segments -->
+    <g fill="#6a6058">
+      <rect x="52" y="306" width="26" height="6"/>
+      <rect x="84" y="306" width="10" height="6"/>
+      <rect x="100" y="306" width="30" height="6"/>
+      <rect x="290" y="306" width="6" height="6"/>
+      <rect x="302" y="306" width="6" height="6"/>
+      <rect x="320" y="306" width="6" height="6"/>
+    </g>
+    <rect x="52" y="308.5" width="280" height="1" fill="#47423c" opacity="0.5"/>
+    <!-- footer -->
+    <text x="122" y="348" text-anchor="middle"
+          font-family="'IBM Plex Mono', Consolas, monospace"
+          font-size="24" font-weight="700" fill="#2bb3b1">1</text>
+    <text x="262" y="348" text-anchor="middle"
+          font-family="'IBM Plex Mono', Consolas, monospace"
+          font-size="24" font-weight="700" fill="#f3eee2">12.4k</text>
   </g>
 
-  <!-- Bottom right URL -->
-  <text x="1200" y="600"
-        text-anchor="end"
+  <!-- ── claim ── -->
+  <text x="580" y="238"
+        font-family="'Archivo', 'Segoe UI', sans-serif"
+        font-size="64" font-weight="750" letter-spacing="-1"
+        fill="#f3eee2">It tells you when</text>
+  <text x="580" y="310"
+        font-family="'Archivo', 'Segoe UI', sans-serif"
+        font-size="64" font-weight="750" letter-spacing="-1"
+        fill="#f3eee2">it's <tspan fill="#d9a92f">your turn</tspan>.</text>
+
+  <text x="580" y="368"
+        font-family="'Instrument Sans', 'Segoe UI', sans-serif"
+        font-size="25" fill="#9a908a">A desk-side AMOLED panel for Claude Code, Codex &amp; friends —</text>
+  <text x="580" y="402"
+        font-family="'Instrument Sans', 'Segoe UI', sans-serif"
+        font-size="25" fill="#9a908a">gold when it's your move, teal while agents think, dim otherwise.</text>
+
+  <!-- state law -->
+  <g font-family="'IBM Plex Mono', Consolas, monospace" font-size="19">
+    <circle cx="590" cy="463" r="6" fill="#7d746c"/>
+    <text x="608" y="470" fill="#9a908a">idle</text>
+    <circle cx="700" cy="463" r="6" fill="#2bb3b1"/>
+    <text x="718" y="470" fill="#9a908a">thinking</text>
+    <circle cx="856" cy="463" r="6" fill="#d9a92f"/>
+    <text x="874" y="470" fill="#d9a92f">your move</text>
+  </g>
+
+  <!-- wordmark + url -->
+  <text x="580" y="540"
         font-family="'IBM Plex Mono', Consolas, monospace"
-        font-size="18"
-        fill="#8a807a">github.com/Caldis/esp32-agent-dashboard</text>
+        font-size="21" font-weight="600"
+        fill="#f3eee2">esp32<tspan fill="#b89020">-</tspan>agent<tspan fill="#b89020">-</tspan>dashboard</text>
+  <text x="1204" y="540" text-anchor="end"
+        font-family="'IBM Plex Mono', Consolas, monospace"
+        font-size="18" fill="#6a6058">github.com/Caldis</text>
 </svg>

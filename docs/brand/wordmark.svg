@@ -1,28 +1,33 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 120" role="img" aria-label="esp32-agent-dashboard">
+<!-- Mark + wordmark. Type: Archivo (condensed-wide axis), mono-weight
+     fallbacks; hyphens in gold — the joints where the turn changes hands. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 120" role="img" aria-label="esp32-agent-dashboard">
   <title>esp32-agent-dashboard wordmark</title>
-  <desc>The dashboard mark followed by the wordmark "esp32-agent-dashboard" in Fraunces-style serif, with the two hyphens picked out in teal as connecting joints.</desc>
-
-  <!-- Logo mark on the left -->
-  <g transform="translate(0, 0)">
-    <rect x="14" y="14" width="92" height="92" rx="18"
-          fill="none" stroke="#1c1814" stroke-width="2"
-          stroke-dasharray="5 4" opacity="0.32"/>
-    <circle cx="60" cy="60" r="30" fill="none" stroke="#1c1814" stroke-width="3.2"/>
-    <rect x="32" y="58.4" width="13" height="3.2" rx="0.4" fill="#0E7C7B"/>
-    <path d="M 45 60 L 49 60 L 51.5 50 L 54 70 L 56.5 56 L 60 60"
-          fill="none" stroke="#0E7C7B" stroke-width="3.2"
-          stroke-linecap="round" stroke-linejoin="round"/>
-    <rect x="60" y="58.4" width="28" height="3.2" rx="0.4" fill="#0E7C7B"/>
-    <circle cx="60" cy="60" r="3.4" fill="#f3eee2" stroke="#1c1814" stroke-width="1.4"/>
-    <rect x="86" y="58.4" width="3" height="3.2" rx="0.4" fill="#b8431a"/>
+  <g>
+    <rect x="8" y="8" width="104" height="104" rx="16.5" fill="#0b0a09"/>
+    <circle cx="34" cy="21" r="2.4" fill="#cc4a1e"/>
+    <g stroke="#5a514a" stroke-width="2" fill="none">
+      <path d="M 24 32 h -4 v 8"/>
+      <path d="M 96 32 h 4 v 8"/>
+      <path d="M 24 88 h -4 v -8"/>
+      <path d="M 96 88 h 4 v -8"/>
+    </g>
+    <g stroke="#4a453f" stroke-width="2.4" fill="none">
+      <path d="M 41 48 h -5 v 20 h 5"/>
+      <path d="M 79 48 h 5 v 20 h -5"/>
+    </g>
+    <circle cx="60" cy="58" r="13.5" fill="none" stroke="#d9a92f" stroke-width="3.4"/>
+    <circle cx="60" cy="58" r="5" fill="#d9a92f"/>
+    <g fill="#6a6058">
+      <rect x="34" y="94" width="12" height="3"/>
+      <rect x="49" y="94" width="5" height="3"/>
+      <rect x="57" y="94" width="14" height="3"/>
+      <rect x="76" y="94" width="3" height="3"/>
+      <rect x="82" y="94" width="3" height="3"/>
+    </g>
   </g>
-
-  <!-- Wordmark — serif, with hyphens highlighted in teal as joining wires -->
-  <text x="140" y="78"
-        font-family="'Fraunces', 'Iowan Old Style', Georgia, serif"
-        font-size="56"
-        font-weight="400"
-        fill="#1c1814"
-        letter-spacing="-1.2">esp32<tspan fill="#0E7C7B" font-style="italic">-</tspan>agent<tspan fill="#0E7C7B" font-style="italic">-</tspan>dashboard</text>
+  <text x="140" y="76"
+        font-family="'Archivo', 'Archivo Expanded', 'Segoe UI', sans-serif"
+        font-size="52" font-weight="700" letter-spacing="-0.5"
+        fill="#1c1814">esp32<tspan fill="#b89020">-</tspan>agent<tspan fill="#b89020">-</tspan>dashboard</text>
 </svg>

@@ -3,99 +3,73 @@
 Visual identity assets for `esp32-agent-dashboard`. Use these instead
 of recreating the mark in slides / blog posts / talks.
 
-This project is a **sibling** to [`esp-harness`](https://github.com/Caldis/esp-harness):
-same paper / ink palette, same Fraunces + IBM Plex Mono typography,
-same dashed-frame device boundary. The two marks should sit next to
-each other on a docs site without arguing.
+The identity **is the device**: everything here is drawn in the
+firmware's own design language — noir AMOLED field, the breathing ring
+in its gold pose, ui_deco's functional-ornament vocabulary (corner
+brackets, clamp brackets, segment baselines), and the state-colour
+contract. If an asset introduces a visual idea the panel itself doesn't
+have, it doesn't belong here.
 
 ## Mark concept
 
-The dashboard's logo is a **circular display split by a pulse line**:
+The logo is the **panel's gold pose reduced to geometry**:
 
-- A central **circle** — the actual hardware: the 466 × 466 AMOLED
-  panel on the Waveshare ESP32-S3-Touch-AMOLED-2.16 board. Where
-  esp-harness's mark is a literal **H**, this one is a literal
-  **screen**.
-- A horizontal **teal pulse line** crossing through — the agent
-  activity signal. Reads as a heartbeat / ECG trace at first glance,
-  as a wire / serial line on second look.
-- A small **paper-coloured dot** at the centre — the convergence
-  point where two agent streams (Claude Code, Codex) meet. Echoes
-  esp-harness's centre dot.
-- A small **rust micro-dot** at the far right of the pulse — a
-  single quiet nod to the esp-harness family. Don't expand this; one
-  pixel is the whole point.
-- A **dashed outer rectangle** — the device boundary, low-emphasis,
-  identical to the esp-harness frame.
+- A **noir rounded square** — the panel itself. Corner radius is
+  76/480 of the edge, the *measured* radius of the physical panel
+  (`?vis`, v7.3). Always dark: on the device, black pixels are off.
+- A **gold ring with a centre dot** — the breathing ring in the
+  "your turn" state. The one status glyph the device has.
+- **Clamp brackets** either side of the ring and **corner brackets** —
+  the ui_deco decoration layer, achromatic as it is on the device.
+- A **segment baseline** — the deco strip under the content band.
+- A single **rust nav dot** at 25% width — the dashboard key's
+  position dot, and the quiet family tie to esp-harness. One dot;
+  don't expand it.
 
-Read literally it's *a screen with a heartbeat*. The "two streams
-converging at centre" reading is for anyone who pauses.
+Read literally: *the moment the machine hands you the turn.*
 
 ## Files
 
 | File | Use |
 |---|---|
-| `logo.svg` | 120×120 mark, light-background variant. Default. |
-| `logo-dark.svg` | Inverted for dark backgrounds; teal lifts to teal-bright. |
-| `wordmark.svg` | Mark + `esp32-agent-dashboard` wordmark in Fraunces serif. Use in headers. |
-| `favicon.svg` | 32×32 simplified mark for browser tabs. |
-| `social-card.svg` | 1280×640 Open Graph / Twitter card. Attached to the GitHub repo. |
-| `palette.md` | Exact hex codes + which token goes where. The firmware `theme.h` pulls these values. |
+| `logo.svg` | 120×120 mark. Works on light and dark (the panel carries its own field). |
+| `logo-dark.svg` | Same mark, stronger edge hairline for near-black backgrounds. |
+| `wordmark.svg` | Mark + `esp32-agent-dashboard` in Archivo; hyphens in gold. |
+| `favicon.svg` | 32×32 reduction: panel + gold ring + baseline. |
+| `social-card.svg` | 1280×640 Open Graph card. Rasterise to PNG before uploading to GitHub. |
+| `palette.md` | Exact hex codes + the state-colour contract. `main/theme.c` pulls these values. |
+
+Legacy assets (the teal pulse-line mark, paper-field social card,
+Fraunces wordmark) live in git history alongside the archived v0.1
+homepage (`docs/archive/`).
 
 ## Colours
 
-See [`palette.md`](./palette.md) for the full table. Summary:
-
-| Name | Hex | Use |
-|---|---|---|
-| Ink | `#1c1814` | Body text, screen ring |
-| Paper | `#f3eee2` | Background, centre dot |
-| Teal | `#0E7C7B` | **Primary accent.** Pulse line, hyphens, links |
-| Teal-bright | `#2BB3B1` | Teal on dark backgrounds |
-| Rust | `#b8431a` | Family-marker dot only — sibling tie to esp-harness |
-| Dusk | `#6B7AA8` | Idle scene indigo (matches device `scene_idle`) |
-| Moss | `#344a36` | "Approve / passing" status |
-| Gold | `#b89020` | "Warning / blocked" status |
+See [`palette.md`](./palette.md) — the contract matters more than the
+swatches. Gold appears only where something genuinely awaits the user;
+decoration is achromatic; rust is a one-dot family marker, not an
+accent.
 
 ## Typography
 
-Identical to esp-harness — the two projects share a docs voice.
-
 | Role | Family | Notes |
 |---|---|---|
-| Display / wordmark | **Fraunces** | Variable serif. Italic hyphens read as "joining wires". |
-| Body | **Geist** | Variable sans. Substitutes: system UI stack. |
-| Mono | **IBM Plex Mono** | Code blocks, the monospace voice. |
+| Display | **Archivo** (variable, wide wdth) | Homepage headings, wordmark |
+| Body | **Instrument Sans** | Homepage body text |
+| Mono | **IBM Plex Mono** | Data readouts, code, panel-voice labels |
+| CJK | **Noto Sans SC** (subset) | The greeting words (该你了…) |
+
+The device itself renders Consolas-flavoured mono + a GB2312 SimHei
+subset; docs mono text is the same voice one register up.
 
 ## Don'ts
 
-- **Don't stretch the mark.** Always 1:1 aspect.
-- **Don't recolour the pulse line.** Teal is the load-bearing accent
-  — the only place teal appears in the whole brand at full
-  saturation.
-- **Don't add a tagline next to the mark below 200 px wide.** Use
-  the wordmark instead.
-- **Don't put the light-background variant on photos / busy
-  backgrounds.** Use the social-card layout, which has a deliberate
-  clean field.
-- **Don't expand the rust dot.** It's a one-pixel family-marker.
-  Painting more of the mark rust collapses the sibling relationship
-  with esp-harness into "we copied their colours".
-- **Don't drop the dashed frame.** It's the visual handshake with
-  esp-harness; without it the mark loses family membership.
-
-If you need a variant that doesn't exist here (e.g. all-white for a
-dark sticker, monochrome for a thermal printer), open an issue rather
-than improvising — naming consistency matters at this layer.
-
-## Sibling relationship
-
-| Trait | esp-harness | esp32-agent-dashboard |
-|---|---|---|
-| Subject | device-facing (firmware scaffold) | agent-facing (dashboard for sessions) |
-| Mark form | H letterform (vertical pair + crossbar) | Circular screen + horizontal pulse |
-| Primary accent | rust `#b8431a` (warm) | teal `#0E7C7B` (cool) |
-| Family marker | the rust crossbar itself | a single rust dot at end of pulse |
-| Dashed frame | yes | yes (identical) |
-| Centre dot | yes (paper) | yes (paper, with ink ring) |
-| Type | Fraunces + Geist + IBM Plex Mono | identical |
+- **Don't stretch the mark.** Always 1:1.
+- **Don't recolour the ring.** Gold is the product moment; a teal or
+  rust ring is a different (wrong) claim about state.
+- **Don't add colour to the decoration geometry.** Brackets, ticks and
+  baselines are achromatic on the device and stay achromatic here.
+- **Don't expand the rust dot.** One dot is the whole family marker.
+- **Don't put the mark on a light square.** The panel is its own
+  field; placing it directly on paper backgrounds is fine, but never
+  re-field it in white.
