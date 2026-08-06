@@ -20,7 +20,8 @@ breathing in the corner of your eye.
 [**The one job**](#the-one-job) ·
 [**Three views**](#three-views-three-keys) ·
 [**Protocol**](./PROTOCOL.md) ·
-[**Homepage**](https://caldis.github.io/esp32-agent-dashboard/)
+[**Homepage**](https://caldis.github.io/esp32-agent-dashboard/) ·
+[**1:1 simulator**](https://caldis.github.io/esp32-agent-dashboard/sim/)
 
 <br>
 

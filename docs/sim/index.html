@@ -1,0 +1,1306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>esp32-agent-dashboard — 1:1 web simulator</title>
+<meta name="description" content="A faithful in-browser reconstruction of the panel firmware: three scenes, every state, the decoration engine, the glow, the springs. Geometry transcribed from source, not eyeballed.">
+<meta name="theme-color" content="#191613">
+<link rel="icon" href="../brand/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@500;700&text=空闲思考中该你了到啦来吧轮接着交给请手咯批准选择输入需澄清运行结束开始深圳福田晴多云阴雨雪雷雾昨今明天周一二三四五六日等待气数据。&display=swap" rel="stylesheet">
+<style>
+  /* Console chrome shares the homepage's industrial language.
+     Inside the panel, all values are firmware constants (480-space). */
+  :root {
+    --bg: #191613; --line: #322b23; --tab-bg: #262019;
+    --display: #b4ab9e; --text: #c6bdb0; --text-dim: #9a9187; --text-mute: #7c7267;
+    --gold: #d9a92f; --teal: #2bb3b1; --rust: #cc4a1e;
+    --mono: "IBM Plex Mono", Consolas, monospace;
+    --cjk: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    /* device palette (theme.c noir) */
+    --d-bg: #0b0a09; --d-text: #f3eee2; --d-dim: #8a807a; --d-mute: #5a514a;
+    --d-teal: #2bb3b1; --d-gold: #b89020; --d-gold-hi: #e0b43c;
+    --d-surface: #1c1814; --d-surface-hi: #26201a;
+    --clockfont: "M PLUS Rounded 1c", var(--mono);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: var(--mono); font-size: 13px; line-height: 1.7;
+    min-height: 100vh; overflow-x: hidden;
+  }
+  a { color: inherit; }
+  ::selection { background: var(--gold); color: #14100a; }
+  :focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+
+  header {
+    display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px;
+    padding: 20px clamp(18px, 4vw, 48px); border-bottom: 1px solid var(--line);
+    text-transform: uppercase; letter-spacing: 0.08em; font-size: 11.5px; color: var(--text-dim);
+  }
+  header b { color: var(--display); font-size: 14px; letter-spacing: 0.04em; }
+  header a { color: var(--text-dim); text-decoration: none; }
+  header a:hover { color: var(--gold); }
+
+  .stage-wrap {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 380px);
+    gap: clamp(20px, 3.5vw, 56px);
+    padding: clamp(22px, 4vh, 44px) clamp(18px, 4vw, 48px) 60px;
+    max-width: 1280px; margin: 0 auto; align-items: start;
+  }
+  @media (max-width: 900px) { .stage-wrap { grid-template-columns: 1fr; } }
+
+  /* ── the device ── */
+  .device-col { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+  .bezel {
+    border-radius: 98px; padding: 18px;
+    background: linear-gradient(145deg, #211c17, #080605 55%);
+    box-shadow: 0 30px 80px rgba(0,0,0,0.55), inset 0 1px 0 rgba(198,189,176,0.08);
+  }
+  .viewport { overflow: hidden; border-radius: 76px; width: 480px; height: 480px; position: relative; background: #000; }
+  /* 480-space stage; scaled to fit via transform on .bezel-outer */
+  .scaler { transform-origin: top center; }
+  #stage { position: absolute; inset: 0; background: var(--d-bg); }
+  #stage * { position: absolute; }
+  canvas.layer { position: absolute; left: 0; top: 0; }
+
+  .devcap {
+    text-transform: uppercase; letter-spacing: 0.14em; font-size: 10.5px; color: var(--text-mute);
+    text-align: center;
+  }
+
+  /* device text primitives (LVGL TOP_MID ≈ centered block at top:y) */
+  .lv { left: 0; width: 100%; text-align: center; line-height: 1.19; white-space: pre; }
+  .zh { font-family: var(--cjk); font-weight: 500; }
+  .mono { font-family: var(--mono); }
+  .rounded { font-family: var(--clockfont); font-weight: 800; letter-spacing: 0.01em; }
+
+  /* physical key caps + console */
+  .console { display: flex; flex-direction: column; gap: 22px; }
+  .con-sec .lbl {
+    text-transform: uppercase; letter-spacing: 0.14em; font-size: 10.5px; color: var(--text-mute);
+    margin-bottom: 10px; display: flex; align-items: center; gap: 10px;
+  }
+  .con-sec .lbl::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  .btnrow { display: flex; flex-wrap: wrap; gap: 8px; }
+  button {
+    font-family: var(--mono); font-size: 11.5px; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--text-dim);
+    background: none; border: 1px solid var(--line); padding: 9px 14px; cursor: pointer;
+  }
+  button:hover { color: var(--text); border-color: var(--text-mute); }
+  button.on { color: var(--gold); border-color: var(--gold); background: rgba(217,169,47,0.08); }
+  button.key {
+    border-bottom-width: 3px; padding: 11px 18px; background: var(--tab-bg); color: var(--text);
+  }
+  button.key:active { transform: translateY(1px); border-bottom-width: 2px; margin-bottom: 1px; }
+  button.hatch {
+    color: var(--gold); border-color: var(--gold);
+    background: repeating-linear-gradient(45deg, transparent 0 5px, rgba(217,169,47,0.28) 5px 6px), rgba(217,169,47,0.08);
+  }
+  .con-note { font-size: 11px; color: var(--text-mute); line-height: 1.8; }
+  .con-note b { color: var(--text-dim); font-weight: 600; }
+  kbd { border: 1px solid var(--line); padding: 0 5px; font-size: 10px; }
+</style>
+</head>
+<body>
+
+<header>
+  <span><b>ESP32-AGENT-DASHBOARD</b> // 1:1 WEB SIMULATOR</span>
+  <span>GEOMETRY FROM SOURCE — NOT EYEBALLED · <a href="../index.html">← HOMEPAGE</a> · <a href="https://github.com/Caldis/esp32-agent-dashboard">GITHUB ↗</a></span>
+</header>
+
+<div class="stage-wrap">
+  <div class="device-col">
+    <div class="scaler" id="scaler">
+      <div class="bezel">
+        <div class="viewport">
+          <div id="stage"></div>
+        </div>
+      </div>
+    </div>
+    <p class="devcap" id="devcap">480×480 · CORNER R=76 · ALL CONSTANTS FROM main/</p>
+  </div>
+
+  <div class="console">
+    <div class="con-sec">
+      <div class="lbl">Physical keys</div>
+      <div class="btnrow">
+        <button class="key" id="k-boot" title="BOOT → dashboard">BOOT</button>
+        <button class="key" id="k-pwr" title="PWR → clock">PWR</button>
+        <button class="key" id="k-user" title="USER → weather">USER</button>
+      </div>
+      <p class="con-note" style="margin-top:8px">BOOT=dashboard · PWR=clock · USER=weather.
+      Pressing the key of the view you're on fires the <b>prism ping</b> (scene_flash's successor) instead of switching.</p>
+    </div>
+
+    <div class="con-sec">
+      <div class="lbl">Agent state</div>
+      <div class="btnrow" id="staterow">
+        <button data-state="idle">空闲 idle</button>
+        <button data-state="thinking">思考中 thinking</button>
+        <button data-state="turn">该你了 your turn</button>
+        <button data-state="approve">请批准 approve</button>
+        <button data-state="fleet2">fleet ×2</button>
+        <button data-state="fleet3">fleet ×3</button>
+        <button data-state="fleet4">fleet ×4</button>
+      </div>
+      <p class="con-note" style="margin-top:8px">A fresh <b>your-turn edge pulls the display to the dashboard</b> (one-shot, v6.0 contract) and fires the decoration layer's lock-on sweep. Colour follows state, tempo follows attention.</p>
+    </div>
+
+    <div class="con-sec">
+      <div class="lbl">Host link</div>
+      <div class="btnrow" id="linkrow">
+        <button data-link="ok">OK</button>
+        <button data-link="waiting">NEVER SEEN — AMBER</button>
+        <button data-link="lost">LOST — RED</button>
+      </div>
+    </div>
+
+    <div class="con-sec">
+      <div class="lbl">Clock scene events</div>
+      <div class="btnrow">
+        <button id="b-push-start">推送卡 · 开始运行</button>
+        <button id="b-push-end">推送卡 · 运行结束</button>
+      </div>
+      <p class="con-note" style="margin-top:8px">The big face retreats to the top slot through <b>font rungs</b>; the card enters 120 ms later; auto-restore after 3 s. The decoration's top band yields (CLK_ST_PUSH).</p>
+    </div>
+
+    <div class="con-sec">
+      <div class="lbl">Layers & demo</div>
+      <div class="btnrow">
+        <button id="t-deco" class="on">?deco</button>
+        <button id="t-glow" class="on">glow</button>
+        <button id="b-alert">alert sweep</button>
+        <button id="b-tour" class="hatch">AUTO TOUR</button>
+      </div>
+      <p class="con-note" style="margin-top:8px">?deco mirrors the on-device A/B switch. The tour walks every scene and state on a timeline — sit back.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ════════════════════════════════════════════════════════════════════
+   1:1 reconstruction. Every constant below is transcribed from the
+   firmware sources (ui_deco.c / scene_*.c / status_bar.c / nav_dots.c /
+   ui_type.h / ui_glow.c / theme.c). Panel space is 480×480, r=76.
+   ════════════════════════════════════════════════════════════════════ */
+const W = 480, R = 76;
+const COL = { bg:0x0B0A09, text:0xF3EEE2, dim:0x8A807A, mute:0x5A514A,
+  teal:0x2BB3B1, gold:0xB89020, goldHi:0xE0B43C, surface:0x1C1814,
+  surfaceHi:0x26201A, rust:0xB8431A, amber:0xE0A030, red:0xE0503C,
+  track:0x2A4A49 };
+const hex = c => "#" + c.toString(16).padStart(6, "0");
+const TYPE = { CAPTION:20, LABEL:26, BODY:36, TITLE:52, HERO:88 };
+const GREET = ["该你了","到你啦","你来吧","轮到你","接着来","交给你","请接手","该你咯"];
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ── stage scaffolding ─────────────────────────────────────────────── */
+const stage = document.getElementById("stage");
+function el(tag, cls, css) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  Object.assign(e.style, css || {});
+  stage.appendChild(e); return e;
+}
+function cv(z) {
+  const c = document.createElement("canvas");
+  c.className = "layer"; c.width = W; c.height = W; c.style.zIndex = z;
+  stage.appendChild(c); return c.getContext("2d");
+}
+/* responsive scale */
+const scaler = document.getElementById("scaler");
+function fit() {
+  const pad = 36 + 18 * 2; /* bezel */
+  const avail = Math.min(scaler.parentElement.clientWidth, 560);
+  const s = Math.min(1, avail / (W + pad));
+  scaler.style.transform = `scale(${s})`;
+  scaler.style.height = (W + pad) * s + "px";
+}
+addEventListener("resize", fit);
+
+/* ── deco engine (port of ui_deco.c) ───────────────────────────────── */
+const A = { BRACKET:0, LINE:1, BLOCKS:2, TICKS:3, GAUGE:4, METER:5 };
+const K = { RECT:0, LINE:1, ARC:2, TRI:3, DOT:4, CHEV:5, CROSS:6, DIA:7 };
+const FWD = 0, REV = 1;
+const ST_A = 1, ST_B = 2, ST_C = 4, DEFER = 0x80, ST_MASK = 0x7F;
+const OPA = { BRK:72, HAIR:36, BLOCK:90, TICK:52, PAST:100, CUR:190, FUT:26 };
+const STROKE = 4, HAIR = 2;
+
+/* shape: [x, y, w, h, opa, anchor, kind, a, b] */
+const CLOCK_SHAPES = [
+  [32,32,30,4,72,0,0,0,0],[32,32,4,30,72,0,0,0,0],[76,76,62,3,72,0,K.ARC,200,250],
+  [418,32,30,4,72,1,0,0,0],[444,32,4,30,72,0,0,0,0],[404,76,62,3,72,0,K.ARC,290,340],
+  [32,444,30,4,72,0,0,0,0],[32,418,4,30,72,1,0,0,0],[76,404,62,3,72,0,K.ARC,110,160],
+  [418,444,30,4,72,1,0,0,0],[444,418,4,30,72,1,0,0,0],[404,404,62,3,72,0,K.ARC,20,70],
+  [76,65,328,HAIR,36,0,0,0,0],
+  [76,61,28,10,90,0,0,0,0],[111,61,10,10,90,0,0,0,0],[128,61,18,10,90,0,0,0,0],
+  [153,61,36,10,90,0,0,0,0],[196,61,14,10,90,0,0,0,0],[217,61,24,10,90,0,0,0,0],
+  [401,60,3,12,52,0,0,0,0],[389,60,3,12,52,0,0,0,0],[377,60,3,12,52,0,0,0,0],
+  [365,60,3,12,52,0,0,0,0],[353,60,3,12,52,0,0,0,0],
+  [24,176,3,66,52,0,0,0,0],[24,176,13,3,52,0,0,0,0],[24,205,9,3,52,0,0,0,0],[24,239,13,3,52,0,0,0,0],
+  [453,192,3,54,52,1,0,0,0],[444,192,12,3,52,0,0,0,0],[444,243,12,3,52,0,0,0,0],
+  [63,356,24,4,0,0,0,0,0],[93,356,24,4,0,0,0,0,0],[123,356,24,4,0,0,0,0,0],
+  [153,356,24,4,0,0,0,0,0],[183,356,24,4,0,0,0,0,0],[213,356,24,4,0,0,0,0,0],
+  [369,356,8,4,52,0,0,0,0],[383,356,20,4,52,0,0,0,0],[409,356,8,4,52,0,0,0,0],
+  [69,346,12,0,0,0,K.TRI,6,8],[99,346,12,0,0,0,K.TRI,6,8],[129,346,12,0,0,0,K.TRI,6,8],
+  [159,346,12,0,0,0,K.TRI,6,8],[189,346,12,0,0,0,K.TRI,6,8],[219,346,12,0,0,0,K.TRI,6,8],
+  [25,254,7,-7,52,0,K.CHEV,3,0],[454,254,7,-7,52,0,K.CHEV,3,0],
+  [300,358,6,3,52,0,K.CROSS,0,0],
+];
+/* elem: [arch, ri, rn, delay, dur, rev, slot(1+i|0), mask, dyA, dyB, spanSlot] */
+const CLOCK_ELEMS = [
+  [A.BRACKET,0,3,0,180,0,0,0,0,0,0],[A.BRACKET,3,3,40,180,0,0,0,0,0,0],
+  [A.BRACKET,6,3,80,180,0,0,0,0,0,0],[A.BRACKET,9,2,120,180,0,0,0,0,0,0],
+  [A.BRACKET,11,1,300,400,0,0,0,0,0,3],
+  [A.LINE,12,1,170,240,0,0,ST_A,0,0,0],
+  [A.BLOCKS,13,6,290,45,0,0,ST_A,0,0,0],
+  [A.TICKS,19,5,320,40,0,0,ST_A,0,0,0],
+  [A.LINE,24,1,370,160,0,0,0,0,0,0],[A.TICKS,25,3,420,45,0,0,0,0,0,0],
+  [A.LINE,28,1,390,160,0,0,0,0,0,0],[A.TICKS,29,2,440,45,0,0,0,0,0,0],
+  [A.GAUGE,31,6,480,35,0,1,0,0,0,0],
+  [A.BLOCKS,37,3,540,50,1,2,0,0,0,0],
+  [A.GAUGE,40,6,510,35,0,1,0,0,0,0],
+  [A.BRACKET,46,1,450,160,0,0,DEFER,0,0,0],[A.BRACKET,47,1,470,160,0,0,DEFER,0,0,0],
+  [A.BRACKET,48,1,560,200,0,0,DEFER,0,0,0],
+];
+const DASH_SHAPES = [
+  [32,32,4,34,72,0,0,0,0],[32,32,16,4,72,0,0,0,0],[32,62,16,4,72,0,0,0,0],
+  [444,32,4,34,72,0,0,0,0],[432,32,16,4,72,1,0,0,0],[432,62,16,4,72,1,0,0,0],
+  [32,414,4,34,72,1,0,0,0],[32,414,16,4,72,0,0,0,0],[32,444,16,4,72,0,0,0,0],
+  [444,414,4,34,72,1,0,0,0],[432,414,16,4,72,1,0,0,0],[432,444,16,4,72,1,0,0,0],
+  [40,81,130,HAIR,36,0,0,0,0],
+  [40,77,24,10,90,0,0,0,0],[70,77,12,10,90,0,0,0,0],[88,77,18,10,90,0,0,0,0],[112,77,28,10,90,0,0,0,0],
+  [345,75,3,14,52,0,0,0,0],[357,75,3,14,52,0,0,0,0],[369,75,3,14,52,0,0,0,0],
+  [381,75,3,14,52,0,0,0,0],[393,75,3,14,52,0,0,0,0],
+  [76,378,328,HAIR,36,0,0,0,0],
+  [76,374,20,10,90,0,0,0,0],[102,374,10,10,90,0,0,0,0],[118,374,28,10,90,0,0,0,0],
+  [401,372,3,14,52,0,0,0,0],[389,372,3,14,52,0,0,0,0],[377,372,3,14,52,0,0,0,0],[365,372,3,14,52,0,0,0,0],
+  [162,188,3,42,52,0,0,0,0],[162,188,11,3,52,0,0,0,0],[162,227,11,3,52,0,0,0,0],
+  [315,188,3,42,52,1,0,0,0],[307,188,11,3,52,1,0,0,0],[307,227,11,3,52,1,0,0,0],
+  [200,386,14,-14,52,0,K.LINE,2,0],[216,386,14,-14,52,0,K.LINE,2,0],[232,386,14,-14,52,0,K.LINE,2,0],
+  [248,386,14,-14,52,0,K.LINE,2,0],[264,386,14,-14,52,0,K.LINE,2,0],[280,386,14,-14,52,0,K.LINE,2,0],
+  [32,81,5,2,90,0,K.DOT,0,0],[66,379,5,2,90,0,K.DOT,0,0],
+  [192,379,5,3,52,0,K.CROSS,0,0],[302,379,5,3,52,0,K.CROSS,0,0],
+  [160,379,5,5,90,0,K.DIA,0,0],
+];
+const DASH_AMBIENT = ST_A | ST_B;
+const DASH_ELEMS = [
+  [A.BRACKET,0,3,0,180,0,0,0,0,0,0],[A.BRACKET,3,3,40,180,0,0,0,0,0,0],
+  [A.BRACKET,6,3,80,180,0,0,0,0,0,0],[A.BRACKET,9,3,120,180,0,0,0,0,0,0],
+  [A.LINE,12,1,170,240,0,0,0,0,0,0],
+  [A.BLOCKS,13,4,290,50,0,1,0,0,0,0],
+  [A.METER,17,5,320,40,0,2,0,0,0,0],
+  [A.LINE,22,1,380,240,0,0,0,-26,-4,0],
+  [A.BLOCKS,23,3,470,50,0,0,0,-26,-4,0],
+  [A.TICKS,26,4,500,40,0,0,0,-26,-4,0],
+  [A.BRACKET,30,3,430,200,0,0,DASH_AMBIENT|DEFER,0,0,0],
+  [A.BRACKET,33,3,460,200,0,0,DASH_AMBIENT|DEFER,0,0,0],
+  [A.TICKS,36,6,350,40,0,0,0,-26,-4,0],
+  [A.BLOCKS,42,1,150,120,0,0,DEFER,0,0,0],
+  [A.BLOCKS,43,1,360,120,0,0,DEFER,-26,-4,0],
+  [A.BRACKET,44,2,390,160,0,0,DEFER,-26,-4,0],
+  [A.BLOCKS,46,1,520,120,0,0,DEFER,-26,-4,0],
+];
+const WX_SHAPES = [
+  [32,32,34,4,72,0,0,0,0],[444,32,4,34,72,0,0,0,0],[32,414,4,34,72,1,0,0,0],[414,444,34,4,72,1,0,0,0],
+  [-40,240,70,3,52,0,K.ARC,320,400],[14,193,10,3,52,0,0,0,0],[14,285,10,3,52,0,0,0,0],
+  [520,240,70,3,52,1,K.ARC,140,220],[456,193,10,3,52,0,0,0,0],[456,285,10,3,52,0,0,0,0],
+  [100,293,140,HAIR,36,0,0,0,0],
+  [100,289,20,4,0,0,0,0,0],[126,289,20,4,0,0,0,0,0],[152,289,20,4,0,0,0,0,0],
+  [178,289,20,4,0,0,0,0,0],[204,289,20,4,0,0,0,0,0],[230,289,20,4,0,0,0,0,0],
+  [320,289,8,4,52,0,0,0,0],[332,289,18,4,52,0,0,0,0],[356,289,8,4,52,0,0,0,0],
+  [400,292,6,2,52,0,K.DOT,0,0],
+  [240,294,140,0,36,0,K.LINE,2,6],
+  [240,293,5,5,90,0,K.DIA,0,0],
+];
+const WX_ELEMS = [
+  [A.BRACKET,0,1,0,180,0,0,0,0,0,0],[A.BRACKET,1,1,40,180,0,0,0,0,0,0],
+  [A.BRACKET,2,1,80,180,0,0,0,0,0,0],[A.BRACKET,3,1,120,180,0,0,0,0,0,0],
+  [A.LINE,4,1,200,200,0,0,0,0,0,0],[A.TICKS,5,2,300,60,0,0,0,0,0,0],
+  [A.LINE,7,1,230,200,0,0,0,0,0,0],[A.TICKS,8,2,330,60,0,0,0,0,0,0],
+  [A.LINE,10,1,380,220,0,0,0,0,0,0],
+  [A.GAUGE,11,6,470,35,0,1,0,0,0,0],
+  [A.BLOCKS,17,3,530,50,1,0,0,0,0,0],
+  [A.BLOCKS,20,1,560,120,0,0,DEFER,0,0,0],
+  [A.LINE,21,1,420,240,0,0,DEFER,0,0,0],
+  [A.BLOCKS,22,1,500,120,0,0,DEFER,0,0,0],
+];
+
+const TICK_LIVE = 200, TICK_ANIM = 66, OUT_SCALE = 33;
+const ALERT_MS = 520, ALERT_W = 180, ALERT_BIT = 0x100;
+const PACE_BRK = [45,30,12], PACE_PAUSE = [20,12,4], PACE_MUL = [180,255,320];
+function hash32(x) { x^=x>>>16; x=Math.imul(x,0x7feb352d); x^=x>>>15; x=Math.imul(x,0x846ca68b); x^=x>>>16; return x>>>0; }
+const growA = a => a === A.BRACKET || a === A.LINE;
+
+class Deco {
+  constructor(ctx, shapes, elems) {
+    this.ctx = ctx; this.sh = shapes; this.el = elems;
+    this.phase = "hidden"; this.t0 = 0; this.lead = 0;
+    this.tick = 0; this.pulse = 0; this.state = 0; this.pace = 1;
+    this.alert = 0; this.slot = [-1,-1,-1,-1];
+    this.rt = elems.map(e => {
+      const inSpan = growA(e[0]) ? e[4] : e[4] * e[2];
+      return { p:0, ph:0, inAt:e[3], inSpan };
+    });
+    let total = 0;
+    for (const r of this.rt) total = Math.max(total, r.inAt + r.inSpan);
+    this.span = total;
+    this.maxDelay = Math.max(...elems.map(e => e[3]));
+    for (const r of this.rt) {
+      r.outAt = (total - (r.inAt + r.inSpan)) * OUT_SCALE / 100;
+      r.outSpan = r.inSpan * OUT_SCALE / 100;
+    }
+  }
+  on(e) { const m = e[7] & ST_MASK; return m === 0 || (m & this.state) !== 0; }
+  dy(e) { return (this.state & ST_A) ? e[8] : (this.state & ST_B) ? e[9] : 0; }
+  spanP(e, p) {
+    if (!e[10]) return p;
+    let v = this.slot[e[10] - 1];
+    if (v < 0) return p;
+    return p * Math.min(v, 1000) / 1000;
+  }
+  intro(ms) {
+    if (reduced || ms === 0) {
+      this.rt.forEach((r,i) => { r.p = this.on(this.el[i]) && !(this.el[i][7]&DEFER) ? 1000 : 0; r.ph = 0; });
+      this.phase = "live"; this.tick = 0; return;
+    }
+    this.phase = "in"; this.t0 = performance.now(); this.lead = ms;
+  }
+  outro() {
+    if (this.phase === "hidden") return;
+    if (reduced) { this.rt.forEach(r => r.p = 0); this.phase = "hidden"; return; }
+    this.phase = "out"; this.t0 = performance.now();
+  }
+  step(now) {
+    if (this.phase === "in" || this.phase === "out") {
+      let t = now - this.t0;
+      if (this.phase === "in") t = Math.max(0, t - this.lead);
+      const span = this.phase === "in" ? this.span : this.span * OUT_SCALE / 100;
+      const done = t >= span;
+      this.rt.forEach((r,i) => {
+        const e = this.el[i];
+        const at = this.phase === "in" ? r.inAt : r.outAt;
+        const sp = this.phase === "in" ? r.inSpan : r.outSpan;
+        let v = sp === 0 ? (t >= at ? 1000 : 0)
+              : t <= at ? 0 : t >= at + sp ? 1000 : (t - at) * 1000 / sp;
+        let np = this.phase === "in" ? v : 1000 - v;
+        if (!this.on(e)) np = 0;
+        if (this.phase === "in" && (e[7] & DEFER)) np = 0;
+        r.p = np; r.ph = 0;
+      });
+      if (done) { this.phase = this.phase === "in" ? "live" : "hidden"; this.tick = 0; }
+      return;
+    }
+    if (this.phase !== "live") return;
+    /* live beat at 200ms; morph at 66ms handled by caller cadence */
+    this.tick++;
+    if (this.pulse) this.pulse--;
+    const pace = Math.min(this.pace, 2);
+    this.rt.forEach((r,i) => {
+      const e = this.el[i];
+      const want = this.on(e) ? 1000 : 0;
+      if (r.p !== want) {
+        const sp = want ? r.inSpan : r.outSpan;
+        const stepv = Math.max(1, 1000 * TICK_LIVE / (sp || 1));
+        r.p += r.p < want ? Math.min(stepv, want - r.p) : -Math.min(stepv, r.p - want);
+      }
+      /* live phases (ui_deco live_phase) */
+      let ph = 0;
+      switch (e[0]) {
+        case A.BRACKET: ph = (this.tick % PACE_BRK[pace] < 2) || this.pulse > 0 ? 1 : 0; break;
+        case A.LINE: { const m = this.tick % (16 + PACE_PAUSE[pace]); ph = m < 16 ? m : 16; break; }
+        case A.BLOCKS: { const hv = hash32(Math.imul(this.tick,2654435761) + i);
+          ph = (hv & 7) >= 2 ? 0 : 1 + (hv >>> 8) % e[2]; break; }
+        case A.TICKS: { const m = this.tick % (e[2] + PACE_PAUSE[pace]); ph = m < e[2] ? m : e[2]; break; }
+        case A.GAUGE: case A.METER: ph = Math.floor(this.tick / 3) % 2; break;
+      }
+      if (this.alert > 0) {
+        const pos = (ALERT_MS - this.alert) * (this.maxDelay + ALERT_W) / ALERT_MS;
+        if (e[3] <= pos && e[3] > pos - ALERT_W) ph |= ALERT_BIT;
+      }
+      r.ph = ph;
+    });
+    if (this.alert > 0) this.alert = Math.max(0, this.alert - TICK_LIVE);
+  }
+  draw(gain) {
+    const c = this.ctx;
+    c.clearRect(0, 0, W, W);
+    if (this.phase === "hidden" || gain === 0) return;
+    const mul = PACE_MUL[Math.min(this.pace, 2)];
+    const colr = "243,238,226";
+    const setA = o => { c.fillStyle = c.strokeStyle = `rgba(${colr},${Math.min(255, o*mul/255) * gain / 255 / 255})`; };
+    this.el.forEach((e, ei) => {
+      const r = this.rt[ei];
+      if (r.p <= 0) return;
+      const dy = this.dy(e), effP = this.spanP(e, r.p);
+      if (effP <= 0) return;
+      for (let k = 0; k < e[2]; k++) {
+        const s = this.sh[e[1] + k];
+        let o = s[4];
+        const grow = growA(e[0]);
+        if (!grow) {
+          const idx = e[5] ? (e[2]-1-k) : k;
+          if (r.p <= idx * 1000 / e[2]) continue;
+          const sv = e[6] ? this.slot[e[6]-1] : -1;
+          if (e[0] === A.GAUGE) o = sv < 0 ? OPA.FUT : k < sv ? OPA.PAST : k === sv ? OPA.CUR : OPA.FUT;
+          else if (e[0] === A.METER) o = sv < 0 ? OPA.FUT : k < sv-1 ? OPA.PAST : k === sv-1 ? OPA.CUR : OPA.FUT;
+          else if (e[6] && sv >= 0 && k >= sv) continue;
+        }
+        if (this.phase === "live") {
+          const ph = r.ph & 0xFF;
+          if (r.ph & ALERT_BIT) o *= 2;
+          switch (e[0]) {
+            case A.BRACKET: if (ph) o = o * 9/5; break;
+            case A.BLOCKS: if (ph === k+1) o /= 3; break;
+            case A.TICKS: if (ph === k) o = o * 5/2; break;
+            case A.GAUGE: if (ph && k === this.slot[e[6]-1]) o = o * 4/3; break;
+            case A.METER: if (ph && k === this.slot[e[6]-1]-1) o = o * 4/3; break;
+          }
+        }
+        setA(o);
+        this.shape(s, grow, effP, dy);
+      }
+      /* LINE bright segment sweep */
+      if (e[0] === A.LINE && this.phase === "live" && (r.ph & 0xFF) < 16 && this.sh[e[1]][6] === K.RECT) {
+        const s = this.sh[e[1]];
+        const horiz = s[2] >= s[3], len = horiz ? s[2] : s[3];
+        let seg = Math.max(8, len / 8);
+        const at = len * (r.ph & 0xFF) / 16;
+        if (at + seg > len) seg = len - at;
+        if (seg > 0) {
+          setA(s[4] * 5/2);
+          if (horiz) c.fillRect(s[0] + at, s[1] + dy, seg, s[3]);
+          else c.fillRect(s[0], s[1] + dy + at, s[2], seg);
+        }
+      }
+    });
+  }
+  shape(s, grow, p, dy) {
+    const c = this.ctx;
+    const [x0, y0raw, w, h, , anchor, kind, pa, pb] = s;
+    const y0 = y0raw + dy;
+    const rad = d => d * Math.PI / 180;
+    switch (kind) {
+      case K.LINE: {
+        const ex = x0 + (grow ? w*p/1000 : w), ey = y0 + (grow ? h*p/1000 : h);
+        if (ex === x0 && ey === y0) return;
+        c.lineWidth = pa || 2;
+        c.setLineDash(pb > 0 ? [pb, pb] : []);
+        c.beginPath(); c.moveTo(x0, y0); c.lineTo(ex, ey); c.stroke();
+        c.setLineDash([]);
+        return;
+      }
+      case K.ARC: {
+        const a1 = grow ? pa + (pb - pa) * p / 1000 : pb;
+        if (a1 === pa) return;
+        c.lineWidth = h;
+        c.beginPath(); c.arc(x0, y0, w, rad(pa), rad(a1)); c.stroke();
+        return;
+      }
+      case K.TRI: {
+        if (p <= 0) return;
+        c.beginPath(); c.moveTo(x0, y0); c.lineTo(x0+w, y0+h); c.lineTo(x0+pa, y0+pb);
+        c.closePath(); c.fill();
+        return;
+      }
+      case K.DOT: {
+        if (p <= 0) return;
+        c.beginPath(); c.arc(x0, y0, w, 0, 7);
+        if (h) { c.lineWidth = h; c.stroke(); } else c.fill();
+        return;
+      }
+      case K.CHEV: {
+        const ax = grow ? w*p/1000 : w, ay = grow ? h*p/1000 : h;
+        if (!ax && !ay) return;
+        c.lineWidth = pa || 2;
+        c.beginPath(); c.moveTo(x0, y0); c.lineTo(x0+ax, y0+ay);
+        c.moveTo(x0, y0); c.lineTo(x0-ax, y0+ay); c.stroke();
+        return;
+      }
+      case K.CROSS: {
+        const r0 = grow ? w*p/1000 : w;
+        if (r0 <= 0) return;
+        const hw = Math.max(1, (h || 2) / 2);
+        c.fillRect(x0-r0, y0-hw, r0*2, hw*2);
+        c.fillRect(x0-hw, y0-r0, hw*2, r0*2);
+        return;
+      }
+      case K.DIA: {
+        if (p <= 0) return;
+        const hh = h || w;
+        c.beginPath(); c.moveTo(x0, y0-hh); c.lineTo(x0+w, y0); c.lineTo(x0, y0+hh);
+        c.lineTo(x0-w, y0); c.closePath(); c.fill();
+        return;
+      }
+      default: {
+        let x = x0, y = y0, rw = w, rh = h;
+        if (grow) {
+          const horiz = rw >= rh, len = horiz ? rw : rh;
+          const g = len * p / 1000;
+          if (g <= 0) return;
+          if (horiz) { if (anchor === REV) x += len - g; rw = g; }
+          else { if (anchor === REV) y += len - g; rh = g; }
+        }
+        c.fillRect(x, y, rw, rh);
+      }
+    }
+  }
+}
+
+/* ── glow (port of ui_glow.c essentials) ───────────────────────────── */
+const RING_N = 5, RING_STEP = 8, RING_W = 7, PING_MS = 1700;
+const SPECTRUM = [0xFF2A5A, 0xFF9020, 0x2BB3B1, 0x4070FF, 0xA040FF];
+class Glow {
+  constructor(ctx) { this.ctx = ctx; this.sustain = null; this.ping0 = -1; this.on = true; }
+  ping() { this.ping0 = performance.now(); }
+  setSustain(mode) { this.sustain = mode; }   /* null | {color, opa} */
+  ring(inset, color, alpha, lw) {
+    const c = this.ctx;
+    c.strokeStyle = color; c.globalAlpha = alpha; c.lineWidth = lw;
+    const r = Math.max(4, R - inset);
+    c.beginPath();
+    c.roundRect(inset + lw/2, inset + lw/2, W - inset*2 - lw, W - inset*2 - lw, r);
+    c.stroke();
+  }
+  draw(now) {
+    const c = this.ctx;
+    c.clearRect(0, 0, W, W);
+    if (!this.on) return;
+    if (this.ping0 >= 0) {
+      const t = (now - this.ping0) / PING_MS;
+      if (t >= 1) this.ping0 = -1;
+      else {
+        /* open fast (ease-out over first 25%), decay over the rest */
+        const open = Math.min(1, t / 0.25); const spread = 1 - Math.pow(1 - open, 3);
+        const fade = t < 0.35 ? 1 : 1 - (t - 0.35) / 0.65;
+        for (let i = 0; i < RING_N; i++) {
+          const hueT = (i / RING_N + t * 0.9) % 1;
+          const col = SPECTRUM[Math.floor(hueT * SPECTRUM.length)];
+          const inset = 3 + i * (RING_STEP + spread * 4);
+          this.ring(inset, hex(col), 0.5 * fade * (1 - i*0.12), RING_W);
+        }
+        c.globalAlpha = 1;
+        return; /* ping supersedes sustain visually */
+      }
+    }
+    if (this.sustain) {
+      for (let i = 0; i < RING_N; i++) {
+        this.ring(3 + i * RING_STEP, hex(this.sustain.color),
+                  (this.sustain.opa / 255) * (1 - i * 0.17), RING_W);
+      }
+    }
+    c.globalAlpha = 1;
+  }
+}
+
+/* ── springs (anim/spring.c: ζ=0.68 disp / 0.92 opa; apple ease) ──── */
+function springDisp(t) { /* t in [0,1] mapped over 520ms; ζ=0.68 ω=14 */
+  const z = 0.68, w0 = 14, wd = w0 * Math.sqrt(1 - z*z), tt = t * 0.52;
+  return 1 - Math.exp(-z*w0*tt) * (Math.cos(wd*tt) + (z*w0/wd) * Math.sin(wd*tt));
+}
+function easeOutApple(t) { return 1 - Math.pow(1 - t, 3.2); }
+function easeInApple(t) { return Math.pow(t, 2.6); }
+
+/* ── build the panel DOM ───────────────────────────────────────────── */
+const decoCtx = cv(1), glowCtx = cv(6);
+const glow = new Glow(glowCtx);
+const decos = {
+  dashboard: new Deco(decoCtx, DASH_SHAPES, DASH_ELEMS),
+  clock: new Deco(decoCtx, CLOCK_SHAPES, CLOCK_ELEMS),
+  weather: new Deco(decoCtx, WX_SHAPES, WX_ELEMS),
+};
+let decoOn = true, glowOn = true;
+
+/* nav dots (nav_dots.c: y20, dx ±126, off d8 opa70 dim / on d10 rust) */
+const navWrap = el("div", "", { left:0, top:0, width:"100%", height:"0", zIndex:5 });
+const navDots = [0,1,2].map(i => {
+  const d = document.createElement("div");
+  d.style.cssText = `position:absolute;border-radius:50%;`;
+  navWrap.appendChild(d); return d;
+});
+function navSet(active) {
+  navDots.forEach((d, i) => {
+    const on = i === active;
+    const sz = on ? 10 : 8;
+    d.style.width = d.style.height = sz + "px";
+    d.style.left = (240 + (i-1)*126 - sz/2) + "px";
+    d.style.top = (20 + (10-sz)/2) + "px";
+    d.style.background = hex(on ? COL.rust : COL.dim);
+    d.style.opacity = on ? 1 : 70/255;
+  });
+}
+
+/* scene containers */
+const scn = {};
+for (const id of ["dashboard","clock","weather"]) {
+  scn[id] = el("div", "", { left:0, top:0, width:W+"px", height:W+"px", zIndex:2, display:"none" });
+  scn[id].id = "scn-" + id;
+}
+function lvLabel(parent, css) {
+  const d = document.createElement("div");
+  d.className = "lv"; Object.assign(d.style, css);
+  parent.appendChild(d); return d;
+}
+
+/* — status bar (status_bar.c): footer y392/438 dx ±77; used by dash+clock — */
+function mkFooter(parent) {
+  const f = {};
+  f.grp = document.createElement("div");
+  f.grp.style.cssText = `position:absolute;left:0;top:0;width:${W}px;height:${W}px;pointer-events:none`;
+  parent.appendChild(f.grp);
+  const mk = (dx, y, fs, color, bold, txt) => {
+    const d = document.createElement("div");
+    d.style.cssText = `position:absolute;left:${240+dx-100}px;top:${y}px;width:200px;
+      text-align:center;font-family:var(--mono);font-size:${fs}px;line-height:1.19;
+      color:${color};font-weight:${bold?700:400}`;
+    d.textContent = txt; f.grp.appendChild(d); return d;
+  };
+  f.active = mk(-77, 392, TYPE.BODY, hex(COL.teal), true, "0");
+  f.acap = mk(-77, 438, TYPE.CAPTION, hex(COL.dim), false, "active");
+  f.tokens = mk(77, 392, TYPE.BODY, hex(COL.text), true, "0");
+  f.tcap = mk(77, 438, TYPE.CAPTION, hex(COL.dim), false, "tokens");
+  return f;
+}
+
+/* — the time anchor (one label, morphs across scenes) — */
+const timeLbl = el("div", "lv rounded", { zIndex:4, color:hex(COL.text) });
+const RUNGS_BIG = [48,66,84,102,120,135], RUNGS_WX = [26,33,40,48];
+const TIME_POSE = {
+  dashboard: { x:240, y:56, px:48, anchor:"top" },
+  clock:     { x:240, y:221, px:135, anchor:"center" },  /* face centre 240-19 */
+  weather:   { x:W-36, y:64, px:26, anchor:"topright" },
+};
+let timeCur = { ...TIME_POSE.dashboard };
+function timeApply(p, blinkOff) {
+  const hh = String(simTime.h).padStart(2,"0"), mm = String(simTime.m).padStart(2,"0");
+  timeLbl.textContent = hh + (blinkOff ? " " : ":") + mm;
+  timeLbl.style.fontSize = p.px + "px";
+  timeLbl.style.width = "auto";
+  timeLbl.style.textAlign = "left";
+  timeLbl.style.whiteSpace = "pre";
+  /* measure-free centering via transform */
+  let tx = "-50%", ty = "0";
+  if (p.anchor === "center") ty = "-50%";
+  if (p.anchor === "topright") tx = "-100%";
+  timeLbl.style.left = p.x + "px";
+  timeLbl.style.top = p.y + "px";
+  timeLbl.style.transform = `translate(${tx},${ty})`;
+}
+
+/* — dashboard scene — */
+const dash = { root: scn.dashboard };
+dash.footer = mkFooter(dash.root);
+dash.amb = document.createElement("div");
+dash.amb.style.cssText = `position:absolute;left:0;top:160px;width:${W}px;height:224px`;
+dash.root.appendChild(dash.amb);
+dash.ring = document.createElement("div");
+dash.ring.style.cssText = `position:absolute;left:${240-36}px;top:12px;width:72px;height:72px;
+  border:2px solid ${hex(COL.mute)};border-radius:50%`;
+dash.amb.appendChild(dash.ring);
+dash.dot = document.createElement("div");
+dash.dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:18px;height:18px;border-radius:50%;background:${hex(COL.mute)}`;
+dash.ring.appendChild(dash.dot);
+dash.word = lvLabel(dash.amb, { top:"112px", fontSize:TYPE.TITLE+"px", fontWeight:700,
+  color:hex(COL.text), fontFamily:"var(--cjk)" });
+dash.word.textContent = "空闲";
+dash.chip = lvLabel(dash.amb, { top:"189px", fontSize:TYPE.LABEL+"px",
+  color:hex(COL.gold), fontFamily:"var(--mono)", display:"none" });
+/* fleet rows */
+dash.rows = [];
+for (let i = 0; i < 4; i++) {
+  const card = document.createElement("div");
+  card.style.cssText = `position:absolute;left:28px;width:424px;border-radius:14px;
+    background:${hex(COL.surface)};display:none`;
+  dash.root.appendChild(card);
+  const dot = document.createElement("div");
+  dot.style.cssText = "position:absolute;left:20px;width:16px;height:16px;border-radius:50%";
+  card.appendChild(dot);
+  const name = document.createElement("div");
+  name.style.cssText = `position:absolute;left:50px;font-family:var(--mono);font-weight:700;
+    font-size:${TYPE.BODY}px;line-height:1.19;color:${hex(COL.text)};overflow:hidden;
+    white-space:nowrap;text-overflow:ellipsis`;
+  card.appendChild(name);
+  const meta = document.createElement("div");
+  meta.style.cssText = `position:absolute;right:18px;font-family:var(--mono);
+    font-size:${TYPE.LABEL}px;line-height:1.19;color:${hex(COL.dim)}`;
+  card.appendChild(meta);
+  const act = document.createElement("div");
+  act.style.cssText = `position:absolute;left:50px;font-family:var(--mono);
+    font-size:${TYPE.LABEL}px;line-height:1.19;color:${hex(COL.dim)};overflow:hidden;
+    white-space:nowrap;text-overflow:ellipsis;display:none`;
+  card.appendChild(act);
+  dash.rows.push({ card, dot, name, meta, act });
+}
+
+/* — clock scene — */
+const clk = { root: scn.clock };
+clk.footer = mkFooter(clk.root);
+clk.wx = lvLabel(clk.root, { top:"303px", fontSize:TYPE.LABEL+"px", color:hex(COL.dim),
+  fontFamily:"var(--cjk)" });
+clk.wx.textContent = "27° 晴 · 深圳·福田";
+/* push card */
+clk.card = document.createElement("div");
+clk.card.style.cssText = `position:absolute;left:0;top:${240-110}px;width:${W}px;height:230px;
+  opacity:0;pointer-events:none`;
+clk.root.appendChild(clk.card);
+clk.cardRing = document.createElement("div");
+clk.cardRing.style.cssText = `position:absolute;left:${240-38}px;top:8px;width:76px;height:76px;
+  border-radius:50%;border:2px solid ${hex(COL.track)}`;
+clk.card.appendChild(clk.cardRing);
+clk.orbit = document.createElement("div");
+clk.orbit.style.cssText = `position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px;
+  border-radius:50%;background:${hex(COL.teal)}`;
+clk.cardRing.appendChild(clk.orbit);
+clk.check = document.createElement("div");
+clk.check.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-56%);
+  font-family:var(--mono);font-weight:700;font-size:40px;color:${hex(COL.teal)};display:none`;
+clk.check.textContent = "v";
+clk.cardRing.appendChild(clk.check);
+clk.cardHead = lvLabel(clk.card, { top:"106px", fontSize:TYPE.BODY+"px", fontWeight:700,
+  color:hex(COL.text), fontFamily:"var(--cjk)" });
+clk.cardChip = lvLabel(clk.card, { top:"156px", fontSize:TYPE.LABEL+"px",
+  color:hex(COL.dim), fontFamily:"var(--mono)" });
+clk.cardChip.textContent = "cc  esp32-agent-dashboard";
+
+/* — weather scene — */
+const wx = { root: scn.weather };
+wx.loc = lvLabel(wx.root, { top:"70px", fontSize:TYPE.LABEL+"px", color:hex(COL.dim),
+  fontFamily:"var(--cjk)", width:"auto", left:"36px", textAlign:"left" });
+wx.loc.textContent = "深圳·福田";
+/* big illustration: sun (amber ring + rays) + teal horizon — canvas svg-ish via DOM */
+wx.illus = document.createElement("div");
+wx.illus.style.cssText = "position:absolute;left:36px;top:138px;width:140px;height:140px";
+wx.root.appendChild(wx.illus);
+wx.illus.innerHTML = `
+  <svg width="140" height="140" viewBox="0 0 140 140" style="position:absolute">
+    <circle cx="70" cy="66" r="30" fill="none" stroke="${hex(COL.amber)}" stroke-width="3"/>
+    <g stroke="${hex(COL.amber)}" stroke-width="3" stroke-linecap="round" class="rays">
+      <line x1="70" y1="18" x2="70" y2="30"/><line x1="70" y1="102" x2="70" y2="114"/>
+      <line x1="22" y1="66" x2="34" y2="66"/><line x1="106" y1="66" x2="118" y2="66"/>
+      <line x1="36" y1="32" x2="45" y2="41"/><line x1="95" y1="91" x2="104" y2="100"/>
+      <line x1="104" y1="32" x2="95" y2="41"/><line x1="45" y1="91" x2="36" y2="100"/>
+    </g>
+    <line x1="40" y1="80" x2="100" y2="80" stroke="${hex(COL.amber)}" stroke-width="3"/>
+    <line x1="4" y1="132" x2="136" y2="132" stroke="${hex(COL.teal)}" stroke-width="3" stroke-linecap="round"/>
+  </svg>`;
+wx.temp = lvLabel(wx.root, { top:"136px", left:"74px", fontSize:TYPE.HERO+"px", fontWeight:700,
+  color:hex(COL.text), fontFamily:"var(--mono)" });
+wx.temp.textContent = "27°";
+wx.cond = lvLabel(wx.root, { top:"232px", left:"74px", fontSize:TYPE.BODY+"px",
+  color:hex(COL.text), fontFamily:"var(--cjk)" });
+wx.cond.textContent = "晴";
+/* three plus-stars (190..250, 76..266) */
+{
+  const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  s.setAttribute("width","60"); s.setAttribute("height","190");
+  s.style.cssText = "position:absolute;left:190px;top:76px";
+  s.innerHTML = `<g stroke="${hex(COL.mute)}" stroke-width="2">
+    <line x1="12" y1="20" x2="28" y2="20"/><line x1="20" y1="12" x2="20" y2="28"/>
+    <line x1="42" y1="88" x2="54" y2="88"/><line x1="48" y1="82" x2="48" y2="94"/>
+    <line x1="16" y1="160" x2="30" y2="160"/><line x1="23" y1="153" x2="23" y2="167"/></g>`;
+  wx.root.appendChild(s);
+}
+/* five-day strip: dx -164..164, names y306, icons y340 (44), temps y392 */
+const STRIP_DX = [-164,-82,0,82,164];
+wx.days = STRIP_DX.map((dx, i) => {
+  const name = lvLabel(wx.root, { top:"306px", left:(240+dx-41)+"px", width:"82px",
+    fontSize:TYPE.LABEL+"px", fontFamily:"var(--cjk)", color:hex(COL.dim) });
+  const icon = document.createElement("div");
+  icon.style.cssText = `position:absolute;left:${240+dx-22}px;top:340px;width:44px;height:44px`;
+  wx.root.appendChild(icon);
+  const temp = lvLabel(wx.root, { top:"392px", left:(240+dx-41)+"px", width:"82px",
+    fontSize:TYPE.LABEL+"px", fontFamily:"var(--mono)", color:hex(COL.text),
+    letterSpacing:"-2px" });
+  return { name, icon, temp };
+});
+function wxIcon(kind, accent) {
+  const a = hex(accent ?? COL.amber), t = hex(COL.text), d = hex(COL.dim);
+  if (kind === "sun") return `<svg viewBox="0 0 44 44" width="44" height="44">
+    <circle cx="22" cy="22" r="9" fill="none" stroke="${a}" stroke-width="2.4"/>
+    <g stroke="${a}" stroke-width="2.4" stroke-linecap="round">
+      <line x1="22" y1="4" x2="22" y2="9"/><line x1="22" y1="35" x2="22" y2="40"/>
+      <line x1="4" y1="22" x2="9" y2="22"/><line x1="35" y1="22" x2="40" y2="22"/></g></svg>`;
+  if (kind === "cloud") return `<svg viewBox="0 0 44 44" width="44" height="44">
+    <path d="M12 30 a7 7 0 1 1 2-13 a9 9 0 0 1 17 3 a6 6 0 0 1 -1 10 z"
+      fill="none" stroke="${t}" stroke-width="2.4" stroke-linejoin="round"/></svg>`;
+  if (kind === "psun") return `<svg viewBox="0 0 44 44" width="44" height="44">
+    <circle cx="28" cy="16" r="7" fill="none" stroke="${a}" stroke-width="2.2"/>
+    <g stroke="${a}" stroke-width="2.2" stroke-linecap="round">
+      <line x1="28" y1="3" x2="28" y2="6"/><line x1="41" y1="16" x2="38" y2="16"/></g>
+    <path d="M8 34 a6 6 0 1 1 2-11 a8 8 0 0 1 15 2 a5 5 0 0 1 -1 9 z"
+      fill="${hex(COL.bg)}" stroke="${t}" stroke-width="2.2" stroke-linejoin="round"/></svg>`;
+  if (kind === "rain") return `<svg viewBox="0 0 44 44" width="44" height="44">
+    <path d="M12 26 a7 7 0 1 1 2-13 a9 9 0 0 1 17 3 a6 6 0 0 1 -1 10 z"
+      fill="none" stroke="${t}" stroke-width="2.2" stroke-linejoin="round"/>
+    <g stroke="${hex(COL.teal)}" stroke-width="2.2" stroke-linecap="round">
+      <line x1="16" y1="32" x2="14" y2="38"/><line x1="24" y1="32" x2="22" y2="38"/>
+      <line x1="32" y1="32" x2="30" y2="38"/></g></svg>`;
+  return "";
+}
+const WX_DATA = [
+  { n:"昨天", i:"psun", t:"26/33" },
+  { n:"今天", i:"sun", t:"26/33" },
+  { n:"明天", i:"sun", t:"28/35" },
+  { n:"周六", i:"psun", t:"27/36" },
+  { n:"周日", i:"psun", t:"27/34" },
+];
+wx.days.forEach((d, i) => {
+  d.name.textContent = WX_DATA[i].n;
+  if (i === 1) { d.name.style.color = hex(COL.teal); }
+  d.icon.innerHTML = wxIcon(WX_DATA[i].i);
+  d.temp.textContent = WX_DATA[i].t;
+});
+
+/* ── simulation model ──────────────────────────────────────────────── */
+const now0 = new Date();
+const simTime = { h: now0.getHours(), m: now0.getMinutes() };
+setInterval(() => {
+  const d = new Date(); simTime.h = d.getHours(); simTime.m = d.getMinutes();
+}, 5000);
+
+const model = {
+  scene: "dashboard",
+  agents: [],           /* {name, kind, status:'running'|'waiting', awaiting, tokens} */
+  link: "ok",
+  greetIdx: Math.floor(Math.random() * 8),
+  pushPose: false,      /* clock: card shown */
+};
+const AG = (name, kind, status, awaiting, tokens) => ({ name, kind, status, awaiting, tokens });
+const STATES = {
+  idle:     [],
+  thinking: [AG("esp32-agent-dashboard","cc","running",null,12400)],
+  turn:     [AG("esp32-agent-dashboard","cc","waiting","continue",12400)],
+  approve:  [AG("esp32-agent-dashboard","cc","waiting","approve",12400)],
+  fleet2:   [AG("esp32-agent-dashboard","cc","running",null,12400),
+             AG("united-memory","cc","waiting","continue",3800)],
+  fleet3:   [AG("esp32-agent-dashboard","cc","running",null,12400),
+             AG("ballru","cx","running",null,8100),
+             AG("united-memory","cc","waiting","approve",3800)],
+  fleet4:   [AG("esp32-agent-dashboard","cc","running",null,12400),
+             AG("ballru","cx","running",null,8100),
+             AG("united-memory","cc","waiting","approve",3800),
+             AG("esp-harness","cu","running",null,21000)],
+};
+let stateName = "idle";
+let waitSince = performance.now();
+
+function attention() {
+  if (model.agents.some(a => a.status === "waiting")) return 2;   /* ALERT */
+  if (model.agents.some(a => a.status === "running")) return 1;   /* BUSY */
+  return 0;                                                        /* IDLE */
+}
+function activeCount() { return model.agents.filter(a => a.status !== "done").length; }
+
+/* dashboard render (scene_dashboard.c render paths) */
+const WORDS = { continue:null, approve:"请批准", pick:"请选择", type:"请输入", clarify:"需澄清" };
+function renderDashboard() {
+  const n = model.agents.length;
+  const fleet = model.agents.filter(a => a.status === "running" || a.status === "waiting").length >= 2;
+  dash.amb.style.display = fleet ? "none" : "block";
+  dash.rows.forEach(r => r.card.style.display = "none");
+
+  if (!fleet) {
+    const one = model.agents.slice().sort((a,b) =>
+      (b.awaiting?2:b.status==="running"?1:0) - (a.awaiting?2:a.status==="running"?1:0))[0];
+    let word = "空闲", pc = COL.mute, yourMove = false;
+    if (one) {
+      if (one.awaiting) { word = one.awaiting === "continue" ? GREET[model.greetIdx] : WORDS[one.awaiting]; yourMove = true; }
+      else if (one.status === "waiting") { word = "该你了"; yourMove = true; }
+      else if (one.status === "running") { word = "思考中"; pc = COL.teal; }
+    }
+    if (yourMove) pc = COL.gold;
+    dash.word.textContent = word;
+    dash.ring.style.borderColor = hex(pc);
+    dash.dot.style.background = hex(pc);
+    dash.chip.style.color = hex(pc);
+    if (yourMove && one) {
+      dash.chip.textContent = one.kind + "  " + one.name;
+      dash.chip.style.display = "block";
+    } else dash.chip.style.display = "none";
+    ambSlide(yourMove && one ? 133 : 160);
+    /* breath pace: gold breathes faster (visual only; firmware keeps 2s) */
+    return;
+  }
+  /* fleet rows: band 134..360, gap 12, h min 126 */
+  const rows = model.agents;
+  const h = Math.min(126, Math.floor((360 - 134 - (rows.length - 1) * 12) / rows.length));
+  const total = rows.length * h + (rows.length - 1) * 12;
+  let y = 134 + Math.floor((360 - 134 - total) / 2);
+  const twoline = h >= 100;
+  const nameH = 44, actH = 32;
+  const nameY = twoline ? Math.floor((h - nameH - 8 - actH) / 2) : Math.floor((h - nameH) / 2);
+  rows.forEach((a, i) => {
+    const r = dash.rows[i];
+    const waiting = !!a.awaiting || a.status === "waiting";
+    const urgent = a.awaiting === "approve" || a.awaiting === "clarify";
+    const accent = waiting ? (urgent ? COL.goldHi : COL.gold)
+                 : a.status === "running" ? COL.teal : COL.mute;
+    r.card.style.display = "block";
+    r.card.style.top = y + "px"; r.card.style.height = h + "px";
+    r.card.style.background = hex(waiting ? COL.surfaceHi : COL.surface);
+    r.card.style.border = waiting ? `1px solid ${hex(accent)}` : "none";
+    r.dot.style.top = (nameY + (nameH-16)/2) + "px";
+    r.dot.style.background = hex(accent);
+    r.name.style.top = nameY + "px";
+    r.name.style.width = (424 - 50 - 16 - 96) + "px";
+    r.name.textContent = a.name;
+    r.meta.style.top = (nameY + (nameH-32)/2 + 2) + "px";
+    const waitS = Math.floor((performance.now() - waitSince) / 1000);
+    r.meta.textContent = waiting ? (waitS < 60 ? waitS + "s" : Math.floor(waitS/60) + "m")
+                                 : (a.tokens/1000).toFixed(1) + "k";
+    r.meta.style.color = hex(waiting ? accent : COL.dim);
+    if (twoline) {
+      r.act.style.display = "block";
+      r.act.style.top = (nameY + nameH + 8) + "px";
+      r.act.style.width = (424 - 70) + "px";
+      r.act.textContent = a.awaiting ? (a.awaiting === "continue" ? GREET[model.greetIdx] : WORDS[a.awaiting])
+                        : "$ idf.py build";
+      r.act.style.color = hex(waiting ? accent : COL.dim);
+    } else r.act.style.display = "none";
+    y += h + 12;
+  });
+}
+/* ambient slide (450ms apple ease) */
+let ambY = 160, ambTarget = 160, ambAnim = null;
+function ambSlide(target) {
+  if (target === ambTarget) return;
+  ambTarget = target;
+  if (reduced) { ambY = target; dash.amb.style.top = target + "px"; return; }
+  const from = ambY, t0 = performance.now();
+  ambAnim = () => {
+    const t = Math.min(1, (performance.now() - t0) / 450);
+    ambY = from + (target - from) * easeOutApple(t);
+    dash.amb.style.top = ambY + "px";
+    if (t >= 1) ambAnim = null;
+  };
+}
+
+/* footer totals */
+function renderFooter(f, show) {
+  f.grp.style.display = show ? "block" : "none";
+  const act = model.agents.filter(a => a.status === "running" || a.status === "waiting").length;
+  const tok = model.agents.reduce((s,a) => s + a.tokens, 0);
+  f.active.textContent = String(act);
+  f.tokens.textContent = tok === 0 ? "0" : (tok/1000).toFixed(1) + "k";
+}
+
+/* deco state + slots per scene */
+function feedDeco() {
+  const attn = attention();
+  const d = decos[model.scene];
+  d.pace = attn;
+  if (model.scene === "dashboard") {
+    const act = model.agents.filter(a => a.status === "running" || a.status === "waiting").length;
+    const fleet = act >= 2;
+    const alert = attn === 2;
+    d.state = fleet ? ST_C : (alert ? ST_B : ST_A);
+    d.slot[0] = model.agents.length;   /* sessions → blocks count */
+    d.slot[1] = act;                    /* active → meter level */
+  } else if (model.scene === "clock") {
+    d.state = model.pushPose ? ST_B : ST_A;
+    d.slot[0] = Math.floor(simTime.m / 10);      /* minute gauge */
+    d.slot[1] = model.agents.filter(a => a.status !== "done").length;
+    d.slot[2] = Math.round(simTime.m * 1000 / 60); /* hour arc span */
+  } else {
+    d.state = 0;
+    d.slot[0] = Math.floor(simTime.h / 4);       /* day gauge, 4h/seg */
+  }
+}
+
+/* ── scene transitions (scene_trans.c: out 240 ease-in → black → spring in 520) ── */
+const IN_MS = 520, OUT_MS = 240;
+let transBusy = false;
+/* actor sets per scene: [element, dir(from), delay, dist] */
+function actorsOf(id) {
+  const a = [];
+  if (id === "dashboard") {
+    a.push([dash.footer.grp, "bottom", 0, 150, "footer"]);
+    if (dash.amb.style.display !== "none") a.push([dash.amb, "bottom", 90, 360, "amb"]);
+    dash.rows.forEach((r, i) => {
+      if (r.card.style.display !== "none") a.push([r.card, "bottom", 50*i, 500, "row"+i]);
+    });
+  } else if (id === "clock") {
+    a.push([clk.footer.grp, "bottom", 0, 150, "footer"]);
+    a.push([clk.wx, "bottom", 60, 220, "wx"]);
+  } else {
+    a.push([wx.loc, "top", 0, 160, null]);
+    a.push([wx.illus, "left", 40, 260, null]);
+    a.push([wx.temp, "right", 40, 260, null]);
+    a.push([wx.cond, "right", 90, 260, null]);
+    a.push([wx.root.querySelector("svg"), "top", 120, 200, null]);
+    wx.days.forEach((d, i) => {
+      a.push([d.name, "bottom", 60+i*24, 240, null]);
+      a.push([d.icon, "bottom", 80+i*24, 240, null]);
+      a.push([d.temp, "bottom", 100+i*24, 240, null]);
+    });
+  }
+  return a.filter(x => x[0]);
+}
+function setShift(elm, dx, dy, op) {
+  elm.style.translate = `${dx}px ${dy}px`;
+  if (op !== undefined) elm.style.opacity = op;
+}
+function animActors(actors, dirIn, held, done) {
+  /* dirIn=true: spring in; false: ease out */
+  const t0 = performance.now();
+  const maxDelay = Math.max(...actors.map(a => a[2]), 0);
+  const dur = dirIn ? IN_MS : OUT_MS;
+  function frame() {
+    const el = performance.now() - t0;
+    let allDone = true;
+    for (const [obj, dir, delay, dist, key] of actors) {
+      if (held.has(key)) { setShift(obj, 0, 0, 1); continue; }
+      /* LIFO out: reverse delays */
+      const d0 = dirIn ? delay : (maxDelay - delay) * 0.4;
+      let t = (el - d0) / dur;
+      if (t < 1) allDone = false;
+      t = Math.max(0, Math.min(1, t));
+      const k = dirIn ? 1 - springDisp(t) : easeInApple(t);
+      const dx = dir === "left" ? -dist*k : dir === "right" ? dist*k : 0;
+      const dy = dir === "top" ? -dist*k : dir === "bottom" ? dist*k : 0;
+      setShift(obj, dx, dy);
+    }
+    if (!allDone) requestAnimationFrame(frame); else done && done();
+  }
+  if (reduced) { actors.forEach(a => setShift(a[0], 0, 0)); done && done(); return; }
+  frame();
+}
+function heldKeys(from, to) {
+  /* shared-element layer: footer holds between dashboard↔clock */
+  const s = new Set();
+  if ((from === "dashboard" && to === "clock") || (from === "clock" && to === "dashboard"))
+    s.add("footer");
+  return s;
+}
+function switchScene(to) {
+  if (transBusy || to === model.scene) return;
+  transBusy = true;
+  const from = model.scene;
+  const held = heldKeys(from, to);
+  decos[from].outro();
+  const outActors = actorsOf(from);
+  /* time anchor morph starts with the switch */
+  morphTime(TIME_POSE[to], to === "weather" ? RUNGS_WX : RUNGS_BIG);
+  animActors(outActors, false, held, () => {
+    scn[from].style.display = "none";
+    outActors.forEach(a => setShift(a[0], 0, 0));
+    model.scene = to;
+    navSet(["dashboard","clock","weather"].indexOf(to));
+    renderAll();
+    scn[to].style.display = "block";
+    const inActors = actorsOf(to);
+    inActors.forEach(([obj, dir,, dist, key]) => {
+      if (held.has(key)) return;
+      setShift(obj, dir==="left"?-dist:dir==="right"?dist:0, dir==="top"?-dist:dir==="bottom"?dist:0);
+    });
+    decos[to].intro(IN_MS);
+    animActors(inActors, true, held, () => { transBusy = false; });
+  });
+}
+/* time anchor morph: position glides (spring), size steps through rungs */
+let timeMorph = null;
+function morphTime(to, rungs) {
+  const from = { ...timeCur };
+  if (reduced) { timeCur = { ...to }; return; }
+  const t0 = performance.now();
+  timeMorph = () => {
+    const t = Math.min(1, (performance.now() - t0) / (IN_MS + OUT_MS));
+    const k = springDisp(t);
+    const px = from.px + (to.px - from.px) * k;
+    /* step through font rungs — one native rasterisation per rung */
+    let best = rungs[0];
+    for (const r of rungs.concat(from.px, to.px)) if (Math.abs(r - px) < Math.abs(best - px)) best = r;
+    timeCur = {
+      x: from.x + (to.x - from.x) * k,
+      y: from.y + (to.y - from.y) * k,
+      px: t >= 1 ? to.px : best,
+      anchor: t > 0.5 ? to.anchor : from.anchor,
+    };
+    if (t >= 1) { timeCur = { ...to }; timeMorph = null; }
+  };
+}
+
+/* ── clock push card (scene_clock push pose) ───────────────────────── */
+let pushTimer = null;
+function pushCard(kind) {
+  if (model.scene !== "clock" || model.pushPose) return;
+  model.pushPose = true;
+  clk.wx.style.transition = reduced ? "none" : "opacity 300ms";
+  clk.wx.style.opacity = 0;              /* the wx line belongs to the face pose */
+  clk.cardHead.textContent = kind === "start" ? "开始运行" : "运行结束";
+  clk.orbit.style.display = kind === "start" ? "block" : "none";
+  clk.check.style.display = kind === "start" ? "none" : "block";
+  feedDeco();
+  /* face retreats to top slot through rungs (440ms) */
+  morphTime({ x:240, y:92, px:48, anchor:"center" }, RUNGS_BIG);
+  /* card enters 120ms later: fade + rise 24px over 360ms */
+  setTimeout(() => {
+    clk.card.style.transition = reduced ? "none" : "opacity 360ms ease-out, translate 360ms cubic-bezier(0.22,1,0.36,1)";
+    clk.card.style.opacity = 1; clk.card.style.translate = "0 0";
+  }, reduced ? 0 : 120);
+  clk.card.style.translate = "0 24px";
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(() => {
+    clk.card.style.opacity = 0; clk.card.style.translate = "0 24px";
+    clk.wx.style.opacity = 1;
+    model.pushPose = false;
+    feedDeco();
+    morphTime(TIME_POSE.clock, RUNGS_BIG);
+  }, 3000);
+}
+
+/* ── breathing dot (14↔28, 2s ping-pong, apple ease) ──────────────── */
+let breathT0 = performance.now();
+function stepBreath(now) {
+  const cyc = ((now - breathT0) / 2000) % 2;
+  const t = cyc < 1 ? cyc : 2 - cyc;
+  const sz = 14 + (28 - 14) * easeOutApple(t);
+  dash.dot.style.width = dash.dot.style.height = sz + "px";
+}
+
+/* ── orbit dot (push card, 1200ms/rev) ─────────────────────────────── */
+function stepOrbit(now) {
+  if (!model.pushPose) return;
+  const a = (now % 1200) / 1200 * Math.PI * 2;
+  clk.orbit.style.left = (38 + Math.cos(a) * 30 - 7) + "px";
+  clk.orbit.style.top = (38 + Math.sin(a) * 30 - 7) + "px";
+  clk.orbit.style.margin = "0";
+}
+
+/* ── main loops ────────────────────────────────────────────────────── */
+function renderAll() {
+  renderDashboard();
+  renderFooter(dash.footer, true);
+  renderFooter(clk.footer, true);
+  feedDeco();
+}
+let lastLive = 0, lastAnimStep = 0;
+let colonPhase = true, lastBlink = 0;
+function raf(now) {
+  /* deco: 66ms cadence during in/out/morph, 200ms live beat */
+  const d = decos[model.scene];
+  if (d.phase === "in" || d.phase === "out") {
+    if (now - lastAnimStep >= TICK_ANIM) { lastAnimStep = now; d.step(now); }
+  } else if (now - lastLive >= TICK_LIVE) {
+    lastLive = now; d.step(now);
+  }
+  if (decoOn && scn[model.scene].style.display !== "none") d.draw(255);
+  else decoCtx.clearRect(0, 0, W, W);
+
+  glow.on = glowOn;
+  glow.draw(now);
+
+  /* clock colon blink (1000ms) on the big face only */
+  if (now - lastBlink >= 1000) { lastBlink = now; colonPhase = !colonPhase; }
+  const blinkOff = model.scene === "clock" && !model.pushPose && !colonPhase && !transBusy;
+  if (timeMorph) timeMorph();
+  timeApply(timeCur, blinkOff);
+
+  if (ambAnim) ambAnim();
+  stepBreath(now);
+  stepOrbit(now);
+  requestAnimationFrame(raf);
+}
+
+/* meta refresh for waiting durations (fleet) */
+setInterval(() => { if (model.scene === "dashboard") renderDashboard(); }, 1000);
+
+/* ── controls ──────────────────────────────────────────────────────── */
+function pressKey(target) {
+  if (target === model.scene) {
+    glow.ping();                       /* prism ping — scene_flash successor */
+    decos[model.scene].pulse = 2;      /* deco relock */
+  } else switchScene(target);
+}
+document.getElementById("k-boot").onclick = () => pressKey("dashboard");
+document.getElementById("k-pwr").onclick = () => pressKey("clock");
+document.getElementById("k-user").onclick = () => pressKey("weather");
+addEventListener("keydown", e => {
+  if (e.key === "1") pressKey("dashboard");
+  if (e.key === "2") pressKey("clock");
+  if (e.key === "3") pressKey("weather");
+});
+
+function setState(name) {
+  const hadAwait = model.agents.some(a => a.awaiting);
+  stateName = name;
+  model.agents = STATES[name].map(a => ({ ...a }));
+  waitSince = performance.now();
+  const hasAwait = model.agents.some(a => a.awaiting);
+  if (hasAwait && !hadAwait) {
+    model.greetIdx = (model.greetIdx + 1 + Math.floor(Math.random()*6)) % 8;
+    /* the v6.0 pull: rising edge drags the display to the dashboard */
+    if (model.scene !== "dashboard") switchScene("dashboard");
+    decos.dashboard.alert = ALERT_MS;          /* lock-on sweep */
+    decos[model.scene].pulse = 2;
+  }
+  renderAll();
+  document.querySelectorAll("#staterow button").forEach(b =>
+    b.classList.toggle("on", b.dataset.state === name));
+}
+document.querySelectorAll("#staterow button").forEach(b =>
+  b.onclick = () => setState(b.dataset.state));
+
+document.querySelectorAll("#linkrow button").forEach(b =>
+  b.onclick = () => {
+    model.link = b.dataset.link;
+    glow.setSustain(model.link === "waiting" ? { color: COL.amber, opa: 96 }
+                  : model.link === "lost" ? { color: COL.red, opa: 96 } : null);
+    document.querySelectorAll("#linkrow button").forEach(x =>
+      x.classList.toggle("on", x === b));
+  });
+
+function pushWhenReady(kind) {
+  if (model.scene !== "clock") switchScene("clock");
+  const wait = () => {
+    if (model.scene === "clock" && !transBusy) pushCard(kind);
+    else setTimeout(wait, 120);
+  };
+  wait();
+}
+document.getElementById("b-push-start").onclick = () => pushWhenReady("start");
+document.getElementById("b-push-end").onclick = () => pushWhenReady("end");
+document.getElementById("t-deco").onclick = e => { decoOn = !decoOn; e.target.classList.toggle("on", decoOn); };
+document.getElementById("t-glow").onclick = e => { glowOn = !glowOn; e.target.classList.toggle("on", glowOn); };
+document.getElementById("b-alert").onclick = () => { decos[model.scene].alert = ALERT_MS; };
+
+/* auto tour */
+let tour = null;
+const TOUR = [
+  ["state","idle",2600],["state","thinking",3400],["state","turn",4200],
+  ["key","clock",3600],["push","start",4600],["key","weather",4200],
+  ["state","fleet3",3000],["state","fleet4",4200],["key","clock",3000],
+  ["key","dashboard",2800],["state","approve",4200],["state","idle",2000],
+];
+function runTour(i) {
+  if (!tour) return;
+  const [kind, arg, hold] = TOUR[i % TOUR.length];
+  if (kind === "state") setState(arg);
+  else if (kind === "key") pressKey(arg);
+  else if (kind === "push") pushCard(arg);
+  tour = setTimeout(() => runTour(i + 1), hold);
+}
+document.getElementById("b-tour").onclick = e => {
+  if (tour) { clearTimeout(tour); tour = null; e.target.classList.remove("on"); return; }
+  e.target.classList.add("on"); tour = setTimeout(() => runTour(0), 10);
+};
+
+/* ── boot ──────────────────────────────────────────────────────────── */
+stage.appendChild(navWrap);
+navSet(0);
+scn.dashboard.style.display = "block";
+setState("thinking");
+document.querySelector('#linkrow button[data-link="ok"]').classList.add("on");
+timeApply(timeCur, false);
+decos.dashboard.intro(reduced ? 0 : 300);
+fit();
+requestAnimationFrame(raf);
+</script>
+</body>
+</html>
